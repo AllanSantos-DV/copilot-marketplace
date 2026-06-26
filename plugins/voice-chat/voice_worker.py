@@ -239,6 +239,8 @@ TTS_MODEL = (os.environ.get("VOICE_TTS_MODEL", "vits-piper-pt_BR-miro-high").str
              or "vits-piper-pt_BR-miro-high")
 TTS_GH_BASE = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models"
 
+MIC_SILENCE_PEAK = 0.05
+
 WAKE_PHRASES = [p.strip() for p in
                 os.environ.get("VOICE_WAKE_PHRASES", "escuta jarvis").split("|")
                 if p.strip()] or ["escuta jarvis"]
@@ -655,6 +657,7 @@ class Recorder:
         self._lock = threading.Lock()
         self._last_rms = 0.0
         self._last_peak = 0.0
+        self._max_peak = 0.0
         self._recording = False
         self._meter_thread = None
         self._decode_fn = None       
@@ -678,6 +681,8 @@ class Recorder:
             self._frames.append(block)
         self._last_rms = float(np.sqrt(np.mean(block ** 2)) if block.size else 0.0)
         self._last_peak = float(np.max(np.abs(block)) if block.size else 0.0)
+        if self._last_peak > self._max_peak:
+            self._max_peak = self._last_peak
 
     def _meter_loop(self):
         while self._recording:
@@ -761,6 +766,7 @@ class Recorder:
         self._partials = []
         self._dur_samples = 0
         self._proc_ms = 0
+        self._max_peak = 0.0
         self._recording = True
         if not quiet:
             self._meter_thread = threading.Thread(target=self._meter_loop, daemon=True)
@@ -807,6 +813,7 @@ class Recorder:
         res = {"text": text,
                "dur_ms": int(1000 * self._dur_samples / SAMPLE_RATE),
                "ms": self._proc_ms,
+               "peak": round(self._max_peak, 5),
                "chunks": len(self._partials)}
         self._reset()
         return res
@@ -1414,6 +1421,32 @@ def segment_audio(samples, sr, max_s=WHISPER_MAX_S):
     return [s for s in segs if s.size > 0]
 
 
+def detect_mic():
+    """(ok, name, reason) do dispositivo de entrada padrão. ok=False quando não há
+    microfone utilizável — a UI então bloqueia a gravação e mostra a causa."""
+    try:
+        import sounddevice as sd
+        d = sd.query_devices(kind="input")
+        if not d or int(d.get("max_input_channels", 0)) < 1:
+            return False, "", "Nenhum microfone de entrada disponível."
+        return True, str(d.get("name", "") or ""), ""
+    except Exception as exc:
+        return False, "", f"Microfone indisponível: {exc}"
+
+
+def mic_monitor():
+    """Vigia o microfone e emite 'mic' só quando o estado muda (conectar/desconectar),
+    para a UI refletir hardware em tempo real sem custo."""
+    last = None
+    while True:
+        ok, name, reason = detect_mic()
+        cur = (ok, name)
+        if cur != last:
+            emit({"event": "mic", "ok": ok, "name": name, "reason": reason})
+            last = cur
+        time.sleep(3.0)
+
+
 def main():
     state = {"language": (os.environ.get("VOICE_LANG", "pt").strip() or "pt"),
              "model": MODEL}
@@ -1430,6 +1463,9 @@ def main():
     emit({"event": "ready", "model": state["model"],
           "language": state["language"], "device": EFFECTIVE_PROVIDER})
     emit({"event": "gpu_status", **gpu_status()})
+    _mok, _mname, _mreason = detect_mic()
+    emit({"event": "mic", "ok": _mok, "name": _mname, "reason": _mreason})
+    threading.Thread(target=mic_monitor, daemon=True).start()
     log(f"ready (model={state['model']}, language={state['language']}, device={EFFECTIVE_PROVIDER})")
 
     rec_lock = threading.Lock()
@@ -1467,7 +1503,14 @@ def main():
             elif cmd == "stop":
                 emit({"event": "status", "state": "transcribing"})
                 res = hub.stop_record()
-                if not res["text"] and res["dur_ms"] < 200:
+                peak = res.get("peak", 0.0)
+                if peak < MIC_SILENCE_PEAK:
+                    mok, mname, mreason = detect_mic()
+                    if not mok:
+                        emit({"event": "mic", "ok": False, "name": mname, "reason": mreason})
+                    emit({"event": "transcript", "text": "", "ms": 0,
+                          "note": "no_audio", "peak": peak, "micOk": mok})
+                elif not res["text"] and res["dur_ms"] < 200:
                     emit({"event": "transcript", "text": "", "ms": 0,
                           "note": "too_short"})
                 else:

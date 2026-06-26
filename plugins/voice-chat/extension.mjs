@@ -35,6 +35,7 @@ try {
 const MODELS_DIR = join(ARTIFACTS, "models");
 const TTS_DIR = join(ARTIFACTS, "tts");
 const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
+const PENDING_REPLIES_FILE = join(ARTIFACTS, "pending-replies.json");
 const IFRAME_FILE = join(EXT_DIR, "iframe.html");
 const WORKER_FILE = join(EXT_DIR, "voice_worker.py");
 const TTS_SCRIPT = join(EXT_DIR, "tts.ps1");
@@ -42,7 +43,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.1.5";
+const CURRENT_VERSION = "1.1.7";
 const UPDATE_RAW_BASE = (process.env.VOICE_UPDATE_BASE || "https://github.com/AllanSantos-DV/copilot-voice/releases/latest/download/").replace(/\/?$/, "/");
 const RUNNING_AS_PLUGIN = /[\\/]installed-plugins[\\/]/.test(EXT_DIR);
 const UPDATE_DISABLED = process.env.VOICE_UPDATE_DISABLED === "1" || RUNNING_AS_PLUGIN;
@@ -105,6 +106,7 @@ const DEFAULT_SETTINGS = {
     cueCheckpoints: true,
     wakeWord: false,
     wakePhrase: "escuta jarvis",
+    handsfree: false,
 };
 let settings = { ...DEFAULT_SETTINGS };
 
@@ -259,6 +261,7 @@ function sanitizeSettings(b) {
     if (typeof b.wakeWord === "boolean") out.wakeWord = b.wakeWord;
     if (typeof b.wakePhrase === "string" && b.wakePhrase.trim())
         out.wakePhrase = b.wakePhrase.trim().slice(0, 60);
+    if (typeof b.handsfree === "boolean") out.handsfree = b.handsfree;
     return out;
 }
 
@@ -786,9 +789,11 @@ async function speakToCanvas(sid, spoken, full, cue) {
         const wav = await synthesize(spoken);
         const msg = { type: "reply", spoken, full, audio: "/tts/" + wav };
         if (canPlayInSession(sid)) {
+            clearPendingReply(sid);
             broadcastTo(sid, msg);
         } else {
             pendingReplyAudio.set(sid, msg);
+            writePendingReply(sid, { spoken, full, wav, ts: Date.now() });
             dbg(`held reply audio for sid=${sid} (active=${activeSid})`);
         }
     } catch (e) {
@@ -977,6 +982,29 @@ function runTts(txtFile, wavFile) {
     });
 }
 
+function readPendingMap() {
+    try { return JSON.parse(readFileSync(PENDING_REPLIES_FILE, "utf8")) || {}; } catch { return {}; }
+}
+function writePendingMap(map) {
+    try { writeFileSync(PENDING_REPLIES_FILE, JSON.stringify(map)); } catch {  }
+}
+function writePendingReply(sid, obj) {
+    if (!sid) return;
+    const map = readPendingMap();
+    map[String(sid)] = obj;
+    writePendingMap(map);
+}
+function readPendingReply(sid) {
+    if (!sid) return null;
+    const map = readPendingMap();
+    return map[String(sid)] || null;
+}
+function clearPendingReply(sid) {
+    if (!sid) return;
+    const map = readPendingMap();
+    if (map[String(sid)]) { delete map[String(sid)]; writePendingMap(map); }
+}
+
 async function cleanupOldWavs() {
     try {
         const files = (await readdir(TTS_DIR)).filter((f) => f.endsWith(".wav"));
@@ -1097,6 +1125,10 @@ async function handleRequest(req, res) {
         if (sid) activeSid = sid; 
         const _us = readUpdateState();
         const pendingUpdate = _us.pendingVersion && verGt(_us.pendingVersion, CURRENT_VERSION) ? _us.pendingVersion : null;
+        const _pr = readPendingReply(sid);
+        const pendingReply = (_pr && _pr.wav && existsSync(join(TTS_DIR, _pr.wav)))
+            ? { spoken: _pr.spoken, full: _pr.full, audio: "/tts/" + _pr.wav }
+            : null;
         res.write(
             `data: ${JSON.stringify({
                 type: "hello",
@@ -1105,6 +1137,7 @@ async function handleRequest(req, res) {
                 pendingUpdate,
                 version: CURRENT_VERSION,
                 pluginManaged: RUNNING_AS_PLUGIN,
+                pendingReply,
             })}\n\n`,
         );
         if (!workerReady) {
@@ -1233,6 +1266,12 @@ async function handleRequest(req, res) {
         return sendJson(res, { ok: true, settings });
     }
 
+    if (req.method === "POST" && path === "/reply-played") {
+        const body = await readBody(req);
+        clearPendingReply(body && body.sid ? body.sid : activeSid);
+        return sendJson(res, { ok: true });
+    }
+
     if (req.method === "POST" && path === "/check-update") {
         const r = await checkForUpdate({ force: true });
         const ok = r.status !== "error" && r.status !== "disabled";
@@ -1249,6 +1288,12 @@ async function handleRequest(req, res) {
         ensureWorker();
         const sent = workerSend({ cmd: "gpu_setup" });
         return sendJson(res, { ok: sent });
+    }
+
+    if (req.method === "POST" && path === "/restart-worker") {
+        broadcast({ type: "worker", state: "loading", msg: "Reiniciando motor de voz…" });
+        restartWorker();
+        return sendJson(res, { ok: true });
     }
 
     if (req.method === "GET" && path.startsWith("/tts/")) {
