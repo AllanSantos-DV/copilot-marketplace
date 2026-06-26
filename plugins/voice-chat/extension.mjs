@@ -5,15 +5,33 @@ import tls from "node:tls";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import { dirname, join, basename } from "node:path";
+import { dirname, join, basename, sep } from "node:path";
 import { readFile, writeFile, mkdir, readdir, stat, unlink } from "node:fs/promises";
 import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, appendFileSync, statSync, renameSync, copyFileSync } from "node:fs";
-import { setPriority, constants as osConstants } from "node:os";
+import { setPriority, constants as osConstants, homedir } from "node:os";
 import { randomBytes, createHash } from "node:crypto";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
 
 const EXT_DIR = dirname(fileURLToPath(import.meta.url));
-const ARTIFACTS = join(EXT_DIR, "artifacts");
+const LEGACY_ARTIFACTS = join(EXT_DIR, "artifacts");
+
+function resolveDataDir() {
+    if (process.env.VOICE_DATA_DIR) return process.env.VOICE_DATA_DIR;
+    const marker = sep + ".copilot" + sep;
+    const i = EXT_DIR.indexOf(marker);
+    const home = i >= 0 ? EXT_DIR.slice(0, i + marker.length - 1) : join(homedir(), ".copilot");
+    return join(home, "voice-chat-data");
+}
+
+let ARTIFACTS = resolveDataDir();
+try {
+    if (ARTIFACTS !== LEGACY_ARTIFACTS && existsSync(LEGACY_ARTIFACTS) && !existsSync(ARTIFACTS)) {
+        mkdirSync(dirname(ARTIFACTS), { recursive: true });
+        renameSync(LEGACY_ARTIFACTS, ARTIFACTS);
+    }
+} catch {
+    ARTIFACTS = LEGACY_ARTIFACTS;
+}
 const MODELS_DIR = join(ARTIFACTS, "models");
 const TTS_DIR = join(ARTIFACTS, "tts");
 const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
@@ -24,7 +42,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.1.4";
+const CURRENT_VERSION = "1.1.5";
 const UPDATE_RAW_BASE = (process.env.VOICE_UPDATE_BASE || "https://github.com/AllanSantos-DV/copilot-voice/releases/latest/download/").replace(/\/?$/, "/");
 const RUNNING_AS_PLUGIN = /[\\/]installed-plugins[\\/]/.test(EXT_DIR);
 const UPDATE_DISABLED = process.env.VOICE_UPDATE_DISABLED === "1" || RUNNING_AS_PLUGIN;
