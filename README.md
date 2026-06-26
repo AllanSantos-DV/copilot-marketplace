@@ -28,7 +28,7 @@ copilot plugin update --all
 
 | Plugin | Descrição | Versão |
 | ------ | --------- | ------ |
-| [`voice-chat`](./plugins/voice-chat) | Converse por voz com o Copilot: fale e ouça um resumo falado da resposta (Whisper local para transcrição + voz local pt-BR). | 1.1.4 |
+| [`voice-chat`](./plugins/voice-chat) | Converse por voz com o Copilot: fale e ouça um resumo falado da resposta (Whisper local para transcrição + voz local pt-BR). | 1.1.5 |
 
 ## Manutenção
 

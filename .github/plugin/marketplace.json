@@ -11,7 +11,7 @@
     {
       "name": "voice-chat",
       "description": "Converse por voz com o Copilot: fale e ouça um resumo falado da resposta (Whisper local para transcrição + voz local pt-BR).",
-      "version": "1.1.4",
+      "version": "1.1.5",
       "source": "./plugins/voice-chat",
       "author": {
         "name": "Allan Santos"
