@@ -101,6 +101,7 @@
   .mic-btn:active { transform: scale(.96); }
   .mic-btn.recording { background: var(--true-color-red, #da3633); }
   .mic-btn:disabled { background: var(--text-color-muted, #6e7681); cursor: not-allowed; box-shadow: none; }
+  .mic-btn.nomic { box-shadow: 0 0 0 2px var(--true-color-red, #da3633) inset; }
   .mic-btn svg { width: 42px; height: 42px; }
   .hint { color: var(--text-color-muted, #8b949e); font-size: 12px; text-align: center; min-height: 16px; }
   kbd {
@@ -355,6 +356,10 @@
       <div><label>Atualizações</label><div class="sub" id="updateSub">Versão atual: …</div></div>
       <button id="updateBtn" type="button" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border-color-default,#444c56);background:var(--background-color-default,#22272e);color:var(--text-color-default,#e6edf3);font-size:13px;cursor:pointer">Verificar atualizações</button>
     </div>
+    <div class="row" id="engineRow">
+      <div><label>Motor de voz</label><div class="sub" id="engineSub">Reinicie se o áudio travar ou a conexão cair.</div></div>
+      <button id="restartBtn" type="button" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border-color-default,#444c56);background:var(--background-color-default,#22272e);color:var(--text-color-default,#e6edf3);font-size:13px;cursor:pointer">Reiniciar motor</button>
+    </div>
   </div>
 </main>
 
@@ -378,6 +383,7 @@ let wakeState = "off";
 
 let workerReady = false;
 let recording = false;
+let micOk = true;
 let handsfree = false;
 let phase = "init"; 
 
@@ -395,7 +401,8 @@ function reflectPhase() {
   else if (phase === "ready") setPill("Pronto", "ready");
   else setPill("Iniciando…", "");
   replyCard.classList.toggle("speaking", phase === "speaking");
-  mic.disabled = !workerReady || phase === "transcribing";
+  if (!micOk && (phase === "ready" || phase === "init")) setPill("Sem microfone", "error");
+  mic.disabled = !workerReady || !micOk || phase === "transcribing";
   cancelRecBtn.style.display = phase === "recording" ? "block" : "none";
 }
 function showBanner(msg) { banner.textContent = msg; banner.classList.add("show"); }
@@ -536,7 +543,15 @@ window.addEventListener("keydown", (e) => {
 
 let audioQueue = [];      
 let playingKind = null;
-function enqueueAudio(url, kind) { audioQueue.push({ url, kind }); pumpAudio(); }
+let lastReplyUrl = null;
+function enqueueAudio(url, kind) {
+  if (kind === "reply") {
+    if (url && url === lastReplyUrl) return;
+    lastReplyUrl = url;
+  }
+  audioQueue.push({ url, kind });
+  pumpAudio();
+}
 function pumpAudio() {
   if (playingKind) return;
   const next = audioQueue.shift();
@@ -551,7 +566,9 @@ function playNow(item) {
     phase = "speaking"; reflectPhase();
   }
   unlockAudio();
-  audio.play().catch(() => {
+  audio.play().then(() => {
+    if (item.kind === "reply") post("/reply-played");
+  }).catch(() => {
     const wasReply = item.kind === "reply";
     playingKind = null;
     if (wasReply) { phase = "ready"; reflectPhase(); hint.textContent = "Toque em ▶ Repetir para ouvir a resposta."; }
@@ -559,6 +576,19 @@ function playNow(item) {
   });
 }
 function clearAudioQueue() { audioQueue.length = 0; playingKind = null; }
+function showPendingReply(p) {
+  if (!p) return;
+  replyText.textContent = p.spoken || "(sem texto)";
+  replyText.classList.toggle("empty", !p.spoken);
+  if (p.full && p.full !== p.spoken) { fullText.textContent = p.full; fullWrap.style.display = "block"; }
+  else { fullWrap.style.display = "none"; }
+  if (p.audio) {
+    currentAudioUrl = p.audio;
+    replayBtn.disabled = false; pauseBtn.disabled = false; setPauseBtn(true);
+    hint.textContent = "🔊 Resposta pendente — toque ▶ Repetir para ouvir.";
+    enqueueAudio(p.audio, "reply");
+  }
+}
 function setProgress(kind, text) {
   if (!text) return;
   cueLine.textContent = (kind === "start" ? "▶ " : "📍 ") + text;
@@ -765,8 +795,10 @@ function pushSettings() {
     cueCheckpoints: $("setCueCheckpoints").checked,
     wakeWord: $("setWake").checked,
     wakePhrase: ($("setWakePhrase").value || "").trim() || "escuta jarvis",
+    handsfree: $("setHandsfree").checked,
   };
   handsfree = $("setHandsfree").checked;
+  try { localStorage.setItem("voiceHandsfree", handsfree ? "1" : "0"); } catch (e) {}
   if (s.wakeWord && wakeState === "off") wakeState = "listening";
   else if (!s.wakeWord) wakeState = "off";
   hint.textContent = defaultHint();
@@ -786,6 +818,18 @@ function pushSettings() {
   sl.addEventListener("change", () => { try { localStorage.setItem("voiceGain2", String(currentGain)); } catch (e) {} });
 })();
 
+(function initHandsfree() {
+  try {
+    const v = localStorage.getItem("voiceHandsfree");
+    if (v === "1" || v === "0") {
+      const on = v === "1";
+      $("setHandsfree").checked = on;
+      handsfree = on;
+      reflectToggles();
+    }
+  } catch (e) {}
+})();
+
 function applySettings(s) {
   if (!s) return;
   if (s.ttsVoice) $("setVoice").value = s.ttsVoice;
@@ -799,6 +843,7 @@ function applySettings(s) {
   $("setCueStart").checked = s.cueStart !== false;
   $("setCueCheckpoints").checked = s.cueCheckpoints !== false;
   $("setWake").checked = !!s.wakeWord;
+  if (typeof s.handsfree === "boolean") { $("setHandsfree").checked = s.handsfree; handsfree = s.handsfree; }
   if (s.wakePhrase) $("setWakePhrase").value = s.wakePhrase;
   updateWakeBadge();
   reflectToggles();
@@ -833,14 +878,21 @@ confirmText.addEventListener("keydown", (e) => {
   else if (e.key === "Escape") { e.preventDefault(); cancelConfirmed(); }
 });
 
+let sseDown = false, sseFails = 0;
+function sseBackUp() { if (sseDown) { sseDown = false; sseFails = 0; hideBanner(); reflectPhase(); } }
 function connect() {
   const es = new EventSource(base + "/events?sid=" + encodeURIComponent(SID) + (TOK ? "&t=" + encodeURIComponent(TOK) : ""));
   es.onmessage = (ev) => {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
+    sseBackUp();
     handle(m);
   };
-  es.onopen = () => reportFocus();
-  es.onerror = () => {  };
+  es.onopen = () => { sseBackUp(); reportFocus(); };
+  es.onerror = () => {
+    sseFails++;
+    if (!sseDown) { sseDown = true; setPill("Reconectando…", "busy"); }
+    if (sseFails === 4) showBanner("Conexão com o motor de voz caiu. Tentando reconectar… Se não voltar, toque em Reiniciar motor nas configurações ou feche e reabra o painel.");
+  };
 }
 let _lastFocusPost = 0;
 function reportFocus() {
@@ -850,6 +902,12 @@ function reportFocus() {
   _lastFocusPost = now;
   post("/focus");                            
 }
+$("restartBtn").addEventListener("click", async () => {
+  $("restartBtn").disabled = true;
+  showBanner("Reiniciando o motor de voz…");
+  await post("/restart-worker");
+  setTimeout(() => { $("restartBtn").disabled = false; }, 4000);
+});
 document.addEventListener("visibilitychange", reportFocus);
 window.addEventListener("focus", reportFocus);
 window.addEventListener("pointerdown", reportFocus, true);  
@@ -881,6 +939,7 @@ function handle(m) {
       if (m.pendingUpdate) {
         showUpdate(m.pendingUpdate);
       }
+      if (m.pendingReply) showPendingReply(m.pendingReply);
       reflectPhase();
       break;
     case "worker":
@@ -918,6 +977,19 @@ function handle(m) {
       hideLoading();
       if (m.audio) enqueueAudio(m.audio, "preview");
       break;
+    case "mic":
+      micOk = !!m.ok;
+      if (!micOk) {
+        mic.classList.add("nomic");
+        showBanner(m.reason || "Microfone não detectado. Conecte e ative um microfone para gravar.");
+        if (phase === "ready" || phase === "init") hint.textContent = m.reason || "Microfone não detectado.";
+      } else {
+        mic.classList.remove("nomic");
+        hideBanner();
+        if ((phase === "ready" || phase === "init") && hint.textContent.indexOf("Microfone") === 0) hint.textContent = defaultHint();
+      }
+      reflectPhase();
+      break;
     case "level":
       if (recording) {
         const lvl = Math.min(1, (m.rms || 0) * 14);
@@ -937,8 +1009,13 @@ function handle(m) {
         }
       } else {
         phase = "ready"; reflectPhase();
-        hint.textContent = "Não entendi. " + defaultHint();
-        youText.textContent = "(silêncio)"; youText.classList.add("empty");
+        if (m.note === "no_audio") {
+          hint.textContent = micOk ? "Não captei sua voz. Fale mais perto do microfone." : "Microfone sem sinal. Verifique se está conectado e ativado.";
+          youText.textContent = "(sem áudio do microfone)"; youText.classList.add("empty");
+        } else {
+          hint.textContent = "Não entendi. " + defaultHint();
+          youText.textContent = "(silêncio)"; youText.classList.add("empty");
+        }
       }
       break;
     case "reply":
