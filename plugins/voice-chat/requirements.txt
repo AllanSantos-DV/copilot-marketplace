@@ -1,0 +1,9 @@
+# Python dependencies for voice_worker.py (STT/TTS worker).
+# On a clean machine the worker auto-installs anything missing at startup via
+# _ensure_deps(); this file documents the set and lets you pre-install with:
+#   python -m pip install -r requirements.txt
+numpy
+sherpa-onnx
+sounddevice
+httpx
+truststore
