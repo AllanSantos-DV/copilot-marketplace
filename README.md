@@ -33,7 +33,7 @@ copilot plugin update --all
 ## Manutenção
 
 Cada plugin é **vendado** em `plugins/<nome>/` (os arquivos de runtime já empacotados). O `voice-chat` é
-sincronizado automaticamente a partir das releases do repositório de origem
-[`AllanSantos-DV/copilot-voice`](https://github.com/AllanSantos-DV/copilot-voice) pela Action
-[`sync-voice-chat`](./.github/workflows/sync-voice-chat.yml) — não edite os arquivos em `plugins/voice-chat/`
-à mão.
+publicado a partir do repositório de origem **privado** por um passo de publish **local** (`publish.ps1`)
+que copia o runtime, sobe a versão e dá push aqui. Não há GitHub Actions nem dependência de releases
+públicas — o commit nesta vitrine **é** a publicação, e o `copilot plugin update` detecta pela versão.
+Não edite os arquivos em `plugins/voice-chat/` à mão.
