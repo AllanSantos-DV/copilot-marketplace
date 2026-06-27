@@ -7,7 +7,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { dirname, join, basename, sep } from "node:path";
 import { readFile, writeFile, mkdir, readdir, stat, unlink } from "node:fs/promises";
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, appendFileSync, statSync, renameSync, copyFileSync } from "node:fs";
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, appendFileSync, statSync, renameSync, copyFileSync, linkSync } from "node:fs";
 import { setPriority, constants as osConstants, homedir } from "node:os";
 import { randomBytes, createHash } from "node:crypto";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
@@ -43,7 +43,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.1.10";
+const CURRENT_VERSION = "1.1.11";
 const UPDATE_RAW_BASE = (process.env.VOICE_UPDATE_BASE || "https://github.com/AllanSantos-DV/copilot-voice/releases/latest/download/").replace(/\/?$/, "/");
 const RUNNING_AS_PLUGIN = /[\\/]installed-plugins[\\/]/.test(EXT_DIR);
 const UPDATE_DISABLED = process.env.VOICE_UPDATE_DISABLED === "1" || RUNNING_AS_PLUGIN;
@@ -66,6 +66,7 @@ const DEAD_PRIMARY_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "
 let reclaiming = false;
 let lastReclaimAttempt = 0;
 let promotedServer = null;
+let primaryServerEntry = null;
 
 const forks = new Map(); 
 let activeSid = null; 
@@ -73,6 +74,7 @@ let lastTtsPreviewSid = null;
 let turnOwnerSid = null; 
 let recordingActiveSid = null; 
 let recordingActiveTimer = null; 
+let monitorSid = null; 
 const pendingReplyAudio = new Map(); 
 let myBaseUrl = null; 
 let registered = false; 
@@ -629,13 +631,16 @@ function onWorkerEvent(ev) {
         case "recording":
             broadcastTo(turnOwnerSid || activeSid, { type: "recording", state: ev.state });
             break;
+        case "monitor_level":
+            if (monitorSid) broadcastTo(monitorSid, { type: "monitorLevel", rms: ev.rms, peak: ev.peak });
+            break;
         case "transcript": {
             const t = (ev.text || "").trim();
             const confirm = settings.confirmTranscript === true && !!t;
             const owner = turnOwnerSid || activeSid;
             turnOwnerSid = null;
             clearRecordingActive();
-            broadcastTo(owner, { type: "transcript", text: ev.text || "", confirm });
+            broadcastTo(owner, { type: "transcript", text: ev.text || "", confirm, note: ev.note, peak: ev.peak, micOk: ev.micOk });
             if (t && !confirm) dispatchVoiceTurn(t, owner);
             break;
         }
@@ -1195,6 +1200,41 @@ function clearRecordingActive() {
     if (recordingActiveTimer) { clearTimeout(recordingActiveTimer); recordingActiveTimer = null; }
 }
 
+function hasVisibleVoiceClients(exceptSid = "") {
+    for (const sid of sseClients.values()) {
+        if (!exceptSid || sid !== exceptSid) return true;
+    }
+    return false;
+}
+
+function startMonitor(sid) {
+    if (!primaryFork || !sid) return;
+    monitorSid = sid;
+    ensureWorker();
+    try { workerSend({ cmd: "monitor", on: true }); } catch { }
+}
+
+function stopMonitor(sid) {
+    if (!primaryFork) return;
+    if (sid && monitorSid !== sid) return;
+    monitorSid = null;
+    try { workerSend({ cmd: "monitor", on: false }); } catch { }
+}
+
+function quiesceClosedPanelCapture(sid, opts = {}) {
+    if (!primaryFork) return;
+    const cancelRecording = opts.cancelRecording !== false;
+    if (cancelRecording && recordingActiveSid && (!sid || recordingActiveSid === sid)) {
+        try { workerSend({ cmd: "cancel" }); } catch { }
+        clearRecordingActive();
+    }
+    if (turnOwnerSid === sid) turnOwnerSid = null;
+    if (monitorSid === sid) stopMonitor(sid);
+    if (settings.wakeWord && !hasVisibleVoiceClients(sid)) {
+        try { workerSend({ cmd: "wake", on: false }); } catch { }
+    }
+}
+
 async function handleRequest(req, res) {
     const url = new URL(req.url, "http://127.0.0.1");
     const path = url.pathname;
@@ -1237,6 +1277,9 @@ async function handleRequest(req, res) {
         res.write(": connected\n\n");
         sseClients.set(res, sid);
         if (sid && !activeSid) activeSid = sid;
+        if (primaryFork && settings.wakeWord) {
+            try { workerSend({ cmd: "wake", on: true, phrases: [settings.wakePhrase] }); } catch { }
+        }
         const _us = readUpdateState();
         const pendingUpdate = _us.pendingVersion && verGt(_us.pendingVersion, CURRENT_VERSION) ? _us.pendingVersion : null;
         const _pr = readPendingReply(sid);
@@ -1263,9 +1306,45 @@ async function handleRequest(req, res) {
                 })}\n\n`,
             );
         }
-        req.on("close", () => sseClients.delete(res));
+        req.on("close", () => {
+            sseClients.delete(res);
+            if (primaryFork && sid) {
+                const t1 = setTimeout(() => {
+                    if (!sessionHasClient(sid)) quiesceClosedPanelCapture(sid, { cancelRecording: false });
+                }, 5000);
+                if (t1.unref) t1.unref();
+                const t2 = setTimeout(() => {
+                    if (!sessionHasClient(sid) && recordingActiveSid === sid) {
+                        try { workerSend({ cmd: "cancel" }); } catch { }
+                        clearRecordingActive();
+                    }
+                }, 15000);
+                if (t2.unref) t2.unref();
+            }
+        });
         ensureWorker();
         return;
+    }
+
+    if (req.method === "POST" && path === "/quiesce") {
+        const body = await readBody(req);
+        if (body && body.sid) quiesceClosedPanelCapture(String(body.sid));
+        return sendJson(res, { ok: true });
+    }
+
+    if (req.method === "POST" && path === "/monitor/start") {
+        const body = await readBody(req);
+        const sid = body && body.sid ? String(body.sid) : "";
+        if (!sid) return sendJson(res, { ok: false, error: "missing sid" });
+        if (recordingActiveSid) return sendJson(res, { ok: false, busy: true });
+        startMonitor(sid);
+        return sendJson(res, { ok: true });
+    }
+
+    if (req.method === "POST" && path === "/monitor/stop") {
+        const body = await readBody(req);
+        stopMonitor(body && body.sid ? String(body.sid) : null);
+        return sendJson(res, { ok: true });
     }
 
     if (req.method === "POST" && path === "/rec/start") {
@@ -1493,6 +1572,21 @@ function savePort(port) {
     }
 }
 
+function claimPortFileExclusive(port) {
+    const tmp = PORT_FILE + "." + process.pid + ".tmp";
+    try {
+        writeFileSync(tmp, JSON.stringify({ port, token: sharedToken }));
+        linkSync(tmp, PORT_FILE);
+        return true;
+    } catch (e) {
+        if (e && e.code === "EEXIST") return false;
+        log("claimPortFileExclusive failed: " + e.message);
+        return false;
+    } finally {
+        try { unlinkSync(tmp); } catch { }
+    }
+}
+
 function listenOnce(server, port) {
     return new Promise((resolve, reject) => {
         const onErr = (e) => {
@@ -1548,13 +1642,23 @@ async function startServer() {
     } else {
         await listenOnce(server, 0);
         bound = server.address().port;
-        primary = !canonical;
+        if (canonical) {
+            primary = false;
+        } else {
+            sharedToken = readSavedToken() || randomBytes(16).toString("hex");
+            if (claimPortFileExclusive(bound)) {
+                primary = true;
+            } else {
+                primary = false;
+                dbg("cold-start: lost port-file race, becoming secondary");
+            }
+        }
     }
 
     if (primary) {
         primaryFork = true;
         if (!preferredPort) preferredPort = bound; 
-        sharedToken = readSavedToken() || randomBytes(16).toString("hex");
+        sharedToken = sharedToken || readSavedToken() || randomBytes(16).toString("hex");
         savePort(bound); 
     } else {
         sharedToken = readSavedToken(); 
@@ -1695,7 +1799,8 @@ const canvas = createCanvas({
         if (!(ctx && ctx.sessionId)) log("open: ctx.sessionId ausente; usando mySid() como fallback — sid do painel pode ficar errado");
         let entry = servers.get(ctx.instanceId);
         if (!entry) {
-            entry = await startServer();
+            entry = (primaryFork && primaryServerEntry) ? primaryServerEntry : await startServer();
+            if (entry.primary) primaryServerEntry = entry;
             servers.set(ctx.instanceId, entry);
         }
         if (entry.primary) {
@@ -1712,11 +1817,14 @@ const canvas = createCanvas({
         return { title: "Voz", url, status: "Pronto" };
     },
     onClose: async (ctx) => {
+        const sid = String((ctx && ctx.sessionId) || mySid());
+        if (primaryFork) quiesceClosedPanelCapture(sid);
+        else forwardToPrimary("/quiesce", { sid });
         const entry = servers.get(ctx.instanceId);
-        if (entry) {
-            servers.delete(ctx.instanceId);
-            await new Promise((r) => entry.server.close(() => r()));
-        }
+        if (!entry) return;
+        servers.delete(ctx.instanceId);
+        if (entry.primary) return;
+        await new Promise((r) => entry.server.close(() => r()));
     },
 });
 

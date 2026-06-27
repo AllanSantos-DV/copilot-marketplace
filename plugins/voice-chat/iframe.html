@@ -106,6 +106,15 @@
   .mic-meter { width: 200px; height: 7px; border-radius: 4px; background: var(--border-color-default,#30363d); overflow: hidden; }
   .mic-meter > i { display: block; height: 100%; width: 0%; background: var(--true-color-green,#3fb950); border-radius: 4px; transition: width .08s linear, background .2s ease; }
   .hint { color: var(--text-color-muted, #8b949e); font-size: 12px; text-align: center; min-height: 16px; }
+  .home-mic { display: flex; align-items: center; gap: 7px; justify-content: center; font-size: 12px; color: var(--text-color-muted,#8b949e); margin: 2px auto 0; max-width: 320px; }
+  .home-mic .hm-ic { font-size: 13px; opacity: .85; }
+  .home-mic .hm-name { color: var(--text-color-default,#e6edf3); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; }
+  .home-mic .hm-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-color-muted,#8b949e); flex: none; }
+  .home-mic.ok .hm-dot { background: var(--true-color-green,#3fb950); }
+  .home-mic.silent .hm-dot { background: var(--true-color-red,#da3633); }
+  .home-mic.unavailable .hm-dot { background: var(--true-color-red,#da3633); }
+  .home-mic .hm-state { font-size: 11px; }
+  .home-mic .hm-switch { background: none; border: none; color: var(--true-color-accent,#2f81f7); cursor: pointer; font-size: 11px; padding: 2px 4px; text-decoration: underline; }
   kbd {
     font-family: var(--font-mono, monospace); font-size: 11px;
     border: 1px solid var(--border-color-default,#30363d); border-bottom-width: 2px;
@@ -233,6 +242,13 @@
   </div>
   <div id="hint" class="hint">Segure o botão ou a barra de <kbd>espaço</kbd> para falar.</div>
   <div id="micMeter" class="mic-meter" style="display:none"><i id="micMeterBar"></i></div>
+  <div id="homeMic" class="home-mic" style="display:none">
+    <span class="hm-ic">🎙️</span>
+    <span id="homeMicName" class="hm-name">Microfone</span>
+    <span class="hm-dot" id="homeMicDot"></span>
+    <span id="homeMicState" class="hm-state"></span>
+    <button id="homeMicSwitch" class="hm-switch" type="button">trocar</button>
+  </div>
   <button id="cancelRecBtn" class="btn" style="display:none;margin:6px auto 0">Cancelar gravação</button>
   <div id="progress" class="progress"><i></i></div>
 
@@ -388,6 +404,7 @@ const cueLine = $("cueLine");
 const wakeBadge = $("wakeBadge");
 const micMeter = $("micMeter"), micMeterBar = $("micMeterBar");
 let _sigSeen = false, _noSigWarned = false, _recStart = 0, _peakMax = 0;
+let _monPeakMax = 0, _monSilentSince = 0;
 let wakeState = "off";
 
 let workerReady = false;
@@ -898,6 +915,23 @@ function micActiveLabel(cur) {
   const a = cur == null ? micList.find((x) => x.is_default) : micList.find((x) => x.index === cur);
   return a ? ("Usando: " + a.name) : "Usando o microfone padrão do sistema";
 }
+function homeMicShortName(cur) {
+  const a = cur == null ? micList.find((x) => x.is_default) : micList.find((x) => x.index === cur);
+  return a ? a.name : "Microfone padrão";
+}
+let homeMicSignal = "idle";
+function updateHomeMic() {
+  const row = $("homeMic"); if (!row) return;
+  if (!workerReady) { row.style.display = "none"; return; }
+  row.style.display = "flex";
+  $("homeMicName").textContent = homeMicShortName(micCurrent);
+  row.classList.remove("ok", "silent", "unavailable");
+  const st = $("homeMicState");
+  if (!micOk) { row.classList.add("unavailable"); st.textContent = "indisponível"; }
+  else if (homeMicSignal === "ok") { row.classList.add("ok"); st.textContent = "captando"; }
+  else if (homeMicSignal === "silent") { row.classList.add("silent"); st.textContent = "sem sinal"; }
+  else { st.textContent = recording ? "" : "pronto"; }
+}
 function populateMics(d) {
   micList = d.devices || []; micCurrent = (d.current == null ? null : d.current);
   const sel = $("setMic"); if (!sel) return;
@@ -914,7 +948,13 @@ function populateMics(d) {
   }
   sel.value = (micCurrent == null ? "" : String(micCurrent));
   const sub = $("micSub"); if (sub) sub.textContent = micActiveLabel(micCurrent);
+  updateHomeMic();
 }
+$("homeMicSwitch").addEventListener("click", () => {
+  $("settings").classList.add("open");
+  const sm = $("setMic");
+  if (sm) { sm.scrollIntoView({ block: "center", behavior: "smooth" }); setTimeout(() => { try { sm.focus(); } catch {} }, 300); }
+});
 $("setMic").addEventListener("change", () => {
   const v = $("setMic").value;
   const device = v === "" ? null : parseInt(v, 10);
@@ -954,6 +994,22 @@ $("restartBtn").addEventListener("click", async () => {
 document.addEventListener("visibilitychange", reportFocus);
 window.addEventListener("focus", reportFocus);
 window.addEventListener("pointerdown", reportFocus, true);  
+
+let _monitorOn = false;
+function setMonitor(on) {
+  if (on === _monitorOn) return;
+  if (on && (!workerReady || !micOk || recording)) return;
+  _monitorOn = on;
+  post(on ? "/monitor/start" : "/monitor/stop");
+  if (!on) { homeMicSignal = "idle"; updateHomeMic(); if (micMeterBar && !recording) micMeterBar.style.width = "0%"; }
+}
+function syncMonitor() {
+  const visible = document.visibilityState === "visible";
+  setMonitor(visible && workerReady && micOk && !recording);
+}
+document.addEventListener("visibilitychange", syncMonitor);
+window.addEventListener("focus", syncMonitor);
+window.addEventListener("blur", () => setMonitor(false));
 function showUpdate(version) {
   updateBanner.innerHTML = "";
   const row = document.createElement("div");
@@ -991,6 +1047,7 @@ function handle(m) {
         workerReady = true; hideBanner(); hideLoading();
         if (phase === "init") phase = "ready";
         hint.textContent = defaultHint();
+        requestMics();
       } else if (m.state === "voiceReady") {
         workerReady = true; hideLoading();
         if (phase === "ready" || phase === "init") hint.textContent = defaultHint();
@@ -1001,6 +1058,8 @@ function handle(m) {
         workerReady = false; hideLoading(); setPill("Erro", "error"); showBanner(m.msg || "Erro no motor de voz.");
       }
       reflectPhase();
+      updateHomeMic();
+      syncMonitor();
       break;
     case "gpu":
       renderGpu(m.status);
@@ -1036,6 +1095,8 @@ function handle(m) {
         if ((phase === "ready" || phase === "init") && hint.textContent.indexOf("Microfone") === 0) hint.textContent = defaultHint();
       }
       reflectPhase();
+      updateHomeMic();
+      syncMonitor();
       break;
     case "level":
       if (recording) {
@@ -1058,15 +1119,38 @@ function handle(m) {
         }
       }
       break;
+    case "monitorLevel":
+      if (!recording && _monitorOn) {
+        const mpeak = m.peak || 0, mrms = m.rms || 0;
+        const mamp = Math.min(1, Math.max(mpeak * 5, mrms * 18));
+        if (micMeter) micMeter.style.display = "block";
+        if (micMeterBar) {
+          micMeterBar.style.width = Math.min(100, Math.round(Math.sqrt(mamp) * 100)) + "%";
+          micMeterBar.style.background = "var(--true-color-green,#3fb950)";
+        }
+        if (mpeak >= 0.0015 || mamp >= 0.04) {
+          homeMicSignal = "ok"; _monSilentSince = 0; _monPeakMax = 0;
+        } else {
+          if (!_monSilentSince) { _monSilentSince = Date.now(); _monPeakMax = 0; }
+          _monPeakMax = Math.max(_monPeakMax, mpeak);
+          if (Date.now() - _monSilentSince > 4000 && _monPeakMax < 0.0008) homeMicSignal = "silent";
+        }
+        updateHomeMic();
+      }
+      break;
     case "recording":
       recording = m.state;
       if (m.state) {
+        _monitorOn = false;
         _sigSeen = false; _noSigWarned = false; _recStart = Date.now(); _peakMax = 0;
+        homeMicSignal = "idle"; _monPeakMax = 0; _monSilentSince = 0;
         if (micMeter) micMeter.style.display = "block";
         if (micMeterBar) { micMeterBar.style.width = "0%"; micMeterBar.style.background = "var(--true-color-green,#3fb950)"; }
+        updateHomeMic();
       } else {
         ring.style.setProperty("--level", 0);
         if (micMeter) micMeter.style.display = "none";
+        setTimeout(syncMonitor, 300);
       }
       break;
     case "transcript":
@@ -1113,7 +1197,12 @@ function handle(m) {
       showUpdate(m.version);
       break;
     case "busy":
-      showBanner(m.msg || "Microfone em uso por outra sessão."); break;
+      recording = false;
+      mic.classList.remove("recording");
+      if (phase === "recording") { phase = "ready"; reflectPhase(); }
+      showBanner(m.msg || "Microfone em uso por outra sessão.");
+      hint.textContent = m.msg || "Microfone em uso por outra sessão.";
+      break;
     case "error":
       showBanner(m.msg || "Erro."); break;
   }
