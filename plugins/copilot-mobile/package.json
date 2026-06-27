@@ -1,0 +1,29 @@
+{
+  "name": "copilot-mobile",
+  "version": "0.1.4",
+  "description": "Controle o agente local do GitHub Copilot App pelo celular, com transporte selecionável (off/lan/tailscale/public) e o gate na máquina.",
+  "type": "module",
+  "main": "extension.mjs",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.2.0"
+  },
+  "copilot": {
+    "extension": {
+      "type": "canvas",
+      "id": "copilot-mobile",
+      "displayName": "Mobile",
+      "entry": "extension.mjs"
+    }
+  },
+  "peerDependencies": {
+    "@github/copilot-sdk": "*"
+  },
+  "files": [
+    "extension.mjs",
+    "access.mjs",
+    "desktop.html",
+    "qrcode.min.js"
+  ]
+}
