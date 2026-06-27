@@ -1112,6 +1112,8 @@ function handle(m) {
     case "update":
       showUpdate(m.version);
       break;
+    case "busy":
+      showBanner(m.msg || "Microfone em uso por outra sessão."); break;
     case "error":
       showBanner(m.msg || "Erro."); break;
   }

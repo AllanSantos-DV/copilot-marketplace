@@ -43,7 +43,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.1.9";
+const CURRENT_VERSION = "1.1.10";
 const UPDATE_RAW_BASE = (process.env.VOICE_UPDATE_BASE || "https://github.com/AllanSantos-DV/copilot-voice/releases/latest/download/").replace(/\/?$/, "/");
 const RUNNING_AS_PLUGIN = /[\\/]installed-plugins[\\/]/.test(EXT_DIR);
 const UPDATE_DISABLED = process.env.VOICE_UPDATE_DISABLED === "1" || RUNNING_AS_PLUGIN;
@@ -71,6 +71,8 @@ const forks = new Map();
 let activeSid = null; 
 let lastTtsPreviewSid = null;
 let turnOwnerSid = null; 
+let recordingActiveSid = null; 
+let recordingActiveTimer = null; 
 const pendingReplyAudio = new Map(); 
 let myBaseUrl = null; 
 let registered = false; 
@@ -331,6 +333,18 @@ function broadcastTo(sid, obj) {
         } catch {
         }
     }
+}
+
+let heartbeatTimer = null;
+function startHeartbeat() {
+    if (heartbeatTimer) return;
+    heartbeatTimer = setInterval(() => {
+        for (const res of [...sseClients.keys()]) {
+            try { res.write(": ping\n\n"); }
+            catch { sseClients.delete(res); }
+        }
+    }, 15000);
+    if (heartbeatTimer.unref) heartbeatTimer.unref();
 }
 
 function parseVer(v) {
@@ -620,11 +634,14 @@ function onWorkerEvent(ev) {
             const confirm = settings.confirmTranscript === true && !!t;
             const owner = turnOwnerSid || activeSid;
             turnOwnerSid = null;
+            clearRecordingActive();
             broadcastTo(owner, { type: "transcript", text: ev.text || "", confirm });
             if (t && !confirm) dispatchVoiceTurn(t, owner);
             break;
         }
         case "error":
+            clearRecordingActive();
+            turnOwnerSid = null;
             if (ev.fatal) {
                 workerReady = false;
                 broadcast({ type: "worker", state: "error", msg: ev.msg });
@@ -652,7 +669,7 @@ function onWorkerEvent(ev) {
             else if (ev.msg) broadcast({ type: "error", msg: ev.msg });
             break;
         case "wake":
-            broadcast({ type: "wake", state: ev.state, phrase: ev.phrase, msg: ev.msg });
+            broadcast({ type: "wake", state: ev.state, phrase: ev.phrase, msg: ev.msg ?? ev.message });
             break;
         case "gpu_status":
             lastGpuStatus = ev;
@@ -671,8 +688,10 @@ function onWorkerEvent(ev) {
             const c = (ev.text || "").trim();
             dbg(`wake command: ${c.slice(0, 120)}`);
             if (c) {
-                broadcastTo(activeSid, { type: "transcript", text: c, confirm: false });
-                dispatchVoiceTurn(c, activeSid);
+                const owner = turnOwnerSid || activeSid;
+                turnOwnerSid = null;
+                broadcastTo(owner, { type: "transcript", text: c, confirm: false });
+                dispatchVoiceTurn(c, owner);
             }
             break;
         }
@@ -817,12 +836,7 @@ async function flushSpeech() {
     const fullForUi = full && full !== speakText ? full : undefined;
 
     _phase = "flushSpeech:speak";
-    if (primaryFork) {
-        await speakToCanvas(mySid(), speakText, fullForUi);
-    } else {
-        const base = canonicalBase();
-        if (base) await httpPostJson(base, "/speak", { sid: mySid(), spoken: speakText, full: fullForUi });
-    }
+    await routeSpeak({ spoken: speakText, full: fullForUi });
     _phase = "flushSpeech:done";
 }
 
@@ -871,12 +885,18 @@ function sessionHasClient(sid) {
 async function speakCue(text, kind) {
     const clean = cleanForSpeech(text);
     if (!clean) return;
-    if (primaryFork) {
-        await speakToCanvas(mySid(), clean, undefined, kind);
-    } else {
-        const base = canonicalBase();
-        if (base) await httpPostJson(base, "/speak", { sid: mySid(), spoken: clean, cue: kind });
-    }
+    await routeSpeak({ spoken: clean, cue: kind });
+}
+
+function forwardToPrimary(path, body) {
+    const base = canonicalBase();
+    return base ? httpPostJson(base, path, body) : Promise.resolve(false);
+}
+
+async function routeSpeak({ spoken, full, cue, sid = mySid() }) {
+    if (!spoken) return false;
+    if (primaryFork) return speakToCanvas(sid, spoken, full, cue);
+    return forwardToPrimary("/speak", { sid, spoken, full, cue });
 }
 
 function cleanForSpeech(md) {
@@ -1071,8 +1091,12 @@ async function cleanupOldWavs() {
     try {
         const files = (await readdir(TTS_DIR)).filter((f) => f.endsWith(".wav"));
         if (files.length <= 8) return;
+        const pendingMap = readPendingMap();
+        const kept = new Set(Object.values(pendingMap).map((v) => v && v.wav).filter(Boolean));
+        const prunable = files.filter((f) => !kept.has(f));
+        if (prunable.length <= 8) return;
         const withTime = await Promise.all(
-            files.map(async (f) => ({ f, m: (await stat(join(TTS_DIR, f))).mtimeMs })),
+            prunable.map(async (f) => ({ f, m: (await stat(join(TTS_DIR, f))).mtimeMs })),
         );
         withTime.sort((a, b) => b.m - a.m);
         for (const { f } of withTime.slice(8)) unlink(join(TTS_DIR, f)).catch(() => {});
@@ -1159,6 +1183,18 @@ function claimVoiceOwnership(sid) {
     pendingReplyAudio.delete(s);
 }
 
+function setRecordingActive(sid) {
+    recordingActiveSid = sid;
+    if (recordingActiveTimer) clearTimeout(recordingActiveTimer);
+    recordingActiveTimer = setTimeout(() => { recordingActiveSid = null; recordingActiveTimer = null; }, 60000);
+    if (recordingActiveTimer.unref) recordingActiveTimer.unref();
+}
+
+function clearRecordingActive() {
+    recordingActiveSid = null;
+    if (recordingActiveTimer) { clearTimeout(recordingActiveTimer); recordingActiveTimer = null; }
+}
+
 async function handleRequest(req, res) {
     const url = new URL(req.url, "http://127.0.0.1");
     const path = url.pathname;
@@ -1234,7 +1270,13 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && path === "/rec/start") {
         const body = await readBody(req);
-        if (body && body.sid) claimVoiceOwnership(body.sid); 
+        const reqSid = body && body.sid ? String(body.sid) : "";
+        if (recordingActiveSid && reqSid && recordingActiveSid !== reqSid) {
+            dbg(`rec/start busy: mic in use by ${recordingActiveSid}, requested by ${reqSid}`);
+            broadcastTo(reqSid, { type: "busy", msg: "O microfone está em uso por outra sessão." });
+            return sendJson(res, { ok: false, busy: true });
+        }
+        if (reqSid) { claimVoiceOwnership(reqSid); setRecordingActive(reqSid); }
         ensureWorker();
         workerSend({ cmd: "start" });
         return sendJson(res, { ok: true });
@@ -1245,6 +1287,8 @@ async function handleRequest(req, res) {
     }
     if (req.method === "POST" && path === "/rec/cancel") {
         workerSend({ cmd: "cancel" });
+        clearRecordingActive();
+        turnOwnerSid = null;
         return sendJson(res, { ok: true });
     }
 
@@ -1607,12 +1651,7 @@ const canvas = createCanvas({
                 const { spoken, full } = makeSpoken(text);
                 const speakText = settings.fullRead ? full : spoken || text;
                 const fullForUi = full && full !== speakText ? full : undefined;
-                if (primaryFork) {
-                    await speakToCanvas(mySid(), speakText, fullForUi);
-                } else {
-                    const base = canonicalBase();
-                    if (base) await httpPostJson(base, "/speak", { sid: mySid(), spoken: speakText, full: fullForUi });
-                }
+                await routeSpeak({ spoken: speakText, full: fullForUi });
                 return { ok: true, spoken: speakText };
             },
         },
@@ -1698,6 +1737,7 @@ session = await joinSession({
 session.on("assistant.message", onAssistantMessage);
 session.on("session.idle", onIdle);
 restoreVoiceState();
+startHeartbeat();
 log("voice-chat extension loaded", "info");
 
 function _hbWrite(s) {

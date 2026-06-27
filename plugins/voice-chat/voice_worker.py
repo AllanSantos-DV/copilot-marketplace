@@ -943,16 +943,23 @@ WAKE_HEAD_S = 3.0
 WAKE_GUARD_S = 8.0
 
 
+_vad_lock = threading.Lock()
+
 def ensure_vad_model():
     """Return the Silero VAD model path, downloading it (GitHub release, ~0.6 MB) if
-    missing. Same proxy/truststore path as the Whisper/TTS model bootstrap."""
+    missing. Same proxy/truststore path as the Whisper/TTS model bootstrap. Serialized
+    by _vad_lock so a startup prefetch and a wake-toggle fetch can't download
+    concurrently into the same file."""
     path = os.path.join(MODEL_ROOT, VAD_MODEL_FILE)
     if os.path.isfile(path):
         return path
-    os.makedirs(MODEL_ROOT, exist_ok=True)
-    url = f"{GH_BASE}/{VAD_MODEL_FILE}"
-    log(f"downloading silero vad from {url}")
-    _download_file(url, path, timeout=120)
+    with _vad_lock:
+        if os.path.isfile(path):
+            return path
+        os.makedirs(MODEL_ROOT, exist_ok=True)
+        url = f"{GH_BASE}/{VAD_MODEL_FILE}"
+        log(f"downloading silero vad from {url}")
+        _download_file(url, path, timeout=120)
     return path
 
 
@@ -1124,11 +1131,20 @@ class WakeListener:
         is_speech_detected() only drops after VAD_SILENCE_S of CONTINUOUS silence, a
         natural mid-sentence pause never truncates the command the way the old
         percentile-floor heuristic did. State machine: scan -> (await|record|dead) -> scan."""
-        try:
-            vad = build_vad()
-        except Exception as exc:
-            emit({"event": "wake", "state": "error", "message": f"vad load failed: {exc}"})
-            log(f"wake vad load failed: {exc}")
+        vad = None
+        last_exc = None
+        for _attempt in range(3):
+            try:
+                vad = build_vad()
+                break
+            except Exception as exc:
+                last_exc = exc
+                log(f"wake vad load failed (attempt {_attempt + 1}/3): {exc}")
+                time.sleep(2.0)
+        if vad is None:
+            emit({"event": "wake", "state": "error",
+                  "msg": f"Não foi possível carregar o detector de voz (VAD): {last_exc}"})
+            log(f"wake disabled: vad unavailable after retries: {last_exc}")
             return
 
         preroll = deque(maxlen=WAKE_PREROLL_BLOCKS)   
@@ -1531,6 +1547,13 @@ def main():
     emit({"event": "mic", "ok": _mok, "name": _mname, "reason": _mreason})
     emit({"event": "mics", **list_mics()})
     threading.Thread(target=mic_monitor, daemon=True).start()
+
+    def _prefetch_vad():
+        try:
+            ensure_vad_model()
+        except Exception as exc:
+            log(f"vad prefetch failed (wake will retry when enabled): {exc}")
+    threading.Thread(target=_prefetch_vad, daemon=True).start()
     log(f"ready (model={state['model']}, language={state['language']}, device={EFFECTIVE_PROVIDER})")
 
     rec_lock = threading.Lock()
