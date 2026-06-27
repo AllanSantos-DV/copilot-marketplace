@@ -43,7 +43,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.1.11";
+const CURRENT_VERSION = "1.1.12";
 const UPDATE_RAW_BASE = (process.env.VOICE_UPDATE_BASE || "https://github.com/AllanSantos-DV/copilot-voice/releases/latest/download/").replace(/\/?$/, "/");
 const RUNNING_AS_PLUGIN = /[\\/]installed-plugins[\\/]/.test(EXT_DIR);
 const UPDATE_DISABLED = process.env.VOICE_UPDATE_DISABLED === "1" || RUNNING_AS_PLUGIN;
