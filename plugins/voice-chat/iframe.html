@@ -103,6 +103,8 @@
   .mic-btn:disabled { background: var(--text-color-muted, #6e7681); cursor: not-allowed; box-shadow: none; }
   .mic-btn.nomic { box-shadow: 0 0 0 2px var(--true-color-red, #da3633) inset; }
   .mic-btn svg { width: 42px; height: 42px; }
+  .mic-meter { width: 200px; height: 7px; border-radius: 4px; background: var(--border-color-default,#30363d); overflow: hidden; }
+  .mic-meter > i { display: block; height: 100%; width: 0%; background: var(--true-color-green,#3fb950); border-radius: 4px; transition: width .08s linear, background .2s ease; }
   .hint { color: var(--text-color-muted, #8b949e); font-size: 12px; text-align: center; min-height: 16px; }
   kbd {
     font-family: var(--font-mono, monospace); font-size: 11px;
@@ -230,6 +232,7 @@
     </button>
   </div>
   <div id="hint" class="hint">Segure o botão ou a barra de <kbd>espaço</kbd> para falar.</div>
+  <div id="micMeter" class="mic-meter" style="display:none"><i id="micMeterBar"></i></div>
   <button id="cancelRecBtn" class="btn" style="display:none;margin:6px auto 0">Cancelar gravação</button>
   <div id="progress" class="progress"><i></i></div>
 
@@ -309,6 +312,10 @@
       </select>
     </div>
     <div class="row">
+      <div><label>Microfone</label><div class="sub" id="micSub">Usando o microfone padrão do sistema</div></div>
+      <select id="setMic"><option value="">Padrão do sistema</option></select>
+    </div>
+    <div class="row">
       <div><label>Ler resposta completa</label><div class="sub">em vez de só o resumo</div></div>
       <label class="switch"><input id="setFull" type="checkbox" /><span></span></label>
     </div>
@@ -379,6 +386,8 @@ const confirmWrap = $("confirmWrap"), confirmText = $("confirmText"), sendBtn = 
 const cancelRecBtn = $("cancelRecBtn");
 const cueLine = $("cueLine");
 const wakeBadge = $("wakeBadge");
+const micMeter = $("micMeter"), micMeterBar = $("micMeterBar");
+let _sigSeen = false, _noSigWarned = false, _recStart = 0, _peakMax = 0;
 let wakeState = "off";
 
 let workerReady = false;
@@ -571,7 +580,7 @@ function playNow(item) {
   }).catch(() => {
     const wasReply = item.kind === "reply";
     playingKind = null;
-    if (wasReply) { phase = "ready"; reflectPhase(); hint.textContent = "Toque em ▶ Repetir para ouvir a resposta."; }
+    if (wasReply) { lastReplyUrl = null; phase = "ready"; reflectPhase(); hint.textContent = "Toque em ▶ Repetir para ouvir a resposta."; }
     pumpAudio();
   });
 }
@@ -880,6 +889,40 @@ confirmText.addEventListener("keydown", (e) => {
 
 let sseDown = false, sseFails = 0;
 function sseBackUp() { if (sseDown) { sseDown = false; sseFails = 0; hideBanner(); reflectPhase(); } }
+let micList = [], micCurrent = null;
+function requestMics() {
+  fetch(base + "/mics", { headers: TOK ? { "x-voice-token": TOK } : {} })
+    .then((r) => r.json()).then((d) => { if (d && d.devices) populateMics(d); }).catch(() => {});
+}
+function micActiveLabel(cur) {
+  const a = cur == null ? micList.find((x) => x.is_default) : micList.find((x) => x.index === cur);
+  return a ? ("Usando: " + a.name) : "Usando o microfone padrão do sistema";
+}
+function populateMics(d) {
+  micList = d.devices || []; micCurrent = (d.current == null ? null : d.current);
+  const sel = $("setMic"); if (!sel) return;
+  sel.innerHTML = "";
+  const optD = document.createElement("option");
+  const defDev = (d.default != null) ? micList.find((x) => x.index === d.default) : null;
+  optD.value = ""; optD.textContent = "Padrão do sistema" + (defDev ? " (" + defDev.name + ")" : "");
+  sel.appendChild(optD);
+  for (const m of micList) {
+    const o = document.createElement("option");
+    o.value = String(m.index);
+    o.textContent = m.name + (m.is_default ? " — padrão" : "");
+    sel.appendChild(o);
+  }
+  sel.value = (micCurrent == null ? "" : String(micCurrent));
+  const sub = $("micSub"); if (sub) sub.textContent = micActiveLabel(micCurrent);
+}
+$("setMic").addEventListener("change", () => {
+  const v = $("setMic").value;
+  const device = v === "" ? null : parseInt(v, 10);
+  micCurrent = device;
+  post("/set-mic", { device });
+  const sub = $("micSub"); if (sub) sub.textContent = micActiveLabel(device);
+});
+
 function connect() {
   const es = new EventSource(base + "/events?sid=" + encodeURIComponent(SID) + (TOK ? "&t=" + encodeURIComponent(TOK) : ""));
   es.onmessage = (ev) => {
@@ -940,6 +983,7 @@ function handle(m) {
         showUpdate(m.pendingUpdate);
       }
       if (m.pendingReply) showPendingReply(m.pendingReply);
+      requestMics();
       reflectPhase();
       break;
     case "worker":
@@ -960,6 +1004,9 @@ function handle(m) {
       break;
     case "gpu":
       renderGpu(m.status);
+      break;
+    case "mics":
+      populateMics(m);
       break;
     case "gpuSetup":
       if (m.ok && m.restart) {
@@ -992,12 +1039,35 @@ function handle(m) {
       break;
     case "level":
       if (recording) {
-        const lvl = Math.min(1, (m.rms || 0) * 14);
-        ring.style.setProperty("--level", (0.2 + lvl).toFixed(3));
+        const peak = m.peak || 0, rms = m.rms || 0;
+        const amp = Math.min(1, Math.max(peak * 5, rms * 18));
+        ring.style.setProperty("--level", (0.3 + amp * 0.9).toFixed(3));
+        if (micMeterBar) micMeterBar.style.width = Math.min(100, Math.round(Math.sqrt(amp) * 100)) + "%";
+        const elapsed = Date.now() - _recStart;
+        _peakMax = Math.max(_peakMax, peak);
+        if (peak >= 0.0015) _sigSeen = true;
+        if (_sigSeen && _noSigWarned) {
+          _noSigWarned = false;
+          if (micMeterBar) micMeterBar.style.background = "var(--true-color-green,#3fb950)";
+          hint.textContent = "Ouvindo… solte para enviar.";
+        }
+        if (!_sigSeen && !_noSigWarned && elapsed > 3000 && _peakMax < 0.0008) {
+          _noSigWarned = true;
+          if (micMeterBar) micMeterBar.style.background = "var(--true-color-red,#da3633)";
+          hint.textContent = "⚠ Microfone sem sinal (mudo?). Verifique o volume ou troque o microfone nas configurações.";
+        }
       }
       break;
     case "recording":
-      recording = m.state; if (!m.state) ring.style.setProperty("--level", 0);
+      recording = m.state;
+      if (m.state) {
+        _sigSeen = false; _noSigWarned = false; _recStart = Date.now(); _peakMax = 0;
+        if (micMeter) micMeter.style.display = "block";
+        if (micMeterBar) { micMeterBar.style.width = "0%"; micMeterBar.style.background = "var(--true-color-green,#3fb950)"; }
+      } else {
+        ring.style.setProperty("--level", 0);
+        if (micMeter) micMeter.style.display = "none";
+      }
       break;
     case "transcript":
       if (m.text && m.text.trim()) {
