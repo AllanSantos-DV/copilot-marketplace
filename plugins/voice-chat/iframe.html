@@ -403,8 +403,8 @@ const cancelRecBtn = $("cancelRecBtn");
 const cueLine = $("cueLine");
 const wakeBadge = $("wakeBadge");
 const micMeter = $("micMeter"), micMeterBar = $("micMeterBar");
-let _sigSeen = false, _noSigWarned = false, _recStart = 0, _peakMax = 0;
-let _monPeakMax = 0, _monSilentSince = 0;
+let _recStart = 0;
+let _monLastSig = 0;
 let wakeState = "off";
 
 let workerReady = false;
@@ -929,7 +929,6 @@ function updateHomeMic() {
   const st = $("homeMicState");
   if (!micOk) { row.classList.add("unavailable"); st.textContent = "indisponível"; }
   else if (homeMicSignal === "ok") { row.classList.add("ok"); st.textContent = "captando"; }
-  else if (homeMicSignal === "silent") { row.classList.add("silent"); st.textContent = "sem sinal"; }
   else { st.textContent = recording ? "" : "pronto"; }
 }
 function populateMics(d) {
@@ -1104,19 +1103,10 @@ function handle(m) {
         const amp = Math.min(1, Math.max(peak * 5, rms * 18));
         ring.style.setProperty("--level", (0.3 + amp * 0.9).toFixed(3));
         if (micMeterBar) micMeterBar.style.width = Math.min(100, Math.round(Math.sqrt(amp) * 100)) + "%";
-        const elapsed = Date.now() - _recStart;
-        _peakMax = Math.max(_peakMax, peak);
-        if (peak >= 0.0015 || amp >= 0.04) _sigSeen = true;
-        if (_sigSeen && _noSigWarned) {
-          _noSigWarned = false;
-          if (micMeterBar) micMeterBar.style.background = "var(--true-color-green,#3fb950)";
-          hint.textContent = "Ouvindo… solte para enviar.";
-        }
-        if (!_sigSeen && !_noSigWarned && elapsed > 3000 && _peakMax < 0.0008) {
-          _noSigWarned = true;
-          if (micMeterBar) micMeterBar.style.background = "var(--true-color-red,#da3633)";
-          hint.textContent = "⚠ Microfone sem sinal (mudo?). Verifique o volume ou troque o microfone nas configurações.";
-        }
+        // No speculative no-signal warning here: the live meter above already
+        // shows input level in real time, and the worker emits the authoritative
+        // verdict (no_audio) on release — so the meter and the message can never
+        // contradict each other.
       }
       break;
     case "monitorLevel":
@@ -1128,13 +1118,10 @@ function handle(m) {
           micMeterBar.style.width = Math.min(100, Math.round(Math.sqrt(mamp) * 100)) + "%";
           micMeterBar.style.background = "var(--true-color-green,#3fb950)";
         }
-        if (mpeak >= 0.0015 || mamp >= 0.04) {
-          homeMicSignal = "ok"; _monSilentSince = 0; _monPeakMax = 0;
-        } else {
-          if (!_monSilentSince) { _monSilentSince = Date.now(); _monPeakMax = 0; }
-          _monPeakMax = Math.max(_monPeakMax, mpeak);
-          if (Date.now() - _monSilentSince > 4000 && _monPeakMax < 0.0008) homeMicSignal = "silent";
-        }
+        // Live meter is the source of truth: show "captando" while it moves,
+        // and a neutral "pronto" once quiet. Never a speculative "sem sinal".
+        if (mpeak >= 0.0015 || mamp >= 0.04) { homeMicSignal = "ok"; _monLastSig = Date.now(); }
+        else if (homeMicSignal === "ok" && Date.now() - _monLastSig > 1500) homeMicSignal = "idle";
         updateHomeMic();
       }
       break;
@@ -1142,8 +1129,8 @@ function handle(m) {
       recording = m.state;
       if (m.state) {
         _monitorOn = false;
-        _sigSeen = false; _noSigWarned = false; _recStart = Date.now(); _peakMax = 0;
-        homeMicSignal = "idle"; _monPeakMax = 0; _monSilentSince = 0;
+        _recStart = Date.now();
+        homeMicSignal = "idle"; _monLastSig = 0;
         if (micMeter) micMeter.style.display = "block";
         if (micMeterBar) { micMeterBar.style.width = "0%"; micMeterBar.style.background = "var(--true-color-green,#3fb950)"; }
         updateHomeMic();
