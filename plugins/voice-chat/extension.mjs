@@ -43,7 +43,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.1.8";
+const CURRENT_VERSION = "1.1.9";
 const UPDATE_RAW_BASE = (process.env.VOICE_UPDATE_BASE || "https://github.com/AllanSantos-DV/copilot-voice/releases/latest/download/").replace(/\/?$/, "/");
 const RUNNING_AS_PLUGIN = /[\\/]installed-plugins[\\/]/.test(EXT_DIR);
 const UPDATE_DISABLED = process.env.VOICE_UPDATE_DISABLED === "1" || RUNNING_AS_PLUGIN;
@@ -610,10 +610,10 @@ function onWorkerEvent(ev) {
             broadcast({ type: "worker", state: "loading", msg: ev.msg, pct: ev.pct });
             break;
         case "level":
-            broadcast({ type: "level", rms: ev.rms, peak: ev.peak });
+            broadcastTo(turnOwnerSid || activeSid, { type: "level", rms: ev.rms, peak: ev.peak });
             break;
         case "recording":
-            broadcast({ type: "recording", state: ev.state });
+            broadcastTo(turnOwnerSid || activeSid, { type: "recording", state: ev.state });
             break;
         case "transcript": {
             const t = (ev.text || "").trim();
@@ -1200,7 +1200,7 @@ async function handleRequest(req, res) {
         });
         res.write(": connected\n\n");
         sseClients.set(res, sid);
-        if (sid) activeSid = sid; 
+        if (sid && !activeSid) activeSid = sid;
         const _us = readUpdateState();
         const pendingUpdate = _us.pendingVersion && verGt(_us.pendingVersion, CURRENT_VERSION) ? _us.pendingVersion : null;
         const _pr = readPendingReply(sid);
