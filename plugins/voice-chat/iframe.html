@@ -1045,7 +1045,7 @@ function handle(m) {
         if (micMeterBar) micMeterBar.style.width = Math.min(100, Math.round(Math.sqrt(amp) * 100)) + "%";
         const elapsed = Date.now() - _recStart;
         _peakMax = Math.max(_peakMax, peak);
-        if (peak >= 0.0015) _sigSeen = true;
+        if (peak >= 0.0015 || amp >= 0.04) _sigSeen = true;
         if (_sigSeen && _noSigWarned) {
           _noSigWarned = false;
           if (micMeterBar) micMeterBar.style.background = "var(--true-color-green,#3fb950)";
