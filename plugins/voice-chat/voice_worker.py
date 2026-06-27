@@ -1314,6 +1314,10 @@ class AudioHub:
         self._stream = None
         self._rec = False           
         self._wake_on = False       
+        self._monitor_on = False
+        self._mon_peak = 0.0
+        self._mon_rms = 0.0
+        self._mon_thread = None
         self._lock = threading.Lock()
 
     def _callback(self, indata, frames, time_info, status):  
@@ -1322,6 +1326,12 @@ class AudioHub:
             self._rec_obj.feed(block, status)
         elif self._wake_on:
             self._wake.feed(block)
+        if self._monitor_on and not self._rec and block.size:
+            import numpy as _np
+            p = float(_np.max(_np.abs(block)))
+            if p > self._mon_peak:
+                self._mon_peak = p
+            self._mon_rms = float(_np.sqrt(_np.mean(block * block)))
 
     def _ensure_open(self):
         if self._stream is not None:
@@ -1346,7 +1356,7 @@ class AudioHub:
     def reopen(self):
         """Reabre o stream no dispositivo atual (apos troca de microfone)."""
         with self._lock:
-            keep = self._rec or self._wake_on
+            keep = self._rec or self._wake_on or self._monitor_on
             self._ensure_closed()
             if keep:
                 self._ensure_open()
@@ -1367,7 +1377,7 @@ class AudioHub:
             self._rec = False
             if self._wake_on:
                 self._wake.resume()     
-            else:
+            elif not self._monitor_on:
                 self._ensure_closed()
             return res
 
@@ -1377,7 +1387,7 @@ class AudioHub:
             self._rec = False
             if self._wake_on:
                 self._wake.resume()
-            else:
+            elif not self._monitor_on:
                 self._ensure_closed()
 
     def set_wake(self, on, phrases=None):
@@ -1394,7 +1404,37 @@ class AudioHub:
                 self._wake.enable()
             else:
                 self._wake.disable()
-                if not self._rec:
+                if not self._rec and not self._monitor_on:
+                    self._ensure_closed()
+
+    def _monitor_loop(self):
+        while self._monitor_on:
+            time.sleep(0.15)
+            if not self._monitor_on:
+                break
+            emit({"event": "monitor_level",
+                  "peak": round(self._mon_peak, 5),
+                  "rms": round(self._mon_rms, 5)})
+            self._mon_peak = 0.0
+
+    def set_monitor(self, on):
+        """At-rest VU monitor: opens the shared mic stream (only if idle) to emit
+        throttled monitor_level events so the UI can show input level BEFORE
+        recording. Never decodes/buffers/transcribes. Reuses the stream if wake or
+        recording already owns it. Stops + closes when idle."""
+        with self._lock:
+            on = bool(on)
+            if on == self._monitor_on:
+                return
+            self._monitor_on = on
+            if on:
+                self._mon_peak = 0.0
+                if not self._rec and not self._wake_on:
+                    self._ensure_open()
+                self._mon_thread = threading.Thread(target=self._monitor_loop, daemon=True)
+                self._mon_thread.start()
+            else:
+                if not self._rec and not self._wake_on:
                     self._ensure_closed()
 
     def arm_converse(self, timeout_s):
@@ -1647,7 +1687,10 @@ def main():
                 hub.set_wake(msg.get("on"), phrases)
             elif cmd == "converse":
                 hub.arm_converse(float(msg.get("timeoutMs", 3000)) / 1000.0)
+            elif cmd == "monitor":
+                hub.set_monitor(msg.get("on"))
             elif cmd == "shutdown":
+                hub.set_monitor(False)
                 hub.set_wake(False)
                 break
             else:
