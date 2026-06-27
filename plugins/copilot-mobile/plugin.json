@@ -1,0 +1,15 @@
+{
+  "name": "copilot-mobile",
+  "version": "0.1.4",
+  "description": "Controle o agente do GitHub Copilot CLI pelo celular: chat, perguntas (ask_user), permissoes, envio de midia e resumo falado em audio (pt-BR), com a porta de exposicao (off/LAN/Tailscale/publico) sempre decidida na sua maquina. Pareia com um unico celular por codigo rotativo e empurra os eventos do agente em tempo real (SSE).",
+  "author": {
+    "name": "Allan Santos",
+    "url": "https://github.com/AllanSantos-DV"
+  },
+  "homepage": "https://github.com/AllanSantos-DV/copilot-marketplace",
+  "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
+  "license": "MIT",
+  "keywords": ["mobile", "celular", "remote", "ask_user", "permissions", "sse", "tts", "audio", "pt-BR", "tailscale", "canvas"],
+  "category": "productivity",
+  "extensions": ["."]
+}

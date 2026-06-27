@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mobile · Copilot</title>
+<script src="/qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; height: 100vh; overflow-y: auto;
+    background: var(--background-color-default, #0d1117);
+    color: var(--text-color-default, #e6edf3);
+    font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+    font-size: 14px; line-height: 20px;
+  }
+  header { display:flex; align-items:center; gap:8px; padding:12px 16px; border-bottom:1px solid var(--border-color-default,#30363d); position:sticky; top:0; background:inherit; z-index:2; }
+  header .title { font-weight:600; font-size:18px; }
+  header .spacer { flex:1; }
+  .pill { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600;
+    background: color-mix(in srgb, var(--text-color-muted,#8b949e) 16%, transparent); color: var(--text-color-muted,#8b949e); white-space:nowrap; }
+  .pill .dot { width:8px; height:8px; border-radius:50%; background:currentColor; }
+  .pill.exposed { color: var(--true-color-red,#f85149); }
+  .pill.safe { color: var(--true-color-green,#3fb950); }
+  .pill.busy { color: var(--true-color-blue,#58a6ff); }
+  main { padding:16px; max-width:760px; margin:0 auto; display:flex; flex-direction:column; gap:16px; }
+  .card { border:1px solid var(--border-color-default,#30363d); border-radius:12px; padding:14px 16px; background: color-mix(in srgb, #fff 2%, transparent); }
+  .card h2 { margin:0 0 10px; font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-color-muted,#8b949e); }
+  .modes { display:flex; flex-wrap:wrap; gap:8px; }
+  .mode-btn { display:flex; flex-direction:column; gap:2px; align-items:flex-start; padding:10px 14px; border-radius:10px; cursor:pointer;
+    border:1px solid var(--border-color-default,#444c56); background:transparent; color:var(--text-color-default,#e6edf3); font:inherit; min-width:120px; }
+  .mode-btn small { color:var(--text-color-muted,#8b949e); font-size:11px; }
+  .mode-btn.active { border-color: var(--true-color-blue,#58a6ff); background: color-mix(in srgb, var(--true-color-blue,#58a6ff) 14%, transparent); }
+  .mode-btn.danger.active { border-color: var(--true-color-red,#f85149); background: color-mix(in srgb, var(--true-color-red,#f85149) 14%, transparent); }
+  .row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .kv { font-size:12px; color:var(--text-color-muted,#8b949e); }
+  .code { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); }
+  .bigcode { font-size:34px; font-weight:700; letter-spacing:.18em; color:var(--true-color-green,#3fb950); }
+  .url { font-size:15px; font-weight:600; word-break:break-all; }
+  button.act { padding:7px 14px; border-radius:8px; border:1px solid var(--border-color-default,#444c56); background:transparent; color:inherit; cursor:pointer; font:inherit; }
+  button.act:hover { background: color-mix(in srgb, var(--text-color-muted,#8b949e) 14%, transparent); }
+  button.act.primary { border-color: var(--true-color-blue,#58a6ff); color: var(--true-color-blue,#58a6ff); }
+  button.act.kill { border-color: var(--true-color-red,#f85149); color: var(--true-color-red,#f85149); }
+  .muted { color:var(--text-color-muted,#8b949e); }
+  .feed, .devs, .log { display:flex; flex-direction:column; gap:6px; max-height:230px; overflow-y:auto; }
+  .item { font-size:12px; padding:6px 8px; border-radius:6px; background: color-mix(in srgb, #fff 3%, transparent); }
+  .item .tag { font-weight:700; margin-right:6px; }
+  .t-assistant .tag { color: var(--true-color-green,#3fb950); }
+  .t-user .tag { color: var(--true-color-blue,#58a6ff); }
+  .t-tool_start .tag, .t-tool_done .tag { color: var(--text-color-muted,#8b949e); }
+  /* agent tool-group card (🤖 collapsible) in the live feed */
+  .agent-item { border-radius:6px; background: color-mix(in srgb, #fff 3%, transparent); overflow:hidden; }
+  .agent-item .ahead { display:flex; align-items:center; gap:6px; padding:6px 8px; cursor:pointer; user-select:none; font-size:12px; }
+  .agent-item .achev { width:9px; text-align:center; color:var(--text-color-muted,#8b949e); }
+  .agent-item .asum { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .agent-item .acnt { color:var(--text-color-muted,#8b949e); font-size:11px; }
+  .agent-item .atools { padding:2px 8px 7px 24px; display:flex; flex-direction:column; gap:3px; font-size:12px; }
+  .agent-item.collapsed .atools { display:none; }
+  .atool.running { color: var(--true-color-blue,#58a6ff); }
+  .atool.ok { color: var(--true-color-green,#3fb950); }
+  .atool.fail { color: var(--true-color-yellow,#d29922); }
+  .t-error .tag, .t-permission .tag { color: var(--true-color-red,#f85149); }
+  .hide { display:none !important; }
+  .warn { color: var(--true-color-red,#f85149); font-size:12px; }
+  .hint { font-size:12px; color:var(--text-color-muted,#8b949e); }
+  .hint a { color: var(--true-color-blue,#58a6ff); text-decoration:none; }
+  .mstat { display:block; font-weight:700; margin-top:3px; font-size:11px; }
+  .mstat.ok { color: var(--true-color-green,#3fb950); }
+  .mstat.warn2 { color: var(--true-color-yellow,#d29922); }
+  #setupBox { display:flex; flex-direction:column; gap:6px; margin:10px 0 4px; }
+  .setup-item { font-size:12px; padding:7px 9px; border-radius:6px; background: color-mix(in srgb, #fff 3%, transparent); display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .setup-item button.act { padding:4px 10px; font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="title">📱 Mobile</span>
+  <span id="modePill" class="pill safe"><span class="dot"></span><span id="modePillText">loopback</span></span>
+  <span class="spacer"></span>
+  <span id="busyPill" class="pill busy hide"><span class="dot"></span>agente ocupado</span>
+</header>
+<main>
+  <div class="card">
+    <h2>Transporte (o gate fica aqui)</h2>
+    <div class="modes" id="modes">
+      <button class="mode-btn" data-mode="off"><b>Desligado</b><small>nada exposto (padrão)</small></button>
+      <button class="mode-btn" data-mode="lan"><b>Local (Wi-Fi)</b><small>mesma rede</small><small class="mstat" id="mstat-lan"></small></button>
+      <button class="mode-btn" data-mode="tailscale"><b>Tailscale</b><small>rede privada</small><small class="mstat" id="mstat-tailscale"></small></button>
+      <button class="mode-btn danger" data-mode="public"><b>URL pública</b><small>internet ⚠️</small><small class="mstat" id="mstat-public"></small></button>
+    </div>
+    <p id="modeErr" class="warn hide"></p>
+    <p id="provLine" class="hint hide"></p>
+    <div id="setupBox" class="hide"></div>
+    <p class="hint">O celular nunca muda o modo — só este painel, na máquina, pode expor ou fechar. · <a id="revalidate" href="#">revalidar</a> · rede: <span id="netProfile" class="code">—</span></p>
+  </div>
+
+  <div class="card" id="pairCard">
+    <h2>Parear o celular</h2>
+    <div id="pairOff" class="muted">Selecione um modo acima para liberar o pareamento.</div>
+    <div id="pairPinned" class="hide">
+      <div class="row" style="gap:10px; align-items:center;">
+        <span class="pill safe"><span class="dot"></span>✅ <b id="pinnedName">—</b> pareado</span>
+        <span class="kv" id="pinnedConn">—</span>
+        <span class="spacer" style="flex:1"></span>
+        <button class="act kill" id="forgetDev">Esquecer dispositivo</button>
+      </div>
+      <p class="hint">Só este celular pode conectar (1 dispositivo, 1 conexão). Para trocar de aparelho, esqueça este primeiro.</p>
+      <div class="row" style="gap:24px; align-items:flex-start; margin-top:6px; border-top:1px solid var(--border-color-default,#30363d); padding-top:14px;">
+        <div style="text-align:center;">
+          <div class="kv" style="margin-bottom:6px;">📷 Reconectar (sem código):</div>
+          <div id="qrReconnect" style="background:#fff; padding:10px; border-radius:10px; display:inline-block; line-height:0;"></div>
+        </div>
+        <div style="flex:1; min-width:240px;">
+          <div class="kv">Endereço atual do servidor:</div>
+          <div class="url code" id="reconnectUrl">—</div>
+          <div id="reconnectAlt" class="hide" style="margin-top:8px;">
+            <div class="kv">Outros endereços desta máquina:</div>
+            <div class="code" id="reconnectAltList" style="font-size:12px; word-break:break-all; color:var(--text-color-muted,#8b949e);"></div>
+          </div>
+          <div class="row" style="margin-top:12px;">
+            <button class="act" id="copyUrl">Copiar URL</button>
+          </div>
+          <p class="hint" style="margin-top:10px;">Este celular reconecta sozinho neste endereço — <b>sem código</b>. Se o endereço mudou (novo túnel/IP), escaneie ou cole esta URL no app.</p>
+        </div>
+      </div>
+    </div>
+    <div id="pairOn" class="hide">
+      <div class="row" style="gap:24px; align-items:flex-start;">
+        <div style="text-align:center;">
+          <div class="kv" style="margin-bottom:6px;">📷 QR de pareamento:</div>
+          <div id="qr" style="background:#fff; padding:10px; border-radius:10px; display:inline-block; line-height:0;"></div>
+        </div>
+        <div>
+          <div class="kv">…ou cole esta URL no app:</div>
+          <div class="url code" id="exposedUrl">—</div>
+          <div class="kv" style="margin-top:12px;">e digite o código <span class="muted">(rolante · renova em <span id="ttl">—</span>)</span>:</div>
+          <div class="bigcode" id="pairCode">——————</div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px;">
+        <button class="act" id="newCode">Novo código</button>
+        <span class="kv">Este será o único celular autorizado.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Dispositivos conectados</h2>
+    <div class="devs" id="devs"><span class="muted">Nenhum.</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Atividade ao vivo (o que o celular faz)</h2>
+    <div class="feed" id="feed"><span class="muted">Aguardando…</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Log de segurança (gate)</h2>
+    <div class="log" id="log"><span class="muted">—</span></div>
+  </div>
+</main>
+<script>
+const T = new URLSearchParams(location.search).get("t") || "";
+const H = { "x-copilot-token": T, "content-type": "application/json" };
+const $ = (id) => document.getElementById(id);
+let state = null;
+
+async function api(path, method = "GET", body) {
+  const r = await fetch(path + (path.includes("?") ? "&" : "?") + "t=" + encodeURIComponent(T), {
+    method, headers: H, body: body ? JSON.stringify(body) : undefined,
+  });
+  return r.json().catch(() => ({ ok: false }));
+}
+
+function fmtTime(ts) { return new Date(ts).toLocaleTimeString(); }
+
+let lastQr = "";
+const qrCache = {};
+function renderQrInto(boxId, target) {
+  const box = document.getElementById(boxId);
+  if (!box) return;
+  if (!target || typeof qrcode === "undefined") { box.innerHTML = '<span style="color:#888;font:11px sans-serif">—</span>'; return; }
+  if (qrCache[boxId] === target) return; // avoid re-rendering every poll
+  qrCache[boxId] = target;
+  try {
+    const qr = qrcode(0, "M");
+    qr.addData(target);
+    qr.make();
+    box.innerHTML = qr.createSvgTag({ cellSize: 5, margin: 1, scalable: true });
+    const svg = box.querySelector("svg");
+    if (svg) { svg.style.width = "180px"; svg.style.height = "180px"; }
+  } catch (e) {
+    box.innerHTML = '<span style="color:#888;font:11px sans-serif">QR indisponível</span>';
+  }
+}
+function renderQr(baseUrl, code) {
+  // Pairing QR: carries the rolling code so one scan auto-pairs a new phone.
+  const target = baseUrl ? baseUrl + (code ? (baseUrl.includes("?") ? "&" : "?") + "pair=" + code : "") : "";
+  renderQrInto("qr", target);
+}
+function renderQrReconnect(baseUrl) {
+  // Reconnect QR: plain URL, NO code — the already-registered phone re-auths itself.
+  renderQrInto("qrReconnect", baseUrl || "");
+}
+
+function renderStatus(s) {
+  state = s;
+  const exposed = s.mode !== "off";
+  $("modePillText").textContent = exposed ? ("exposto: " + s.mode) : "loopback (fechado)";
+  $("modePill").className = "pill " + (exposed ? "exposed" : "safe");
+  $("busyPill").classList.toggle("hide", !s.busy);
+
+  document.querySelectorAll(".mode-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.mode === s.mode);
+  });
+
+  const pinned = !!s.device;
+  $("pairOff").classList.toggle("hide", exposed);
+  // Once a device is pinned, pairing closes; show the pinned-device card instead.
+  $("pairPinned").classList.toggle("hide", !(exposed && pinned));
+  $("pairOn").classList.toggle("hide", !(exposed && !pinned));
+  if (exposed && pinned) {
+    $("pinnedName").textContent = s.device.name || "Celular";
+    $("pinnedConn").textContent = s.deviceConnected ? "🟢 conectado agora" : "⚪ offline";
+    // Always surface the current address so the registered phone can return (no code).
+    const baseUrl = s.exposedUrl || (s.lanUrls && s.lanUrls[0]) || "";
+    $("reconnectUrl").textContent = baseUrl || "(sem URL)";
+    const alts = (s.lanUrls || []).filter((u) => u && u !== baseUrl);
+    $("reconnectAlt").classList.toggle("hide", alts.length === 0);
+    if (alts.length) $("reconnectAltList").textContent = alts.join("   ·   ");
+    renderQrReconnect(baseUrl);
+  }
+  if (exposed && !pinned) {
+    const baseUrl = s.exposedUrl || (s.lanUrls && s.lanUrls[0]) || "";
+    $("exposedUrl").textContent = baseUrl || "(sem URL)";
+    $("pairCode").textContent = s.pairingCode || "——————";
+    $("ttl").textContent = s.pairingRotatesIn > 0 ? Math.ceil(s.pairingRotatesIn / 1000) + "s" : "agora";
+    renderQr(baseUrl, s.pairingCode);
+  }
+
+  const devs = s.devices.filter((d) => d.role === "mobile");
+  $("devs").innerHTML = devs.length
+    ? devs.map((d) => `<div class="item"><span class="tag">📱</span>${d.addr} <span class="muted">(${d.external ? "externo" : "local"})</span></div>`).join("")
+    : '<span class="muted">Nenhum.</span>';
+
+  $("log").innerHTML = (s.activity || []).map((a) =>
+    `<div class="item"><span class="muted">${fmtTime(a.t)}</span> <b>${a.kind}</b> <span class="muted">${a.detail}</span></div>`).join("") || '<span class="muted">—</span>';
+
+  renderAccess(s);
+}
+
+function modeStatLabel(mode, ms) {
+  if (mode === "lan") return ms === "ready" ? "✓ liberado" : "⚠ precisa admin 1×";
+  if (mode === "tailscale") return ms === "ready" ? "✓ conectado" : (ms === "needs_connect" ? "⚠ desconectado" : "⚠ não instalado");
+  if (mode === "public") return ms === "ready" ? "✓ pronto" : "↓ baixa auto";
+  return "";
+}
+function renderAccess(s) {
+  const ms = s.modeStatus || {};
+  for (const m of ["lan", "tailscale", "public"]) {
+    const el = $("mstat-" + m);
+    if (el) { el.textContent = modeStatLabel(m, ms[m]); el.className = "mstat " + (ms[m] === "ready" ? "ok" : "warn2"); }
+  }
+  if (s.provisioning) { $("provLine").textContent = "⏳ " + s.provisioning; $("provLine").classList.remove("hide"); }
+  else $("provLine").classList.add("hide");
+  $("netProfile").textContent = (s.caps && s.caps.profiles && s.caps.profiles[0]) || "—";
+
+  const caps = s.caps || { tailscale: {} };
+  const lanPortTxt = s.lanPort ? ("porta " + s.lanPort) : "uma porta automática";
+  let html = "";
+  if (ms.lan === "ready")
+    html += `<div class="setup-item muted"><b>Local (Wi-Fi):</b> ${lanPortTxt} liberada no Firewall ✓ <button class="act" data-act="fw-remove">remover regra</button></div>`;
+  else
+    html += `<div class="setup-item"><b>Local (Wi-Fi):</b> vai pedir <b>admin 1×</b> pra liberar ${lanPortTxt} no Firewall. <button class="act" data-act="fw-allow">Liberar agora</button></div>`;
+  if (ms.tailscale === "needs_install")
+    html += `<div class="setup-item"><b>Tailscale:</b> não instalado — instale (admin 1×): <span class="code">tailscale.com/download</span></div>`;
+  else if (ms.tailscale === "needs_connect")
+    html += `<div class="setup-item"><b>Tailscale:</b> instalado, mas desconectado — abra o app e faça login.</div>`;
+  else
+    html += `<div class="setup-item muted"><b>Tailscale:</b> conectado ✓ <span class="code">${caps.tailscale.ip || ""}</span></div>`;
+  const pub = caps.warp && caps.warp.connected
+    ? `<div class="setup-item"><b>URL pública:</b> ⚠ Cloudflare WARP ativo conflita com o túnel. ${s.warpPaused ? "<b>WARP pausado</b> p/ o túnel ✓" : "Vou oferecer <b>pausar o WARP</b> ao armar (retomo ao desligar)."}</div>`
+    : `<div class="setup-item muted"><b>URL pública:</b> ${ms.public === "ready" ? "cloudflared pronto ✓ (sem admin)" : "cloudflared baixa automático na 1ª vez (sem admin)"}</div>`;
+  html += pub;
+  const n = s.network;
+  if (n) {
+    if (n.intercepted)
+      html += `<div class="setup-item"><b>Rede:</b> ⚠ TLS interceptado (${esc(n.interceptionIssuer || "CA corporativa")}) — usando o CA do sistema (${n.systemCaCount} CAs) p/ funcionar.</div>`;
+    else if (!n.online)
+      html += `<div class="setup-item"><b>Rede:</b> ⚠ sem conectividade de saída detectada.</div>`;
+    else
+      html += `<div class="setup-item muted"><b>Rede:</b> ok ✓ (${n.systemCaCount} CAs do sistema; edge e download acessíveis)</div>`;
+  }
+  $("setupBox").innerHTML = html;
+  $("setupBox").classList.remove("hide");
+}
+
+let feedGroup = null; // current open tool-group card in the feed, or null after a break
+function breakFeedGroup() { feedGroup = null; }
+function ensureFeedGroup() {
+  if (feedGroup) return feedGroup;
+  const feed = $("feed");
+  if (feed.querySelector(".muted")) feed.innerHTML = "";
+  const el = document.createElement("div");
+  el.className = "agent-item collapsed";
+  const head = document.createElement("div");
+  head.className = "ahead";
+  head.innerHTML = '<span class="achev">▸</span><span>🤖</span><span class="asum">trabalhando…</span><span class="acnt"></span>';
+  const body = document.createElement("div");
+  body.className = "atools";
+  head.addEventListener("click", () => {
+    const c = el.classList.toggle("collapsed");
+    head.querySelector(".achev").textContent = c ? "▸" : "▾";
+  });
+  el.appendChild(head); el.appendChild(body);
+  feed.appendChild(el);
+  feedGroup = { el, head, body, n: 0 };
+  return feedGroup;
+}
+function feedSummary(g) {
+  const names = [...g.body.children].map((r) => r.dataset.name).filter(Boolean);
+  const uniq = [...new Set(names)];
+  g.head.querySelector(".asum").textContent =
+    uniq.length === 0 ? "trabalhando…" : (uniq.length <= 3 ? uniq.join(" · ") : (uniq.length + " ferramentas"));
+  g.head.querySelector(".acnt").textContent = g.n > 1 ? String(g.n) : "";
+}
+function feedTool(ev) {
+  const g = ensureFeedGroup();
+  if (ev.type === "tool_start") {
+    const row = document.createElement("div");
+    row.className = "atool running";
+    row.dataset.name = ev.tool || "tool";
+    row.dataset.id = ev.id || ("t" + g.n);
+    row.textContent = "🔧 " + (ev.tool || "tool") + "…";
+    g.body.appendChild(row); g.n++;
+  } else {
+    let row = (ev.id && [...g.body.children].find((r) => r.dataset.id === ev.id)) ||
+      [...g.body.children].reverse().find((r) => r.classList.contains("running") && (!ev.tool || r.dataset.name === ev.tool)) || null;
+    if (!row) { row = document.createElement("div"); row.dataset.name = ev.tool || "tool"; g.body.appendChild(row); g.n++; }
+    row.className = "atool " + (ev.ok ? "ok" : "fail");
+    row.textContent = (ev.ok ? "✅ " : "⚠️ ") + (ev.tool || row.dataset.name || "tool");
+  }
+  feedSummary(g);
+  $("feed").scrollTop = $("feed").scrollHeight;
+}
+function pushFeed(ev) {
+  if (ev.type === "tool_start" || ev.type === "tool_done") { feedTool(ev); return; }
+  if (ev.type === "idle") return; // drop loose idle noise from the feed
+  breakFeedGroup();
+  const feed = $("feed");
+  if (feed.querySelector(".muted")) feed.innerHTML = "";
+  const el = document.createElement("div");
+  el.className = "item t-" + ev.type;
+  let label = ev.type, body = "";
+  if (ev.type === "user") { label = "🧑 " + (ev.source || "user"); body = ev.content; }
+  else if (ev.type === "assistant") { label = "🤖 copilot"; body = ev.content; }
+  else if (ev.type === "permission") { label = "🔐 permissão: " + ev.kind; }
+  else if (ev.type === "error") { label = "❌ erro"; body = ev.message; }
+  else return;
+  el.innerHTML = `<span class="tag">${label}</span>${body ? (body.length > 220 ? body.slice(0, 220) + "…" : body) : ""}`;
+  feed.appendChild(el);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+async function setMode(mode) {
+  $("modeErr").classList.add("hide");
+  let confirm = false, pauseWarp = false;
+  if (mode === "public") {
+    if (!window.confirm("Modo URL pública expõe o agente à INTERNET via túnel. Confirmar?")) return;
+    confirm = true;
+    if (state && state.caps && state.caps.warp && state.caps.warp.connected) {
+      pauseWarp = window.confirm("Cloudflare WARP está ativo e conflita com o túnel.\n\nPausar o WARP enquanto o túnel roda? (Eu retomo automaticamente ao desligar.)\n\nOK = pausar WARP · Cancelar = tentar mesmo assim");
+    }
+  }
+  const r = await api("/mode", "POST", { mode, confirm, pauseWarp });
+  if (!r.ok) { $("modeErr").textContent = r.error || "falha"; $("modeErr").classList.remove("hide"); }
+  if (r.snapshot) renderStatus(r.snapshot);
+}
+
+document.querySelectorAll(".mode-btn").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+$("newCode").addEventListener("click", async () => { const r = await api("/pair/new", "POST", {}); if (r.snapshot) renderStatus(r.snapshot); });
+$("forgetDev").addEventListener("click", async () => { if (!window.confirm("Esquecer o celular pareado? Você precisará parear de novo (outro aparelho poderá ser registrado).")) return; const r = await api("/device/forget", "POST", {}); if (r.snapshot) renderStatus(r.snapshot); });
+$("copyUrl").addEventListener("click", async () => {
+  const u = $("reconnectUrl").textContent || "";
+  if (!u || u === "—" || u === "(sem URL)") return;
+  try { await navigator.clipboard.writeText(u); const b = $("copyUrl"); b.textContent = "Copiado!"; setTimeout(() => { b.textContent = "Copiar URL"; }, 1500); } catch {}
+});
+$("revalidate").addEventListener("click", async (e) => { e.preventDefault(); $("revalidate").textContent = "revalidando…"; await api("/capabilities", "POST", {}); const r = await api("/network", "POST", {}); if (r.snapshot) renderStatus(r.snapshot); $("revalidate").textContent = "revalidar"; });
+$("setupBox").addEventListener("click", async (e) => {
+  const act = e.target.getAttribute && e.target.getAttribute("data-act");
+  if (!act) return;
+  if (act === "fw-allow") {
+    e.target.disabled = true; e.target.textContent = "aguardando UAC…";
+    const r = await api("/firewall/allow", "POST", {});
+    if (r.snapshot) renderStatus(r.snapshot);
+    if (r.cancelled) alert("UAC cancelado — a regra não foi criada.");
+    else if (!r.ok) alert("Falha ao criar a regra: " + (r.error || ""));
+  } else if (act === "fw-remove") {
+    if (!window.confirm("Remover a regra de Firewall do modo Local?")) return;
+    e.target.disabled = true; e.target.textContent = "aguardando UAC…";
+    const r = await api("/firewall/remove", "POST", {});
+    if (r.snapshot) renderStatus(r.snapshot);
+  }
+});
+
+function connect() {
+  const es = new EventSource("/events?role=desktop&t=" + encodeURIComponent(T));
+  es.onmessage = (m) => {
+    let ev; try { ev = JSON.parse(m.data); } catch { return; }
+    if (ev.type === "hello") { if (ev.snapshot) renderStatus(ev.snapshot); breakFeedGroup(); (ev.recent || []).forEach(pushFeed); }
+    else if (ev.type === "devices" || ev.type === "mode" || ev.type === "provisioning") { if (ev.snapshot) renderStatus(ev.snapshot); }
+    else if (ev.type === "busy") { $("busyPill").classList.toggle("hide", !ev.busy); }
+    else pushFeed(ev);
+  };
+  es.onerror = () => {};
+}
+
+async function init() {
+  const r = await api("/status");
+  if (r.ok) renderStatus(r.snapshot);
+  connect();
+  setInterval(async () => { const s = await api("/status"); if (s.ok) renderStatus(s.snapshot); }, 5000);
+}
+init();
+</script>
+</body>
+</html>
