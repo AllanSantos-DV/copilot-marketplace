@@ -43,7 +43,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.1.7";
+const CURRENT_VERSION = "1.1.8";
 const UPDATE_RAW_BASE = (process.env.VOICE_UPDATE_BASE || "https://github.com/AllanSantos-DV/copilot-voice/releases/latest/download/").replace(/\/?$/, "/");
 const RUNNING_AS_PLUGIN = /[\\/]installed-plugins[\\/]/.test(EXT_DIR);
 const UPDATE_DISABLED = process.env.VOICE_UPDATE_DISABLED === "1" || RUNNING_AS_PLUGIN;
@@ -62,9 +62,14 @@ const servers = new Map();
 let preferredPort = 0;
 let sharedToken = "";
 let primaryFork = false;
+const DEAD_PRIMARY_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EPIPE", "ENOTFOUND"]);
+let reclaiming = false;
+let lastReclaimAttempt = 0;
+let promotedServer = null;
 
 const forks = new Map(); 
 let activeSid = null; 
+let lastTtsPreviewSid = null;
 let turnOwnerSid = null; 
 const pendingReplyAudio = new Map(); 
 let myBaseUrl = null; 
@@ -76,8 +81,8 @@ function canonicalBase() {
     const p = preferredPort || readSavedPort();
     return p ? `http://127.0.0.1:${p}/` : null;
 }
-function withSid(u) {
-    let out = u + (u.includes("?") ? "&" : "?") + "sid=" + encodeURIComponent(mySid());
+function withSid(u, sid = mySid()) {
+    let out = u + (u.includes("?") ? "&" : "?") + "sid=" + encodeURIComponent(sid);
     if (sharedToken) out += "&t=" + encodeURIComponent(sharedToken);
     return out;
 }
@@ -107,6 +112,7 @@ const DEFAULT_SETTINGS = {
     wakeWord: false,
     wakePhrase: "escuta jarvis",
     handsfree: false,
+    micDevice: null,
 };
 let settings = { ...DEFAULT_SETTINGS };
 
@@ -139,6 +145,7 @@ let stabilityTimer = null;
 let intentionalRestart = false;
 let lastGpuStatus = null;
 let lastDevice = "cpu";
+let lastMics = { devices: [], current: null, default: null };
 
 let pendingVoiceTurn = false;
 let voiceInstructionPending = false; 
@@ -146,7 +153,7 @@ let spokenCheckpoints = new Set();
 let latestReply = "";
 let lastSpokenContent = "";
 let idleFallback = null;
-const IDLE_FALLBACK_MS = 180000; 
+const IDLE_FALLBACK_MS = 15000; 
 let ttsSeq = 0;
 const pendingTts = new Map(); 
 let _phase = "boot"; 
@@ -210,6 +217,44 @@ async function saveSettings() {
 }
 
 const VOICE_STATE_TTL = 600000; 
+const VOICE_TURNS_FILE = join(ARTIFACTS, "voice-turns.json");
+const VOICE_TURN_TTL = 600000;
+const SPEAK_DEDUP_MS = 20000;
+const recentSpoken = new Map();
+
+function readTurns() {
+    try { return JSON.parse(readFileSync(VOICE_TURNS_FILE, "utf8")) || {}; } catch { return {}; }
+}
+function writeTurns(m) {
+    try { writeFileSync(VOICE_TURNS_FILE, JSON.stringify(m)); } catch {  }
+}
+function markTurn(sid) {
+    if (!sid) return;
+    const m = readTurns();
+    m[String(sid)] = Date.now();
+    writeTurns(m);
+}
+function clearTurn(sid) {
+    if (!sid) return;
+    const m = readTurns();
+    if (m[String(sid)] != null) { delete m[String(sid)]; writeTurns(m); }
+}
+function sessionTurnPending(sid) {
+    if (!sid) return false;
+    const t = readTurns()[String(sid)];
+    return !!t && (Date.now() - t) < VOICE_TURN_TTL;
+}
+function hasPendingTurn() {
+    return pendingVoiceTurn || sessionTurnPending(mySid());
+}
+function alreadySpoke(sid, text) {
+    const key = String(sid || "");
+    const prev = recentSpoken.get(key);
+    const now = Date.now();
+    if (prev && prev.text === text && (now - prev.ts) < SPEAK_DEDUP_MS) return true;
+    recentSpoken.set(key, { text, ts: now });
+    return false;
+}
 
 function saveVoiceState() {
     try {
@@ -262,6 +307,7 @@ function sanitizeSettings(b) {
     if (typeof b.wakePhrase === "string" && b.wakePhrase.trim())
         out.wakePhrase = b.wakePhrase.trim().slice(0, 60);
     if (typeof b.handsfree === "boolean") out.handsfree = b.handsfree;
+    if (b.micDevice === null || typeof b.micDevice === "number") out.micDevice = b.micDevice;
     return out;
 }
 
@@ -276,10 +322,10 @@ function broadcast(obj) {
 }
 
 function broadcastTo(sid, obj) {
-    if (!sid) return broadcast(obj);
+    if (!sid) { dbg("broadcastTo: empty sid, dropping event " + (obj && obj.type)); return; }
     const line = `data: ${JSON.stringify(obj)}\n\n`;
     for (const [res, csid] of sseClients) {
-        if (csid && csid !== sid) continue;
+        if (csid !== sid) continue;
         try {
             res.write(line);
         } catch {
@@ -418,6 +464,7 @@ function startWorker() {
         VOICE_LANG: settings.language,
         VOICE_TTS_MODEL: settings.ttsVoice,
         VOICE_WAKE_PHRASES: settings.wakePhrase || "escuta jarvis",
+        VOICE_MIC_DEVICE: settings.micDevice == null ? "" : String(settings.micDevice),
         PYTHONIOENCODING: "utf-8",
         PYTHONUNBUFFERED: "1",
     };
@@ -611,6 +658,10 @@ function onWorkerEvent(ev) {
             lastGpuStatus = ev;
             broadcast({ type: "gpu", status: ev });
             break;
+        case "mics":
+            lastMics = { devices: ev.devices || [], current: ev.current ?? null, default: ev.default ?? null };
+            broadcast({ type: "mics", ...lastMics });
+            break;
         case "gpu_setup":
             broadcast({ type: "gpuSetup", ok: !!ev.ok, msg: ev.msg,
                         needsCuda: !!ev.needsCuda, restart: !!ev.restart });
@@ -667,6 +718,7 @@ async function handleVoiceTranscript(text) {
         settings.authorSummary !== false || settings.cueCheckpoints !== false;
     spokenCheckpoints = new Set();
     saveVoiceState();
+    markTurn(mySid());
     notifyCanvas({ type: "status", state: "thinking" });
     if (settings.cueStart !== false) {
         speakCue("Ok, comecei a trabalhar na sua solicitação.", "start").catch(() => {});
@@ -685,7 +737,7 @@ async function handleVoiceTranscript(text) {
 }
 
 function onAssistantMessage(event) {
-    if (!pendingVoiceTurn && !(primaryFork && settings.speakAll)) return;
+    if (!hasPendingTurn() && !(primaryFork && settings.speakAll)) return;
     _phase = "reply:msg";
     dbg(
         `onAssistantMessage: agentId=${event?.agentId ?? "(root)"} len=${
@@ -702,7 +754,7 @@ function onAssistantMessage(event) {
 }
 
 function maybeSpeakCheckpoints(content) {
-    if (!pendingVoiceTurn || settings.cueCheckpoints === false) return;
+    if (!hasPendingTurn() || settings.cueCheckpoints === false) return;
     const re = /📍[ \t]*([^\n]+)/g;
     let m;
     while ((m = re.exec(content)) !== null) {
@@ -714,7 +766,7 @@ function maybeSpeakCheckpoints(content) {
 }
 
 function onIdle(event) {
-    if (!pendingVoiceTurn && !(primaryFork && settings.speakAll)) return; 
+    if (!hasPendingTurn() && !(primaryFork && settings.speakAll)) return; 
     _phase = "idle-event";
     dbg(`onIdle: agentId=${event?.agentId ?? "(root)"} pendingVoiceTurn=${pendingVoiceTurn} speakAll=${settings.speakAll}`);
     if (event?.agentId) return;
@@ -728,7 +780,7 @@ function armIdleFallback() {
 
 function onIdleFallbackFired() {
     idleFallback = null;
-    if (pendingVoiceTurn && settings.authorSummary && latestReply && !latestReply.includes(VOICE_SENTINEL)) {
+    if (hasPendingTurn() && settings.authorSummary && latestReply && !latestReply.includes(VOICE_SENTINEL)) {
         dbg("idleFallback: no 🔊 sentinel yet — re-arming instead of speaking partial reply");
         armIdleFallback();
         return;
@@ -746,7 +798,7 @@ async function flushSpeech() {
     const content = latestReply;
     dbg(`flushSpeech: hasContent=${!!content} pendingVoiceTurn=${pendingVoiceTurn} speakAll=${settings.speakAll} sameAsLast=${content === lastSpokenContent}`);
     if (!content) return;
-    if (!pendingVoiceTurn && !settings.speakAll) return;
+    if (!hasPendingTurn() && !settings.speakAll) return;
     if (content === lastSpokenContent) {
         pendingVoiceTurn = false;
         clearVoiceState();
@@ -755,6 +807,7 @@ async function flushSpeech() {
     lastSpokenContent = content;
     pendingVoiceTurn = false;
     clearVoiceState();
+    clearTurn(mySid());
 
     const { spoken, full } = makeSpoken(content);
     let speakText = settings.fullRead ? full : spoken;
@@ -778,23 +831,26 @@ async function speakToCanvas(sid, spoken, full, cue) {
         broadcastTo(sid, { type: "cue", kind: cue, spoken });
         try {
             const wav = await synthesize(spoken);
-            if (canPlayInSession(sid)) broadcastTo(sid, { type: "cue", kind: cue, spoken, audio: "/tts/" + wav });
+            if (sessionHasClient(sid)) broadcastTo(sid, { type: "cue", kind: cue, spoken, audio: "/tts/" + wav });
         } catch (e) {
             dbg("speakToCanvas cue tts failed: " + (e && e.message));
         }
+        return;
+    }
+    if (alreadySpoke(sid, spoken)) {
+        dbg(`dedup: ignoring duplicate reply for sid=${sid}`);
         return;
     }
     broadcastTo(sid, { type: "reply", spoken, full });
     try {
         const wav = await synthesize(spoken);
         const msg = { type: "reply", spoken, full, audio: "/tts/" + wav };
-        if (canPlayInSession(sid)) {
-            clearPendingReply(sid);
+        writePendingReply(sid, { spoken, full, wav, ts: Date.now() });
+        if (sessionHasClient(sid)) {
             broadcastTo(sid, msg);
         } else {
             pendingReplyAudio.set(sid, msg);
-            writePendingReply(sid, { spoken, full, wav, ts: Date.now() });
-            dbg(`held reply audio for sid=${sid} (active=${activeSid})`);
+            dbg(`held reply audio for sid=${sid} (no client connected)`);
         }
     } catch (e) {
         log("tts failed: " + e.message);
@@ -804,6 +860,12 @@ async function speakToCanvas(sid, spoken, full, cue) {
 
 function canPlayInSession(sid) {
     return !sid || !activeSid || sid === activeSid;
+}
+
+function sessionHasClient(sid) {
+    if (!sid) return true;
+    for (const csid of sseClients.values()) if (csid === sid) return true;
+    return false;
 }
 
 async function speakCue(text, kind) {
@@ -905,7 +967,7 @@ async function synthesize(text) {
 async function previewVoice() {
     try {
         const wav = await synthesize("Voz alterada. Agora estou falando assim.");
-        broadcast({ type: "voicePreview", audio: "/tts/" + wav });
+        if (lastTtsPreviewSid) broadcastTo(lastTtsPreviewSid, { type: "voicePreview", audio: "/tts/" + wav });
     } catch (e) {
         dbg("voice preview failed: " + (e && e.message));
     }
@@ -1054,7 +1116,12 @@ function httpPostJson(baseUrl, path, body) {
                     res.on("end", () => resolve(res.statusCode >= 200 && res.statusCode < 300));
                 },
             );
-            req.on("error", () => resolve(false));
+            req.on("error", (e) => {
+                if (!primaryFork && e && DEAD_PRIMARY_CODES.has(e.code) && baseUrl === canonicalBase()) {
+                    reclaimPrimaryIfOrphaned("forward " + e.code).catch(() => { });
+                }
+                resolve(false);
+            });
             req.write(data);
             req.end();
         } catch {
@@ -1101,6 +1168,12 @@ async function handleRequest(req, res) {
         return;
     }
 
+    if (req.method === "GET" && path === "/ping") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, primary: primaryFork, sid: mySid() }));
+        return;
+    }
+
     if (req.method === "GET" && (path === "/" || path === "/index.html")) {
         try {
             const html = await readFile(IFRAME_FILE, "utf8");
@@ -1115,6 +1188,11 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && path === "/events") {
         const sid = url.searchParams.get("sid") || "";
+        if (!sid) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: "missing sid" }));
+            return;
+        }
         res.writeHead(200, {
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
@@ -1198,6 +1276,12 @@ async function handleRequest(req, res) {
                 pendingReplyAudio.delete(activeSid);
                 broadcastTo(activeSid, held);
                 dbg(`flushed held reply -> sid=${activeSid}`);
+            } else {
+                const _pr = readPendingReply(activeSid);
+                if (_pr && _pr.wav && existsSync(join(TTS_DIR, _pr.wav))) {
+                    broadcastTo(activeSid, { type: "reply", spoken: _pr.spoken, full: _pr.full, audio: "/tts/" + _pr.wav });
+                    dbg(`re-delivered persisted reply on focus -> sid=${activeSid}`);
+                }
             }
         }
         dbg(`focus -> activeSid=${activeSid}`);
@@ -1226,6 +1310,7 @@ async function handleRequest(req, res) {
         const body = await readBody(req);
         const spoken = String((body && body.spoken) || "").trim();
         const sid = body && body.sid ? String(body.sid) : "";
+        if (!sid) return sendJson(res, { ok: false, error: "missing sid" });
         if (spoken) speakToCanvas(sid, spoken, body.full, body.cue);
         return sendJson(res, { ok: !!spoken });
     }
@@ -1257,6 +1342,7 @@ async function handleRequest(req, res) {
             workerSend({ cmd: "set", model: settings.model, language: settings.language });
         }
         if (settings.ttsVoice !== prevTtsVoice) {
+            lastTtsPreviewSid = body && body.sid ? String(body.sid) : activeSid;
             workerSend({ cmd: "tts_voice", voice: settings.ttsVoice });
         }
         if (settings.wakeWord !== prevWake || settings.wakePhrase !== prevPhrase) {
@@ -1276,6 +1362,22 @@ async function handleRequest(req, res) {
         const r = await checkForUpdate({ force: true });
         const ok = r.status !== "error" && r.status !== "disabled";
         return sendJson(res, { ok, status: r.status, version: r.version, current: CURRENT_VERSION, error: r.error });
+    }
+
+    if (req.method === "GET" && path === "/mics") {
+        ensureWorker();
+        workerSend({ cmd: "list_mics" });
+        return sendJson(res, { ok: true, ...lastMics });
+    }
+
+    if (req.method === "POST" && path === "/set-mic") {
+        const body = await readBody(req);
+        const dev = body && (body.device === null || typeof body.device === "number") ? body.device : null;
+        settings.micDevice = dev;
+        await saveSettings();
+        ensureWorker();
+        workerSend({ cmd: "set_mic", device: dev });
+        return sendJson(res, { ok: true, device: dev });
     }
 
     if (req.method === "GET" && path === "/gpu-status") {
@@ -1363,8 +1465,8 @@ function listenOnce(server, port) {
     });
 }
 
-async function startServer() {
-    const server = createServer((req, res) => {
+function makeVoiceServer() {
+    return createServer((req, res) => {
         handleRequest(req, res).catch((e) => {
             log("request error: " + e.message);
             try {
@@ -1374,6 +1476,10 @@ async function startServer() {
             }
         });
     });
+}
+
+async function startServer() {
+    const server = makeVoiceServer();
 
     let bound = 0;
     const canonical = preferredPort || readSavedPort();
@@ -1416,9 +1522,69 @@ async function startServer() {
         if (!primary) {
             const t = setInterval(registerSelf, 15000);
             if (t.unref) t.unref();
+            const pp = setInterval(probePrimary, 7000 + Math.floor(Math.random() * 3000));
+            if (pp.unref) pp.unref();
         }
     }
     return { server, url: `http://127.0.0.1:${bound}/`, primary };
+}
+
+async function reclaimPrimaryIfOrphaned(reason) {
+    if (primaryFork || reclaiming) return false;
+    if (Date.now() - lastReclaimAttempt < 2000) return false;
+    reclaiming = true;
+    lastReclaimAttempt = Date.now();
+    try {
+        const canonical = preferredPort || readSavedPort();
+        if (!canonical) return false;
+        sharedToken = sharedToken || readSavedToken() || randomBytes(16).toString("hex");
+        const server = makeVoiceServer();
+        try {
+            await listenOnce(server, canonical);
+        } catch (e) {
+            if (e && e.code === "EADDRINUSE") {
+                sharedToken = readSavedToken() || sharedToken;
+                return false;
+            }
+            try { server.close(); } catch { }
+            return false;
+        }
+        promotedServer = server;
+        primaryFork = true;
+        preferredPort = canonical;
+        myBaseUrl = `http://127.0.0.1:${canonical}/`;
+        savePort(canonical);
+        forks.set(mySid(), myBaseUrl);
+        log(`reclaimPrimary: promoted to primary on ${canonical} (${reason})`);
+        broadcast({ type: "worker", state: "loading", msg: "Reassumindo motor de voz…" });
+        ensureWorker();
+        return true;
+    } finally {
+        reclaiming = false;
+    }
+}
+
+function probePrimary() {
+    if (primaryFork) return;
+    const base = canonicalBase();
+    if (!base) return;
+    let done = false;
+    try {
+        const u = new URL("/ping", base);
+        const req = httpGet(
+            { hostname: u.hostname, port: u.port, path: "/ping", timeout: 2500 },
+            (res) => {
+                res.on("data", () => { });
+                res.on("end", () => { });
+            },
+        );
+        req.on("error", (e) => {
+            if (done) return;
+            done = true;
+            if (e && DEAD_PRIMARY_CODES.has(e.code)) reclaimPrimaryIfOrphaned("probe " + e.code).catch(() => { });
+        });
+        req.on("timeout", () => { try { req.destroy(); } catch { } });
+    } catch { }
 }
 
 const canvas = createCanvas({
@@ -1486,6 +1652,8 @@ const canvas = createCanvas({
     ],
     open: async (ctx) => {
         await mkdir(ARTIFACTS, { recursive: true }).catch(() => {});
+        const panelSid = String((ctx && ctx.sessionId) || mySid());
+        if (!(ctx && ctx.sessionId)) log("open: ctx.sessionId ausente; usando mySid() como fallback — sid do painel pode ficar errado");
         let entry = servers.get(ctx.instanceId);
         if (!entry) {
             entry = await startServer();
@@ -1496,12 +1664,12 @@ const canvas = createCanvas({
             checkForUpdate().catch(() => {});
             return {
                 title: "Voz",
-                url: withSid(entry.url),
+                url: withSid(entry.url, panelSid),
                 status: workerReady ? "Pronto" : "Iniciando…",
             };
         }
         const canonical = readSavedPort();
-        const url = withSid(canonical ? `http://127.0.0.1:${canonical}/` : entry.url);
+        const url = withSid(canonical ? `http://127.0.0.1:${canonical}/` : entry.url, panelSid);
         return { title: "Voz", url, status: "Pronto" };
     },
     onClose: async (ctx) => {

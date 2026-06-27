@@ -239,7 +239,27 @@ TTS_MODEL = (os.environ.get("VOICE_TTS_MODEL", "vits-piper-pt_BR-miro-high").str
              or "vits-piper-pt_BR-miro-high")
 TTS_GH_BASE = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models"
 
-MIC_SILENCE_PEAK = 0.05
+# Push-to-talk energy gate: discard an utterance whose max peak stays below this
+# (suppresses Whisper hallucinations on silence, e.g. "E aí Obrigado"). Tuned to
+# sit between the noise floor (~0.0026) and quiet-speech peaks (~0.0038-0.006) on
+# low-gain mics; raising it discards quiet real speech, lowering it risks phantom
+# transcripts on noise. Override via VOICE_MIC_SILENCE_PEAK.
+MIC_SILENCE_PEAK = float(os.environ.get("VOICE_MIC_SILENCE_PEAK", "0.0032") or "0.0032")
+
+def _parse_mic_env():
+    v = os.environ.get("VOICE_MIC_DEVICE", "").strip()
+    if not v:
+        return None
+    try:
+        return int(v)
+    except ValueError:
+        return None
+
+SELECTED_MIC = _parse_mic_env()
+
+def set_selected_mic(dev):
+    global SELECTED_MIC
+    SELECTED_MIC = (int(dev) if dev is not None else None)
 
 WAKE_PHRASES = [p.strip() for p in
                 os.environ.get("VOICE_WAKE_PHRASES", "escuta jarvis").split("|")
@@ -1293,7 +1313,8 @@ class AudioHub:
         import sounddevice as sd
         self._stream = sd.InputStream(
             samplerate=SAMPLE_RATE, channels=1, dtype="float32",
-            blocksize=WAKE_BLOCK, callback=self._callback)
+            blocksize=WAKE_BLOCK, callback=self._callback,
+            device=SELECTED_MIC)
         self._stream.start()
 
     def _ensure_closed(self):
@@ -1305,6 +1326,14 @@ class AudioHub:
         except Exception as exc:
             log(f"hub stream close error: {exc}")
         self._stream = None
+
+    def reopen(self):
+        """Reabre o stream no dispositivo atual (apos troca de microfone)."""
+        with self._lock:
+            keep = self._rec or self._wake_on
+            self._ensure_closed()
+            if keep:
+                self._ensure_open()
 
     def start_record(self):
         """Begin push-to-talk. If wake was listening the stream is already open,
@@ -1426,12 +1455,47 @@ def detect_mic():
     microfone utilizável — a UI então bloqueia a gravação e mostra a causa."""
     try:
         import sounddevice as sd
-        d = sd.query_devices(kind="input")
+        if SELECTED_MIC is not None:
+            d = sd.query_devices(SELECTED_MIC, kind="input")
+        else:
+            d = sd.query_devices(kind="input")
         if not d or int(d.get("max_input_channels", 0)) < 1:
             return False, "", "Nenhum microfone de entrada disponível."
         return True, str(d.get("name", "") or ""), ""
     except Exception as exc:
         return False, "", f"Microfone indisponível: {exc}"
+
+
+def list_mics():
+    """Lista os microfones de entrada (deduplicados por nome), marcando o atual
+    e o padrão do sistema, para o usuário escolher na UI."""
+    try:
+        import sounddevice as sd
+    except Exception as exc:
+        return {"devices": [], "current": SELECTED_MIC, "default": None, "error": str(exc)}
+    default_in = None
+    try:
+        dd = sd.default.device
+        default_in = int(dd[0]) if hasattr(dd, "__getitem__") else int(dd)
+    except Exception:
+        default_in = None
+    out, seen = [], set()
+    try:
+        devs = sd.query_devices()
+    except Exception as exc:
+        return {"devices": [], "current": SELECTED_MIC, "default": default_in, "error": str(exc)}
+    for i, d in enumerate(devs):
+        if int(d.get("max_input_channels", 0)) < 1:
+            continue
+        name = str(d.get("name", "") or "").strip()
+        key = name.lower()
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        out.append({"index": i, "name": name,
+                    "channels": int(d.get("max_input_channels", 0)),
+                    "is_default": (default_in is not None and i == default_in)})
+    return {"devices": out, "current": SELECTED_MIC, "default": default_in}
 
 
 def mic_monitor():
@@ -1465,6 +1529,7 @@ def main():
     emit({"event": "gpu_status", **gpu_status()})
     _mok, _mname, _mreason = detect_mic()
     emit({"event": "mic", "ok": _mok, "name": _mname, "reason": _mreason})
+    emit({"event": "mics", **list_mics()})
     threading.Thread(target=mic_monitor, daemon=True).start()
     log(f"ready (model={state['model']}, language={state['language']}, device={EFFECTIVE_PROVIDER})")
 
@@ -1521,6 +1586,17 @@ def main():
                 hub.cancel_record()
             elif cmd == "ping":
                 emit({"event": "pong"})
+            elif cmd == "list_mics":
+                emit({"event": "mics", **list_mics()})
+            elif cmd == "set_mic":
+                set_selected_mic(msg.get("device"))
+                try:
+                    hub.reopen()
+                except Exception as exc:
+                    log(f"reopen after set_mic failed: {exc}")
+                _mok, _mname, _mreason = detect_mic()
+                emit({"event": "mic", "ok": _mok, "name": _mname, "reason": _mreason})
+                emit({"event": "mics", **list_mics()})
             elif cmd == "set":
                 new_lang = (msg.get("language") or state["language"]).strip()
                 new_model = (msg.get("model") or state["model"]).strip()
