@@ -1,7 +1,7 @@
 {
   "name": "copilot-mobile",
-  "version": "0.1.4",
-  "description": "Controle o agente local do GitHub Copilot App pelo celular, com transporte selecionável (off/lan/tailscale/public) e o gate na máquina.",
+  "version": "0.2.0",
+  "description": "Bridge mínima do copilot-mobile: injeta o 🔊 (resumo falado) e detecta drift celular→PC na sessão viva. Transporte, pareamento e o painel de configuração vivem no daemon apartado (aberto pelo ícone da bandeja).",
   "type": "module",
   "main": "extension.mjs",
   "private": true,
@@ -11,9 +11,6 @@
   },
   "copilot": {
     "extension": {
-      "type": "canvas",
-      "id": "copilot-mobile",
-      "displayName": "Mobile",
       "entry": "extension.mjs"
     }
   },
@@ -22,8 +19,6 @@
   },
   "files": [
     "extension.mjs",
-    "access.mjs",
-    "desktop.html",
-    "qrcode.min.js"
+    "drift.mjs"
   ]
 }
