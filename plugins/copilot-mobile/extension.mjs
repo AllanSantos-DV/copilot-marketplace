@@ -20,6 +20,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { readFileSync, appendFileSync, mkdirSync } from "node:fs";
 import { decidePhoneDrift, driftAgentContext } from "./drift.mjs";
+import { ensureDaemonInstalled } from "./bootstrap.mjs";
 
 const SELF_SESSION_ID = process.env.SESSION_ID || "";
 const DAEMON_HOME = process.env.COPILOT_DAEMON_HOME || join(homedir(), ".copilot-mobile-daemon");
@@ -106,3 +107,7 @@ try {
 } catch (e) { dbg("baseline getEvents failed: " + (e?.message || e)); }
 
 dbg(`bridge ready: session=${SELF_SESSION_ID || "(none)"} baselineHeadUsers=${appHeadUsers} armed=${daemonArmed()}`);
+
+// First-run provisioning of the standalone daemon (download prebuilt + tray autostart). Detached and
+// idempotent: returns fast once installed, never blocks the turn, serialized across forks by a lock.
+ensureDaemonInstalled().catch((e) => dbg("ensureDaemonInstalled error: " + (e?.message || e)));

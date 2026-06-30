@@ -1,7 +1,7 @@
 {
   "name": "copilot-mobile",
-  "version": "0.2.0",
-  "description": "Bridge minima do copilot-mobile: injeta o resumo falado (audio pt-BR no celular) e avisa quando o celular adicionou turnos que a sessao aberta no app ainda nao tem (drift). Transporte (off/LAN/Tailscale/publico), pareamento e o painel de configuracao ficam no daemon apartado, aberto por um icone na bandeja, funcionando com o app fechado.",
+  "version": "0.3.0",
+  "description": "Controle o agente do GitHub Copilot pelo celular. Instale so este plugin: na 1a execucao ele provisiona sozinho o daemon apartado (baixa a release ja buildada, sem build e sem token) e cria um icone na bandeja para configurar (off/LAN/Tailscale/publico, pareamento por QR) e que funciona com o app fechado. A extensao em si so injeta o resumo falado (audio pt-BR) e avisa quando o celular tem turnos que a sessao aberta ainda nao sincronizou (drift).",
   "author": {
     "name": "Allan Santos",
     "url": "https://github.com/AllanSantos-DV"
@@ -9,7 +9,7 @@
   "homepage": "https://github.com/AllanSantos-DV/copilot-marketplace",
   "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
   "license": "MIT",
-  "keywords": ["mobile", "celular", "voz", "tts", "audio", "pt-BR", "drift", "sincronizacao", "daemon", "tray"],
+  "keywords": ["mobile", "celular", "voz", "tts", "audio", "pt-BR", "drift", "daemon", "tray", "tailscale"],
   "category": "productivity",
   "extensions": ["."]
 }

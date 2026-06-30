@@ -1,7 +1,7 @@
 {
   "name": "copilot-mobile",
-  "version": "0.2.0",
-  "description": "Bridge mínima do copilot-mobile: injeta o 🔊 (resumo falado) e detecta drift celular→PC na sessão viva. Transporte, pareamento e o painel de configuração vivem no daemon apartado (aberto pelo ícone da bandeja).",
+  "version": "0.3.0",
+  "description": "Bridge mínima do copilot-mobile: injeta o 🔊 (resumo falado) e detecta drift celular→PC na sessão viva, e provisiona o daemon apartado na 1ª execução (baixa a release buildada — sem build). Transporte, pareamento e o painel de configuração ficam no daemon, aberto pelo ícone da bandeja.",
   "type": "module",
   "main": "extension.mjs",
   "private": true,
@@ -19,6 +19,7 @@
   },
   "files": [
     "extension.mjs",
-    "drift.mjs"
+    "drift.mjs",
+    "bootstrap.mjs"
   ]
 }
