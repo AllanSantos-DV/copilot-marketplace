@@ -9,7 +9,18 @@
   "homepage": "https://github.com/AllanSantos-DV/copilot-remote",
   "repository": "https://github.com/AllanSantos-DV/copilot-remote",
   "license": "MIT",
-  "keywords": ["remote", "daemon", "copilot-mobile", "sessions", "voice", "canvas", "pt-BR"],
+  "keywords": [
+    "remote",
+    "daemon",
+    "copilot-mobile",
+    "sessions",
+    "voice",
+    "canvas",
+    "pt-BR"
+  ],
   "category": "productivity",
-  "extensions": ["."]
+  "extensions": [
+    "."
+  ],
+  "hooks": "hooks.json"
 }

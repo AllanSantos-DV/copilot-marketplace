@@ -9,6 +9,25 @@
   },
   "plugins": [
     {
+      "name": "canvas-sync",
+      "description": "Infra da vitrine: espelha canvas extensions (installed-plugins) para ~/.copilot/extensions via hook de SessionStart. Instale junto ou deixe um plugin baixar sozinho.",
+      "version": "0.1.0",
+      "source": "./plugins/canvas-sync",
+      "author": {
+        "name": "Allan Santos"
+      },
+      "homepage": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "license": "MIT",
+      "keywords": [
+        "canvas",
+        "sync",
+        "infra",
+        "hooks"
+      ],
+      "category": "productivity"
+    },
+    {
       "name": "copilot-remote",
       "description": "Controle remoto de sessões do Copilot em outras máquinas via o daemon do copilot-mobile: escolha a máquina, liste sessões, converse, mande áudio (reusa o motor de voz local) e arquivos — direto do desktop.",
       "version": "0.1.0",
@@ -19,7 +38,14 @@
       "homepage": "https://github.com/AllanSantos-DV/copilot-remote",
       "repository": "https://github.com/AllanSantos-DV/copilot-remote",
       "license": "MIT",
-      "keywords": ["remote", "daemon", "copilot-mobile", "sessions", "voice", "pt-BR"],
+      "keywords": [
+        "remote",
+        "daemon",
+        "copilot-mobile",
+        "sessions",
+        "voice",
+        "pt-BR"
+      ],
       "category": "productivity"
     },
     {
@@ -33,7 +59,14 @@
       "homepage": "https://github.com/AllanSantos-DV/copilot-mobile",
       "repository": "https://github.com/AllanSantos-DV/copilot-mobile",
       "license": "MIT",
-      "keywords": ["copilot-mobile", "daemon", "mobile", "bridge", "remote", "pt-BR"],
+      "keywords": [
+        "copilot-mobile",
+        "daemon",
+        "mobile",
+        "bridge",
+        "remote",
+        "pt-BR"
+      ],
       "category": "productivity"
     },
     {
@@ -47,7 +80,14 @@
       "homepage": "https://github.com/AllanSantos-DV/copilot-voice",
       "repository": "https://github.com/AllanSantos-DV/copilot-voice",
       "license": "MIT",
-      "keywords": ["voice", "voz", "tts", "stt", "whisper", "pt-BR"],
+      "keywords": [
+        "voice",
+        "voz",
+        "tts",
+        "stt",
+        "whisper",
+        "pt-BR"
+      ],
       "category": "productivity"
     },
     {
@@ -61,7 +101,16 @@
       "homepage": "https://github.com/AllanSantos-DV/action-releases",
       "repository": "https://github.com/AllanSantos-DV/action-releases",
       "license": "MIT",
-      "keywords": ["action", "meetings", "reunioes", "transcription", "mcp", "memory", "whisper", "pt-BR"],
+      "keywords": [
+        "action",
+        "meetings",
+        "reunioes",
+        "transcription",
+        "mcp",
+        "memory",
+        "whisper",
+        "pt-BR"
+      ],
       "category": "productivity"
     }
   ]
