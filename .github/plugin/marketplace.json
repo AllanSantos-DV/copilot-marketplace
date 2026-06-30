@@ -9,6 +9,34 @@
   },
   "plugins": [
     {
+      "name": "copilot-remote",
+      "description": "Controle remoto de sessões do Copilot em outras máquinas via o daemon do copilot-mobile: escolha a máquina, liste sessões, converse, mande áudio (reusa o motor de voz local) e arquivos — direto do desktop.",
+      "version": "0.1.0",
+      "source": { "source": "github", "repo": "AllanSantos-DV/copilot-remote", "path": "plugin" },
+      "author": {
+        "name": "Allan Santos"
+      },
+      "homepage": "https://github.com/AllanSantos-DV/copilot-remote",
+      "repository": "https://github.com/AllanSantos-DV/copilot-remote",
+      "license": "MIT",
+      "keywords": ["remote", "daemon", "copilot-mobile", "sessions", "voice", "pt-BR"],
+      "category": "productivity"
+    },
+    {
+      "name": "copilot-mobile",
+      "description": "Bridge do copilot-mobile: provisiona o daemon apartado na 1ª execução (baixa a release buildada, sem build), injeta o resumo falado e detecta drift celular→PC. Pareamento, transporte e configuração ficam no daemon (ícone da bandeja).",
+      "version": "0.3.0",
+      "source": { "source": "github", "repo": "AllanSantos-DV/copilot-mobile", "path": "bridge" },
+      "author": {
+        "name": "Allan Santos"
+      },
+      "homepage": "https://github.com/AllanSantos-DV/copilot-mobile",
+      "repository": "https://github.com/AllanSantos-DV/copilot-mobile",
+      "license": "MIT",
+      "keywords": ["copilot-mobile", "daemon", "mobile", "bridge", "remote", "pt-BR"],
+      "category": "productivity"
+    },
+    {
       "name": "voice-chat",
       "description": "Converse por voz com o Copilot: fale e ouça um resumo falado da resposta (Whisper local para transcrição + voz local pt-BR).",
       "version": "1.1.19",
