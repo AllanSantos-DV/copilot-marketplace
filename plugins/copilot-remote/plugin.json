@@ -1,0 +1,15 @@
+{
+  "name": "copilot-remote",
+  "version": "0.1.0",
+  "description": "Controle remoto de sessões do Copilot em outras máquinas via o daemon do copilot-mobile: escolha a máquina, liste sessões, converse, mande áudio (reusa o motor de voz local) e arquivos — direto do desktop.",
+  "author": {
+    "name": "Allan Santos",
+    "url": "https://github.com/AllanSantos-DV"
+  },
+  "homepage": "https://github.com/AllanSantos-DV/copilot-remote",
+  "repository": "https://github.com/AllanSantos-DV/copilot-remote",
+  "license": "MIT",
+  "keywords": ["remote", "daemon", "copilot-mobile", "sessions", "voice", "canvas", "pt-BR"],
+  "category": "productivity",
+  "extensions": ["."]
+}
