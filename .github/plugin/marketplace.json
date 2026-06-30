@@ -11,7 +11,7 @@
     {
       "name": "canvas-sync",
       "description": "Infra da vitrine: espelha canvas extensions (installed-plugins) para ~/.copilot/extensions via hook de SessionStart. Instale junto ou deixe um plugin baixar sozinho.",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "source": "./plugins/canvas-sync",
       "author": {
         "name": "Allan Santos"
