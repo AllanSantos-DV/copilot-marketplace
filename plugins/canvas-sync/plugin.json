@@ -1,0 +1,15 @@
+{
+  "name": "canvas-sync",
+  "version": "0.1.0",
+  "description": "Infra da vitrine: espelha as canvas extensions instaladas (installed-plugins) para ~/.copilot/extensions, que é a única pasta que o app GUI carrega. Roda como hook de SessionStart — sem passos manuais.",
+  "author": {
+    "name": "Allan Santos",
+    "url": "https://github.com/AllanSantos-DV"
+  },
+  "homepage": "https://github.com/AllanSantos-DV/copilot-marketplace",
+  "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
+  "license": "MIT",
+  "keywords": ["canvas", "sync", "infra", "hooks", "marketplace"],
+  "category": "productivity",
+  "hooks": "hooks.json"
+}

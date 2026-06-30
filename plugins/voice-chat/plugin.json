@@ -9,7 +9,18 @@
   "homepage": "https://github.com/AllanSantos-DV/copilot-voice",
   "repository": "https://github.com/AllanSantos-DV/copilot-voice",
   "license": "MIT",
-  "keywords": ["voice", "voz", "tts", "stt", "whisper", "canvas", "pt-BR"],
+  "keywords": [
+    "voice",
+    "voz",
+    "tts",
+    "stt",
+    "whisper",
+    "canvas",
+    "pt-BR"
+  ],
   "category": "productivity",
-  "extensions": ["."]
+  "extensions": [
+    "."
+  ],
+  "hooks": "hooks.json"
 }

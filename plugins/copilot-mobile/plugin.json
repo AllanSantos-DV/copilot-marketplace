@@ -9,7 +9,18 @@
   "homepage": "https://github.com/AllanSantos-DV/copilot-mobile",
   "repository": "https://github.com/AllanSantos-DV/copilot-mobile",
   "license": "MIT",
-  "keywords": ["copilot-mobile", "daemon", "mobile", "bridge", "remote", "voz", "pt-BR"],
+  "keywords": [
+    "copilot-mobile",
+    "daemon",
+    "mobile",
+    "bridge",
+    "remote",
+    "voz",
+    "pt-BR"
+  ],
   "category": "productivity",
-  "extensions": ["."]
+  "extensions": [
+    "."
+  ],
+  "hooks": "hooks.json"
 }

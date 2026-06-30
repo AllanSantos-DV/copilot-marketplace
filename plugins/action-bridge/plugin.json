@@ -9,7 +9,19 @@
   "homepage": "https://github.com/AllanSantos-DV/action-releases",
   "repository": "https://github.com/AllanSantos-DV/action-releases",
   "license": "MIT",
-  "keywords": ["action", "meetings", "reunioes", "transcription", "mcp", "memory", "whisper", "pt-BR"],
+  "keywords": [
+    "action",
+    "meetings",
+    "reunioes",
+    "transcription",
+    "mcp",
+    "memory",
+    "whisper",
+    "pt-BR"
+  ],
   "category": "productivity",
-  "extensions": ["."]
+  "extensions": [
+    "."
+  ],
+  "hooks": "hooks.json"
 }
