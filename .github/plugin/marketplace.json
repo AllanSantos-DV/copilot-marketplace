@@ -54,7 +54,7 @@
       "name": "action-bridge",
       "description": "Controla o app Action (captura e memória de reuniões, 100% local no Windows) pelo agente: reuniões, transcrição, memória semântica cruzada, curadoria e grafo — e instala o Action automaticamente quando ele ainda não existe.",
       "version": "1.1.0",
-      "source": { "source": "github", "repo": "AllanSantos-DV/copilot-voice", "path": "plugin" },
+      "source": { "source": "github", "repo": "AllanSantos-DV/action-releases", "path": "plugin" },
       "author": {
         "name": "Allan Santos"
       },
