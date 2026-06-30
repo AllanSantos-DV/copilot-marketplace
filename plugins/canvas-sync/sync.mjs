@@ -13,7 +13,7 @@
 
 import {
     existsSync, readFileSync, readdirSync, mkdirSync,
-    copyFileSync, writeFileSync, appendFileSync,
+    copyFileSync, writeFileSync, appendFileSync, rmSync,
 } from "node:fs";
 import { join, basename, sep } from "node:path";
 import { homedir } from "node:os";
@@ -21,10 +21,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 // Versão do canvas-sync. O boot embutido em cada plugin compara esta versão com
 // a do sync em cache e re-baixa quando a vitrine tem uma mais nova (auto-update).
-export const CANVAS_SYNC_VERSION = "0.2.0";
+export const CANVAS_SYNC_VERSION = "0.3.0";
 
 const STAMP = ".canvas-sync.json";
-const SKIP_ENTRIES = new Set([".git", "node_modules", "artifacts", STAMP]);
+// Marcador opt-out: se existir na pasta da extensão, o canvas-sync NÃO toca nela
+// (protege uma cópia de desenvolvimento intencional). Sem ele, o marketplace vence.
+const IGNORE_MARKER = ".canvas-sync-ignore";
+const SKIP_ENTRIES = new Set([".git", "node_modules", "artifacts", STAMP, IGNORE_MARKER]);
 
 // Resolve a raiz ~/.copilot de forma portável (qualquer usuário/máquina).
 // Em hook de plugin, COPILOT_PLUGIN_ROOT = ...\.copilot\installed-plugins\<mp>\<plugin>.
@@ -95,7 +98,13 @@ export function planSync(home) {
             const target = join(extRoot, targetName);
             const stampPath = join(target, STAMP);
             if (existsSync(target) && !existsSync(stampPath)) {
-                plan.push({ name: targetName, status: "exists-unmanaged", srcDir, version, target });
+                // Cópia SEM stamp (dev/obsoleta). Por padrão o canvas-sync ADOTA
+                // (marketplace = fonte da verdade) — a menos que haja o opt-out.
+                if (existsSync(join(target, IGNORE_MARKER))) {
+                    plan.push({ name: targetName, status: "dev-protected", srcDir, version, target });
+                    continue;
+                }
+                plan.push({ name: targetName, status: "canvas", action: "adopt", srcDir, version, target });
                 continue;
             }
             let action = "create";
@@ -121,21 +130,32 @@ function copyDir(src, dst) {
     }
 }
 
+// Espelha src -> target. Em "adopt" (assumir uma cópia dev/obsoleta sem stamp),
+// limpa o destino antes (best-effort, ignora arquivos travados) para remover o
+// lixo da versão antiga; nos demais casos sobrescreve por cima.
+function mirrorInto(srcDir, target, clean) {
+    if (clean && existsSync(target)) {
+        try { rmSync(target, { recursive: true, force: true }); } catch { /* travado: sobrescreve por cima */ }
+    }
+    copyDir(srcDir, target);
+}
+
 export function syncCanvases(home, opts = {}) {
     const plan = planSync(home);
-    const result = { mirrored: [], skipped: [], unmanaged: [], errors: [], items: plan };
+    const result = { mirrored: [], adopted: [], skipped: [], protected: [], errors: [], items: plan };
     for (const item of plan) {
-        if (item.status === "exists-unmanaged") { result.unmanaged.push(item.name); continue; }
+        if (item.status === "dev-protected") { result.protected.push(item.name); continue; }
         if (item.status !== "canvas") continue;
         if (item.action === "uptodate" && !opts.force) { result.skipped.push(item.name); continue; }
-        if (opts.dryRun) { result.mirrored.push(item.name); continue; }
+        if (opts.dryRun) { result.mirrored.push(item.name); if (item.action === "adopt") result.adopted.push(item.name); continue; }
         try {
-            copyDir(item.srcDir, item.target);
+            mirrorInto(item.srcDir, item.target, item.action === "adopt");
             writeFileSync(join(item.target, STAMP), JSON.stringify({
-                source: item.srcDir, version: item.version,
+                source: item.srcDir, version: item.version, action: item.action,
                 syncedAt: new Date().toISOString(), managedBy: "canvas-sync",
             }, null, 2));
             result.mirrored.push(item.name);
+            if (item.action === "adopt") result.adopted.push(item.name);
         } catch (e) {
             result.errors.push({ name: item.name, error: String(e?.message || e) });
         }
