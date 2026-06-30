@@ -1,0 +1,15 @@
+{
+  "name": "voice-chat",
+  "version": "1.1.19",
+  "description": "Converse por voz com o Copilot: fale e ouça um resumo falado da resposta (Whisper local para transcrição + voz local pt-BR).",
+  "author": {
+    "name": "Allan Santos",
+    "url": "https://github.com/AllanSantos-DV"
+  },
+  "homepage": "https://github.com/AllanSantos-DV/copilot-voice",
+  "repository": "https://github.com/AllanSantos-DV/copilot-voice",
+  "license": "MIT",
+  "keywords": ["voice", "voz", "tts", "stt", "whisper", "canvas", "pt-BR"],
+  "category": "productivity",
+  "extensions": ["."]
+}

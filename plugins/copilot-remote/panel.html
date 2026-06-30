@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Controle Remoto</title>
+<style>
+  :root {
+    --bg:#1e1e1e; --bg2:#252526; --bg3:#2d2d30; --line:#3c3c3c; --line2:#4a4a4d;
+    --fg:#e4e4e4; --mut:#9d9d9d; --acc:#3794ff; --acc2:#2b6fc2; --ok:#3fb950; --warn:#d29922; --err:#f85149;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; }
+  body { background:var(--bg); color:var(--fg); font:13px/1.5 system-ui,"Segoe UI",sans-serif; display:flex; flex-direction:column; height:100vh; overflow:hidden; }
+  button { font:inherit; color:var(--fg); background:var(--bg3); border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; }
+  button:hover:not(:disabled) { border-color:var(--acc); }
+  button.primary { background:var(--acc); border-color:var(--acc); color:#fff; }
+  button.ghost { background:transparent; }
+  button.danger { border-color:var(--err); color:var(--err); }
+  button:disabled { opacity:.45; cursor:default; }
+  input { font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:6px 9px; width:100%; }
+  input:focus,textarea:focus { outline:none; border-color:var(--acc); }
+  .mut { color:var(--mut); }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--err); display:inline-block; flex:0 0 auto; }
+  .dot.on { background:var(--ok); } .dot.warn { background:var(--warn); }
+
+  /* top bar: which machine (daemon) */
+  header { display:flex; align-items:center; gap:10px; padding:8px 12px; background:var(--bg2); border-bottom:1px solid var(--line); flex:0 0 auto; }
+  header .brand { font-weight:600; white-space:nowrap; }
+  select { font:inherit; color:var(--fg); background:var(--bg3); border:1px solid var(--line); border-radius:6px; padding:5px 8px; max-width:280px; }
+  .pill { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--mut); padding:3px 9px; border:1px solid var(--line); border-radius:999px; white-space:nowrap; }
+  .grow { flex:1 1 auto; }
+
+  main { flex:1 1 auto; display:flex; min-height:0; }
+  /* left: sessions */
+  aside { width:300px; flex:0 0 auto; border-right:1px solid var(--line); background:var(--bg2); display:flex; flex-direction:column; min-height:0; }
+  .search { padding:8px; border-bottom:1px solid var(--line); }
+  .sess-list { overflow-y:auto; flex:1 1 auto; }
+  .sess { display:flex; align-items:center; gap:8px; padding:9px 11px; border-bottom:1px solid #333; cursor:pointer; }
+  .sess:hover { background:var(--bg3); }
+  .sess.active { background:#0d2c4d; box-shadow:inset 3px 0 0 var(--acc); }
+  .sess .meta { min-width:0; flex:1; }
+  .sess .meta b { font-weight:600; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sess .meta small { color:var(--mut); font-size:11px; }
+  .sess .run { font-size:10px; color:var(--ok); border:1px solid var(--ok); border-radius:4px; padding:0 4px; }
+  .empty { padding:20px 12px; color:var(--mut); text-align:center; font-size:12px; }
+
+  /* right: chat */
+  section.chat { flex:1 1 auto; display:flex; flex-direction:column; min-width:0; min-height:0; }
+  .chat-head { padding:8px 12px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:8px; background:var(--bg2); flex:0 0 auto; }
+  .chat-head b { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .spin { width:12px; height:12px; border:2px solid var(--mut); border-top-color:transparent; border-radius:50%; animation:s .8s linear infinite; display:none; }
+  body.busy .spin { display:inline-block; }
+  @keyframes s { to { transform:rotate(360deg); } }
+  #log { flex:1 1 auto; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:9px; }
+  .msg { max-width:86%; padding:7px 11px; border-radius:10px; white-space:pre-wrap; word-break:break-word; }
+  .msg.user { align-self:flex-end; background:#0a3d62; border:1px solid #15507e; }
+  .msg.assistant { align-self:flex-start; background:var(--bg3); border:1px solid var(--line); }
+  .tool { align-self:flex-start; font-size:11px; color:var(--mut); display:flex; gap:6px; align-items:center; }
+  .tool.err { color:var(--err); }
+  .sys { align-self:center; font-size:11px; color:var(--mut); }
+  .card { align-self:stretch; border:1px solid var(--warn); border-radius:8px; padding:10px; background:#2a2410; }
+  .card.q { border-color:var(--acc); background:#10243a; }
+  .card h4 { margin:0 0 4px; font-size:12px; } .card .detail { font-family:ui-monospace,Consolas,monospace; font-size:11px; white-space:pre-wrap; word-break:break-word; margin:4px 0; }
+  .card .acts { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+  footer { flex:0 0 auto; display:flex; gap:8px; padding:10px 12px; background:var(--bg2); border-top:1px solid var(--line); align-items:flex-end; }
+  footer textarea { font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px; resize:none; max-height:160px; min-height:38px; flex:1; }
+  #micBtn { font-size:16px; }
+  .placeholder { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:var(--mut); text-align:center; padding:24px; }
+  #err { color:var(--err); font-size:11px; padding:0 12px; }
+  #err:not(:empty) { padding:6px 12px; }
+
+  /* modal */
+  .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:center; justify-content:center; z-index:50; }
+  .modal-bg.show { display:flex; }
+  .modal { background:var(--bg2); border:1px solid var(--line2); border-radius:10px; padding:16px; width:min(420px,92vw); }
+  .modal h3 { margin:0 0 4px; font-size:14px; } .modal p { margin:0 0 12px; color:var(--mut); font-size:12px; }
+  .modal label { display:block; font-size:11px; color:var(--mut); margin:8px 0 3px; }
+  .modal .row { display:flex; gap:8px; justify-content:flex-end; margin-top:14px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">🖥️ Controle Remoto</span>
+  <select id="daemonSel" title="Máquina (daemon)"></select>
+  <span class="pill"><span class="dot" id="dDot"></span><span id="dMode">—</span></span>
+  <div class="grow"></div>
+  <span class="spin" id="spin"></span>
+  <button class="ghost" id="addBtn" title="Conectar outra máquina">＋ Máquina</button>
+  <button class="ghost" id="refreshBtn" title="Atualizar sessões">⟳</button>
+</header>
+
+<div id="err"></div>
+
+<main>
+  <aside>
+    <div class="search"><input id="search" placeholder="Buscar sessão…" /></div>
+    <div class="sess-list" id="sessList"><div class="empty">Carregando…</div></div>
+  </aside>
+
+  <section class="chat">
+    <div id="chatBody" style="flex:1;display:flex;flex-direction:column;min-height:0">
+      <div class="placeholder" id="placeholder">
+        <div style="font-size:30px">💬</div>
+        <div>Escolha uma sessão à esquerda para conversar com o agente daquela máquina.</div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- chat template (shown when a session is selected) -->
+<template id="chatTpl">
+  <div class="chat-head">
+    <b id="chatTitle"></b>
+    <span class="pill" id="chatRun" style="display:none">▶ rodando</span>
+    <div class="grow"></div>
+    <button class="danger" id="abortBtn" style="display:none">Abortar</button>
+  </div>
+  <div id="log"></div>
+  <footer>
+    <textarea id="input" placeholder="Mensagem para o agente desta sessão…  (Enter envia)"></textarea>
+    <button id="micBtn" title="Falar" style="display:none">🎤</button>
+    <button class="primary" id="sendBtn">Enviar</button>
+  </footer>
+</template>
+
+<!-- connect remote machine modal -->
+<div class="modal-bg" id="modal">
+  <div class="modal">
+    <h3>Conectar outra máquina</h3>
+    <p>No daemon da máquina-alvo, abra o painel e arme um modo (LAN/Tailscale/Público). Cole a URL exposta e o código de 6 dígitos.</p>
+    <label>URL do daemon remoto</label>
+    <input id="mUrl" placeholder="http://100.85.138.90:61453" />
+    <label>Código de pareamento</label>
+    <input id="mCode" placeholder="000000" inputmode="numeric" />
+    <label>Apelido (opcional)</label>
+    <input id="mName" placeholder="Workstation do escritório" />
+    <div class="row">
+      <button class="ghost" id="mCancel">Cancelar</button>
+      <button class="primary" id="mConnect">Conectar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const T = new URLSearchParams(location.search).get("t") || "";
+const $ = (id) => document.getElementById(id);
+let state = { active:{isLocal:true,url:null,mode:null,reachable:false}, remotes:[], sessions:[], sel:null, busy:false, voice:{installed:false} };
+const toolEls = new Map();
+
+async function api(path, opts={}) {
+  const o = Object.assign({ headers:{} }, opts);
+  o.headers["x-local-token"] = T;
+  if (o.body && typeof o.body !== "string") { o.headers["Content-Type"]="application/json"; o.body=JSON.stringify(o.body); }
+  const r = await fetch(path + (path.includes("?")?"&":"?") + "t=" + encodeURIComponent(T), o);
+  let j=null; try { j=await r.json(); } catch {}
+  return { status:r.status, json:j||{} };
+}
+function esc(s){ return String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function showErr(m){ $("err").textContent=m||""; if(m) setTimeout(()=>{ if($("err").textContent===m) $("err").textContent=""; },6000); }
+
+// ---------- top: daemon selector ----------
+function renderDaemonBar() {
+  const sel = $("daemonSel");
+  const opts = [`<option value="">💻 Esta máquina (local)</option>`]
+    .concat(state.remotes.map(r => `<option value="${esc(r.url)}">🌐 ${esc(r.name)}</option>`));
+  sel.innerHTML = opts.join("");
+  sel.value = state.active.url || "";
+  const dot = $("dDot");
+  dot.className = "dot" + (state.active.reachable ? " on" : (state.active.isLocal && !state.active.mode ? " warn" : ""));
+  const modeTxt = state.active.isLocal
+    ? (state.active.reachable ? ("local · " + (state.active.mode||"off")) : "daemon offline")
+    : (state.active.reachable ? ("remoto · " + (state.active.mode||"?")) : "sem conexão");
+  $("dMode").textContent = modeTxt;
+}
+
+async function loadState() {
+  const r = await api("/daemon/state");
+  if (!r.json.ok) { showErr("Falha ao ler estado do daemon"); return; }
+  state.active = r.json.active; state.remotes = r.json.remotes || [];
+  renderDaemonBar();
+  if (!state.active.reachable && state.active.isLocal) {
+    $("sessList").innerHTML = `<div class="empty">O daemon local não está rodando.<br>Abra o app copilot-mobile (ele instala e sobe o daemon).</div>`;
+    return;
+  }
+  await loadSessions();
+}
+
+async function loadSessions() {
+  const r = await api("/daemon/sessions");
+  if (!r.json.ok) { $("sessList").innerHTML = `<div class="empty">Não consegui listar sessões: ${esc(r.json.error||r.status)}</div>`; return; }
+  state.sessions = r.json.sessions || [];
+  renderSessions();
+}
+
+function renderSessions() {
+  const q = $("search").value.trim().toLowerCase();
+  const list = state.sessions.filter(s => !q || (s.title||"").toLowerCase().includes(q));
+  const box = $("sessList");
+  if (!list.length) { box.innerHTML = `<div class="empty">${state.sessions.length?"Nenhuma sessão corresponde à busca.":"Nenhuma sessão nesta máquina."}</div>`; return; }
+  box.innerHTML = "";
+  for (const s of list) {
+    const d = document.createElement("div");
+    d.className = "sess" + (s.sessionId===state.sel?" active":"");
+    d.innerHTML = `<div class="meta"><b></b><small>${esc((s.sessionId||"").slice(0,8))}</small></div>` + (s.running?`<span class="run">▶</span>`:"");
+    d.querySelector("b").textContent = s.title || s.sessionId;
+    d.onclick = () => selectSession(s);
+    box.appendChild(d);
+  }
+}
+$("search").addEventListener("input", renderSessions);
+
+// ---------- chat ----------
+let chatEls = null;
+function mountChat() {
+  if (chatEls) return chatEls;
+  const body = $("chatBody"); body.innerHTML = "";
+  body.appendChild($("chatTpl").content.cloneNode(true));
+  chatEls = { title:$("chatTitle"), run:$("chatRun"), abort:$("abortBtn"), log:$("log"), input:$("input"), send:$("sendBtn"), mic:$("micBtn") };
+  chatEls.send.onclick = doSend;
+  chatEls.input.addEventListener("keydown", (e)=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); doSend(); }});
+  chatEls.input.addEventListener("input", ()=>{ chatEls.input.style.height="auto"; chatEls.input.style.height=Math.min(160,chatEls.input.scrollHeight)+"px"; });
+  chatEls.abort.onclick = async()=>{ if(state.sel) await api("/daemon/abort",{method:"POST",body:{sessionId:state.sel}}); };
+  chatEls.mic.onclick = toggleRec;
+  updateMicUi();
+  return chatEls;
+}
+function atBottom(){ const l=chatEls.log; return l.scrollHeight-l.scrollTop-l.clientHeight<60; }
+function scroll(){ chatEls.log.scrollTop = chatEls.log.scrollHeight; }
+function addMsg(cls,text){ const st=atBottom(); const d=document.createElement("div"); d.className="msg "+cls; d.textContent=text; chatEls.log.appendChild(d); if(st)scroll(); }
+function addSys(text){ const st=atBottom(); const d=document.createElement("div"); d.className="sys"; d.textContent=text; chatEls.log.appendChild(d); if(st)scroll(); }
+function addTool(e,done){ const st=atBottom(); let d=e.id&&toolEls.get(e.id); const okk=e.ok!==false; if(!d){ d=document.createElement("div"); d.className="tool"; d.innerHTML='<span>🔧</span><span class="t"></span>'; chatEls.log.appendChild(d); if(e.id)toolEls.set(e.id,d);} d.classList.toggle("err",done&&!okk); d.querySelector(".t").textContent=(e.tool||"tool")+(done?(okk?" ✓":" ✗"):"…"); if(done&&e.id)toolEls.delete(e.id); if(st)scroll(); }
+function addQuestion(e){ const st=atBottom(); const c=document.createElement("div"); c.className="card q"; const ch=Array.isArray(e.choices)?e.choices:[]; c.innerHTML=`<h4>❓ ${esc(e.question||"Pergunta")}</h4><div class="acts"></div><div class="sys" style="text-align:left;margin-top:6px">⚠ Responder pergunta via daemon ainda não é suportado — responda pelo app/celular, ou aborte.</div>`; const acts=c.querySelector(".acts"); ch.forEach(x=>{ const b=document.createElement("button"); b.textContent=x; b.disabled=true; acts.appendChild(b); }); chatEls.log.appendChild(c); if(st)scroll(); }
+function setBusy(b){ state.busy=b; document.body.classList.toggle("busy",b); if(chatEls){ chatEls.abort.style.display=b?"":"none"; chatEls.run.style.display=b?"":"none"; } }
+
+async function selectSession(s) {
+  state.sel = s.sessionId;
+  $("placeholder")?.remove();
+  renderSessions();
+  mountChat();
+  chatEls.title.textContent = s.title || s.sessionId;
+  chatEls.log.innerHTML = ""; toolEls.clear();
+  const r = await api("/daemon/subscribe", { method:"POST", body:{ sessionId:s.sessionId } });
+  if (!r.json.ok) { showErr("Falha ao abrir sessão: "+(r.json.error||r.status)); return; }
+  for (const ev of r.json.recent || []) renderEvent(ev);
+  scroll();
+}
+async function doSend() {
+  if (!state.sel) return;
+  const p = chatEls.input.value.trim(); if (!p) return;
+  chatEls.input.value=""; chatEls.input.style.height="auto";
+  addMsg("user", p); setBusy(true);
+  const r = await api("/daemon/send", { method:"POST", body:{ sessionId:state.sel, prompt:p } });
+  if (!r.json.ok) { setBusy(false); showErr("Envio falhou: "+(r.json.error||r.status)); }
+}
+
+// ---------- live events (multiplexed; filter by selected session) ----------
+function renderEvent(ev) {
+  if (!chatEls) return;
+  switch (ev.type) {
+    case "user": addMsg("user", ev.content||""); break;
+    case "assistant": addMsg("assistant", ev.content||""); break;
+    case "tool_start": addTool(ev,false); break;
+    case "tool_done": addTool(ev,true); break;
+    case "question": addQuestion(ev); break;
+    case "busy": setBusy(!!ev.busy); break;
+    case "idle": setBusy(false); if(ev.aborted) addSys("⏹ abortado"); break;
+    default: break;
+  }
+}
+function handlePanelEvent(m) {
+  if (m.channel !== "daemon") return;          // ignore legacy bridge events
+  if (m.sessionId && m.sessionId !== state.sel) {
+    // a background session got activity — could badge it; keep simple for now
+    return;
+  }
+  renderEvent(m);
+}
+
+let es=null;
+function connectStream() {
+  try { es&&es.close(); } catch {}
+  es = new EventSource("/events?t=" + encodeURIComponent(T));
+  es.onmessage = (m)=>{ try { handlePanelEvent(JSON.parse(m.data)); } catch {} };
+}
+
+// ---------- daemon selector + add/refresh ----------
+$("daemonSel").addEventListener("change", async (e)=>{
+  const url = e.target.value || "";
+  state.sel = null; if (chatEls){ $("chatBody").innerHTML=""; chatEls=null; } $("chatBody").innerHTML='<div class="placeholder" id="placeholder"><div style="font-size:30px">💬</div><div>Escolha uma sessão.</div></div>';
+  const r = await api("/daemon/select", { method:"POST", body:{ url } });
+  await loadState();
+  if (!r.json.ok) showErr("Falha ao trocar de máquina: "+(r.json.error||r.status));
+});
+$("refreshBtn").onclick = loadState;
+$("addBtn").onclick = ()=> $("modal").classList.add("show");
+$("mCancel").onclick = ()=> $("modal").classList.remove("show");
+$("mConnect").onclick = async ()=>{
+  const url=$("mUrl").value.trim(), code=$("mCode").value.trim(), name=$("mName").value.trim();
+  if(!url||!code){ showErr("Informe URL e código."); return; }
+  $("mConnect").disabled=true;
+  const r = await api("/daemon/connect", { method:"POST", body:{ url, code, name } });
+  $("mConnect").disabled=false;
+  if(!r.json.ok){ showErr("Conexão falhou: "+(r.json.error||r.status)); return; }
+  $("modal").classList.remove("show"); $("mCode").value="";
+  await loadState();
+};
+
+// ---------- voice (reuse the voice extension's Whisper via /daemon/voice-in) ----------
+let voiceState={installed:false,reachable:false}, recording=false, mediaStream=null, audioCtx=null, procNode=null, srcNode=null, chunks=[], inRate=48000;
+async function refreshVoice(){ try{ const r=await api("/voice-status"); if(r.json.ok&&r.json.voice) voiceState=r.json.voice; }catch{} updateMicUi(); }
+function updateMicUi(){ const b=chatEls&&chatEls.mic; if(!b) return; b.style.display=voiceState.installed?"":"none"; b.disabled=recording?false:!state.sel; b.title=voiceState.reachable?"Falar para esta sessão":"Abra o painel de Voz uma vez para aquecer"; }
+function f16(f){ const dv=new DataView(new ArrayBuffer(f.length*2)); for(let i=0;i<f.length;i++){ let s=Math.max(-1,Math.min(1,f[i])); dv.setInt16(i*2,s<0?s*0x8000:s*0x7FFF,true);} return dv; }
+function downs(buf,inR,outR){ if(outR>=inR)return buf; const r=inR/outR,n=Math.round(buf.length/r),o=new Float32Array(n); let oi=0,ii=0; while(oi<n){ const nx=Math.round((oi+1)*r); let s=0,c=0; for(let i=ii;i<nx&&i<buf.length;i++){s+=buf[i];c++;} o[oi]=c?s/c:0; oi++; ii=nx;} return o; }
+function wav(sm,rate){ const pcm=f16(sm),len=pcm.byteLength,ab=new ArrayBuffer(44+len),v=new DataView(ab); const w=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));}; w(0,"RIFF");v.setUint32(4,36+len,true);w(8,"WAVE");w(12,"fmt ");v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,rate,true);v.setUint32(28,rate*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);w(36,"data");v.setUint32(40,len,true); new Uint8Array(ab,44).set(new Uint8Array(pcm.buffer)); return ab; }
+function b64(buf){ let s="",b=new Uint8Array(buf),C=0x8000; for(let i=0;i<b.length;i+=C)s+=String.fromCharCode.apply(null,b.subarray(i,i+C)); return btoa(s); }
+async function toggleRec(){ if(!voiceState.installed){ showErr("Instale a extensão de Voz para falar."); return; } recording?stopRec():startRec(); }
+async function startRec(){ if(recording||!state.sel) return; try{ mediaStream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}}); }catch(e){ showErr("Microfone indisponível: "+e.message); return; } audioCtx=new (window.AudioContext||window.webkitAudioContext)(); inRate=audioCtx.sampleRate; chunks=[]; srcNode=audioCtx.createMediaStreamSource(mediaStream); procNode=audioCtx.createScriptProcessor(4096,1,1); procNode.onaudioprocess=(e)=>{ if(recording) chunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); }; srcNode.connect(procNode); procNode.connect(audioCtx.destination); recording=true; chatEls.mic.textContent="⏹"; chatEls.mic.style.background="var(--err)"; }
+async function stopRec(){ if(!recording) return; recording=false; chatEls.mic.textContent="🎤"; chatEls.mic.style.background=""; chatEls.mic.disabled=true; try{srcNode&&srcNode.disconnect();procNode&&procNode.disconnect();}catch{} try{mediaStream&&mediaStream.getTracks().forEach(t=>t.stop());}catch{} let tot=0; for(const c of chunks)tot+=c.length; const flat=new Float32Array(tot); let off=0; for(const c of chunks){flat.set(c,off);off+=c.length;} try{audioCtx&&audioCtx.close();}catch{} updateMicUi(); if(tot<1600){ showErr("Áudio muito curto."); return; } addSys("🎤 transcrevendo…"); const r=await api("/daemon/voice-in",{method:"POST",body:{sessionId:state.sel,audio:b64(wav(downs(flat,inRate,16000),16000))}}); if(!r.json.ok){ showErr("Voz: "+(r.json.error||r.status)); return; } if(!r.json.text){ showErr("Não entendi o áudio."); return; } addMsg("user",r.json.text); setBusy(true); }
+
+// ---------- boot ----------
+connectStream();
+loadState();
+refreshVoice();
+setInterval(()=>{ if(!document.hidden) loadState(); }, 12000);
+setInterval(refreshVoice, 15000);
+</script>
+</body>
+</html>

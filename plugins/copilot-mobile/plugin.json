@@ -1,15 +1,15 @@
 {
   "name": "copilot-mobile",
   "version": "0.3.0",
-  "description": "Controle o agente do GitHub Copilot pelo celular. Instale so este plugin: na 1a execucao ele provisiona sozinho o daemon apartado (baixa a release ja buildada, sem build e sem token) e cria um icone na bandeja para configurar (off/LAN/Tailscale/publico, pareamento por QR) e que funciona com o app fechado. A extensao em si so injeta o resumo falado (audio pt-BR) e avisa quando o celular tem turnos que a sessao aberta ainda nao sincronizou (drift).",
+  "description": "Bridge do copilot-mobile: provisiona o daemon apartado na 1ª execução (baixa a release buildada, sem build), injeta o 🔊 (resumo falado) e detecta drift celular→PC na sessão viva. Pareamento, transporte e painel de configuração ficam no daemon (ícone da bandeja).",
   "author": {
     "name": "Allan Santos",
     "url": "https://github.com/AllanSantos-DV"
   },
-  "homepage": "https://github.com/AllanSantos-DV/copilot-marketplace",
-  "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
+  "homepage": "https://github.com/AllanSantos-DV/copilot-mobile",
+  "repository": "https://github.com/AllanSantos-DV/copilot-mobile",
   "license": "MIT",
-  "keywords": ["mobile", "celular", "voz", "tts", "audio", "pt-BR", "drift", "daemon", "tray", "tailscale"],
+  "keywords": ["copilot-mobile", "daemon", "mobile", "bridge", "remote", "voz", "pt-BR"],
   "category": "productivity",
   "extensions": ["."]
 }
