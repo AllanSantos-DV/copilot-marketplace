@@ -19,6 +19,10 @@ import { join, basename, sep } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+// Versão do canvas-sync. O boot embutido em cada plugin compara esta versão com
+// a do sync em cache e re-baixa quando a vitrine tem uma mais nova (auto-update).
+export const CANVAS_SYNC_VERSION = "0.2.0";
+
 const STAMP = ".canvas-sync.json";
 const SKIP_ENTRIES = new Set([".git", "node_modules", "artifacts", STAMP]);
 
@@ -139,14 +143,23 @@ export function syncCanvases(home, opts = {}) {
     return result;
 }
 
-// Runner do hook: roda o sync e loga em arquivo (NUNCA em stdout — hooks
-// interpretam stdout). Nunca lança: um hook não pode quebrar a sessão.
+// Emite um aviso VISÍVEL na timeline (progress message) quando houve canvas novo
+// ou atualizado — é o gatilho nativo de "reinicie o app". Só emite se houver algo.
+export function emitRestartAlert(mirrored) {
+    if (!Array.isArray(mirrored) || mirrored.length === 0) return;
+    const n = mirrored.length;
+    const msg = `\u26A0\uFE0F canvas-sync: ${n} canvas ${n === 1 ? "novo/atualizado" : "novos/atualizados"} (${mirrored.join(", ")}). Reinicie o app para carregar.`;
+    try { process.stdout.write(JSON.stringify({ type: "progress", message: msg }) + "\n"); } catch {}
+}
+
+// Runner do hook: roda o sync e loga em arquivo (NUNCA em stdout, exceto o
+// progress message do alerta). Nunca lança: um hook não pode quebrar a sessão.
 export function runAsHook() {
     const home = resolveCopilotHome();
-    let line;
+    let result = null, line;
     try {
-        const r = syncCanvases(home, {});
-        line = JSON.stringify({ at: new Date().toISOString(), mirrored: r.mirrored, skipped: r.skipped, unmanaged: r.unmanaged, errors: r.errors });
+        result = syncCanvases(home, {});
+        line = JSON.stringify({ at: new Date().toISOString(), v: CANVAS_SYNC_VERSION, mirrored: result.mirrored, skipped: result.skipped, unmanaged: result.unmanaged, errors: result.errors });
     } catch (e) {
         line = JSON.stringify({ at: new Date().toISOString(), fatal: String(e?.message || e) });
     }
@@ -155,6 +168,7 @@ export function runAsHook() {
         mkdirSync(logDir, { recursive: true });
         appendFileSync(join(logDir, "last-run.log"), line + "\n");
     } catch {}
+    if (result) emitRestartAlert(result.mirrored);
 }
 
 // Executado direto? (node sync.mjs)
