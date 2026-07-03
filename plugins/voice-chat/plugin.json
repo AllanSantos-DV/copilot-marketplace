@@ -1,0 +1,15 @@
+{
+  "name": "voice-chat",
+  "version": "1.2.0",
+  "description": "Converse por voz com o Copilot: fale e ouça um resumo falado da resposta. Usa o motor único vox-engine quando disponível (STT compartilhado, melhor qualidade), com Whisper local como fallback.",
+  "author": {
+    "name": "Allan Santos",
+    "url": "https://github.com/AllanSantos-DV"
+  },
+  "homepage": "https://github.com/AllanSantos-DV/copilot-voice",
+  "repository": "https://github.com/AllanSantos-DV/copilot-voice",
+  "license": "MIT",
+  "keywords": ["voice", "voz", "tts", "stt", "whisper", "canvas", "pt-BR"],
+  "category": "productivity",
+  "extensions": ["."]
+}
