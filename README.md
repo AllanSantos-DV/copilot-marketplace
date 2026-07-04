@@ -36,6 +36,7 @@ copilot plugin update --all
 | [`copilot-mobile`](./plugins/copilot-mobile) | Bridge do copilot-mobile: provisiona o daemon apartado na 1ª execução (baixa a release buildada, sem build), injeta o resumo falado e detecta drift celular→PC. Pareamento, transporte e configuração ficam no daemon (ícone da bandeja). | 0.3.1 |
 | [`copilot-remote`](./plugins/copilot-remote) | Controle remoto de sessões do Copilot em outras máquinas via o daemon do copilot-mobile: escolha a máquina, liste sessões, converse, mande áudio (reusa o motor de voz local) e arquivos — direto do desktop. | 0.1.0 |
 | [`canvas-sync`](./plugins/canvas-sync) | Infra da vitrine: espelha canvas extensions (installed-plugins) para ~/.copilot/extensions via hook de SessionStart. Instale junto ou deixe um plugin baixar sozinho. | 0.3.0 |
+| [`mcp-bridge`](./plugins/mcp-bridge) | Restaura o MCP no GitHub Copilot onde ele é bloqueado por política mas as extensões são permitidas: conecta a servidores MCP (stdio/http/sse, com login OAuth) e expõe tools, prompts e resources nativamente ao agente, com resiliência, auditoria e um painel de saúde. Devolve os braços e as pernas da IA. | 0.1.0 |
 <!-- plugins:end -->
 
 > A tabela acima é **gerada** a partir de `.github/plugin/marketplace.json` por `node docs/build.mjs`
