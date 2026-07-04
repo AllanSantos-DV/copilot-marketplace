@@ -1,0 +1,62 @@
+{
+  "tagline": "Controle sessões do Copilot em outras máquinas — do seu desktop, por voz e arquivos.",
+  "lede": "O **copilot-remote** usa o daemon do copilot-mobile para alcançar sessões do Copilot em outros computadores. Escolha a máquina, liste as sessões, converse com o agente de lá, mande áudio (reusando o motor de voz local) e arquivos — tudo de um painel no desktop.",
+  "highlights": [
+    { "title": "Alcance outras máquinas", "body": "Conecta na ponte de um PC remoto e fala com o agente dele como se estivesse na frente." },
+    { "title": "Voz e arquivos", "body": "Reusa o motor de voz local para mandar áudio e envia arquivos direto para a sessão remota." },
+    { "title": "Painel no desktop", "body": "Um canvas lista máquinas e sessões e mantém a conversa viva, com perguntas e permissões." }
+  ],
+  "sections": [
+    {
+      "id": "o-que-e",
+      "title": "O que é",
+      "blocks": [
+        { "type": "p", "text": "O copilot-remote é a face **desktop → desktop** da ponte do copilot-mobile. Em vez de comandar pelo celular, você abre um painel no seu PC e controla o agente de outra máquina: manda instruções, responde perguntas dele, aprova permissões e acompanha turnos longos." },
+        { "type": "p", "text": "É a mesma infra do copilot-mobile por baixo — o daemon apartado e seu transporte — reaproveitada para conversa agente-a-agente entre computadores." },
+        { "type": "note", "tone": "info", "text": "Registra um **canvas** e usa **hooks**; reinicie o app uma vez após instalar." }
+      ]
+    },
+    {
+      "id": "como-usar",
+      "title": "Como usar",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            { "title": "Instale o plugin", "text": "Pelo marketplace (comando na seção Instalar)." },
+            { "title": "Reinicie o app", "text": "Uma vez, para o canvas Controle Remoto aparecer." },
+            { "title": "Arme a máquina remota", "text": "No PC de destino, o daemon do copilot-mobile precisa estar rodando e com um transporte armado (lan / tailscale / public)." },
+            { "title": "Pareie", "text": "No painel, informe a URL da ponte remota e o código de pareamento de 6 dígitos (só na primeira vez)." },
+            { "title": "Converse", "text": "Escolha a sessão, mande instruções, áudio e arquivos, e responda perguntas ou permissões do agente remoto." }
+          ]
+        },
+        { "type": "note", "tone": "warn", "text": "A máquina remota precisa do **copilot-mobile** instalado e com o daemon armado — é ele que expõe as sessões." }
+      ]
+    },
+    {
+      "id": "como-funciona",
+      "title": "Como funciona",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "**Reusa o daemon** do copilot-mobile como plano de controle e transporte.",
+            "**Alcança por LAN, Tailscale ou URL pública**, conforme o transporte armado no destino.",
+            "**Motor de voz local** — o mesmo do voice-chat, para mandar áudio à sessão remota.",
+            "**Perguntas e permissões** — quando o agente remoto pergunta ou pede permissão, o painel te deixa responder e decidir."
+          ]
+        },
+        { "type": "p", "text": "Você (com base no plano) manda a instrução e recebe de volta a resposta do agente da outra máquina — o coração da conversa agente-a-agente." }
+      ]
+    }
+  ],
+  "requirements": [
+    "copilot-mobile instalado na máquina remota, com o daemon armado",
+    "Rede entre as máquinas (LAN, Tailscale ou URL pública)",
+    "Node 18+ (runtime da extensão)"
+  ],
+  "faq": [
+    { "q": "Preciso do copilot-mobile também?", "a": "Sim: o copilot-remote reusa o daemon e o transporte do copilot-mobile para alcançar a máquina remota." },
+    { "q": "Funciona pela internet?", "a": "Sim, via Tailscale ou uma URL pública exposta pelo daemon remoto; em LAN funciona direto." }
+  ]
+}

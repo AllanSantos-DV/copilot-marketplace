@@ -1,0 +1,62 @@
+{
+  "tagline": "Fale com o Copilot e ouça a resposta — transcrição e voz 100% locais, em português.",
+  "lede": "O **voice-chat** transforma o terminal numa conversa: você fala, o Whisper (ou o motor único `vox-engine`) transcreve, o agente responde e uma voz local em pt-BR lê o resumo de volta. Nada sai da sua máquina.",
+  "highlights": [
+    { "title": "Fala → texto, local", "body": "Grava o microfone e transcreve com Whisper on-device — sem nuvem, sem chave de API." },
+    { "title": "Resposta falada", "body": "A cada turno injeta a instrução do resumo 🔊 e sintetiza áudio em português no Windows." },
+    { "title": "vox-engine ou fallback", "body": "Usa o motor único `vox-engine` quando existe (STT compartilhado, melhor qualidade) e cai para o Whisper local quando não." }
+  ],
+  "sections": [
+    {
+      "id": "o-que-e",
+      "title": "O que é",
+      "blocks": [
+        { "type": "p", "text": "O voice-chat é uma **canvas extension** do GitHub Copilot CLI: abre um painel de voz no app e liga o ciclo fala → agente → fala. Você segura para falar, ele transcreve localmente, manda o texto ao agente e devolve um resumo em áudio na sua língua." },
+        { "type": "p", "text": "É pensado para acompanhar sessões longas sem tirar os olhos do que importa: o áudio de saída é um **resumo falado**, curto e natural, não a leitura crua da resposta inteira." },
+        { "type": "note", "tone": "info", "text": "Como registra um canvas, depois de instalar é preciso **reiniciar o app uma vez** para o painel aparecer (o `canvas-sync` cuida do espelhamento)." }
+      ]
+    },
+    {
+      "id": "como-usar",
+      "title": "Como usar",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            { "title": "Instale o plugin", "text": "Pelo marketplace, com o comando da seção Instalar abaixo." },
+            { "title": "Reinicie o app", "text": "Uma vez, para o canvas de voz ser descoberto." },
+            { "title": "Abra o painel Voz", "text": "O canvas mostra o microfone e o estado (ouvindo, transcrevendo, falando)." },
+            { "title": "Segure para falar", "text": "Fale sua pergunta; ao soltar, o Whisper transcreve e o agente responde com um resumo em áudio." }
+          ]
+        },
+        { "type": "note", "tone": "info", "text": "Na primeira fala o modelo de voz pode levar alguns segundos para aquecer; depois fica instantâneo." }
+      ]
+    },
+    {
+      "id": "como-funciona",
+      "title": "Como funciona",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "**Captura** — grava o microfone enquanto você segura o botão do painel.",
+            "**STT** — transcreve com o `vox-engine` (se presente) ou com o Whisper local como fallback.",
+            "**Agente** — envia o texto transcrito como um turno normal do Copilot.",
+            "**TTS** — sintetiza um resumo falado em pt-BR pela voz do Windows (`tts.ps1`)."
+          ]
+        },
+        { "type": "p", "text": "O worker de voz (`voice_worker.py`) roda apartado e é reusado por outros plugins da vitrine que precisam de voz — por isso o STT é compartilhado quando o `vox-engine` está disponível." }
+      ]
+    }
+  ],
+  "requirements": [
+    "Windows 10/11 (voz de saída via PowerShell)",
+    "Python 3.10+ (worker Whisper)",
+    "Node 18+ (runtime da extensão)",
+    "Microfone"
+  ],
+  "faq": [
+    { "q": "Precisa de internet?", "a": "Não para a voz: transcrição (Whisper) e síntese rodam localmente. Só o agente do Copilot usa a rede, como de costume." },
+    { "q": "Funciona no Linux ou macOS?", "a": "O núcleo de STT é portável, mas a fala de saída usa a voz do Windows (`tts.ps1`). Hoje o foco é Windows." }
+  ]
+}

@@ -41,6 +41,37 @@
     });
   });
 
+  // ---- scrollspy da TOC (só nas páginas dedicadas) ----
+  const tocLinks = Array.from(document.querySelectorAll(".toc__list a"));
+  if (tocLinks.length && "IntersectionObserver" in window) {
+    const byId = new Map();
+    tocLinks.forEach((a) => {
+      const id = decodeURIComponent((a.getAttribute("href") || "").replace(/^#/, ""));
+      if (id) byId.set(id, a);
+    });
+    const sections = Array.from(document.querySelectorAll(".doc-section")).filter((s) => byId.has(s.id));
+    if (sections.length) {
+      const visible = new Set();
+      let active = null;
+      const paint = () => {
+        const top = sections.find((s) => visible.has(s.id));
+        const id = top ? top.id : active;
+        if (!id || id === active) return;
+        active = id;
+        tocLinks.forEach((a) => a.classList.remove("is-active"));
+        byId.get(id)?.classList.add("is-active");
+      };
+      const obs = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((e) => (e.isIntersecting ? visible.add(e.target.id) : visible.delete(e.target.id)));
+          paint();
+        },
+        { rootMargin: "-84px 0px -68% 0px", threshold: 0 }
+      );
+      sections.forEach((s) => obs.observe(s));
+    }
+  }
+
   // ---- digitação do hero (uma vez, no load) ----
   const cmd = document.getElementById("hero-cmd");
   const prompt = cmd && cmd.closest(".prompt--hero");

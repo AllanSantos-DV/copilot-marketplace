@@ -1,0 +1,61 @@
+{
+  "tagline": "Devolve o MCP ao Copilot onde a política bloqueia — via extensão, com tools, prompts e resources nativos.",
+  "lede": "Onde o MCP é bloqueado por política mas extensões são permitidas, o **mcp-bridge** reabre a porta: conecta a servidores MCP (`stdio`, `http`, `sse` — com login OAuth) e expõe as tools, prompts e resources deles nativamente ao agente, com resiliência, auditoria e um painel de saúde. Devolve os braços e as pernas da IA.",
+  "highlights": [
+    { "title": "MCP onde é bloqueado", "body": "Reconecta o agente a servidores MCP usando o canal de extensões, que a política permite." },
+    { "title": "Tools, prompts e resources", "body": "Expõe tudo nativamente ao agente — não só tools, mas prompts e resources também." },
+    { "title": "Resiliência e auditoria", "body": "Reconexão automática, log de auditoria e um painel de saúde para ver o que está de pé." }
+  ],
+  "sections": [
+    {
+      "id": "o-que-e",
+      "title": "O que é",
+      "blocks": [
+        { "type": "p", "text": "O mcp-bridge é uma extensão que fala **Model Context Protocol** por baixo e reapresenta cada servidor MCP como capacidade nativa do agente do Copilot. É a saída para ambientes onde o MCP direto está barrado por política, mas extensões são liberadas." },
+        { "type": "p", "text": "Ele não força nada: usa o canal que já é permitido para reconectar o agente a servidores que **você** controla, e registra tudo para auditoria." },
+        { "type": "note", "tone": "info", "text": "Registra um **canvas** (painel de saúde) e usa **hooks**; reinicie o app uma vez após instalar." }
+      ]
+    },
+    {
+      "id": "como-usar",
+      "title": "Como usar",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            { "title": "Instale o plugin", "text": "Pelo marketplace (comando na seção Instalar)." },
+            { "title": "Reinicie o app", "text": "Uma vez, para os hooks e o painel entrarem." },
+            { "title": "Configure os servidores", "text": "Aponte para seus servidores MCP (stdio, http ou sse) e, se preciso, faça o login OAuth." },
+            { "title": "Use as capacidades", "text": "As tools, prompts e resources dos servidores passam a aparecer nativamente para o agente." },
+            { "title": "Acompanhe a saúde", "text": "O painel mostra conexões, reconexões e a auditoria das chamadas." }
+          ]
+        },
+        { "type": "note", "tone": "info", "text": "Conexões caídas são retomadas automaticamente; o painel deixa claro o que está de pé e o que falhou." }
+      ]
+    },
+    {
+      "id": "transportes",
+      "title": "Transportes e segurança",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "**stdio** — processos MCP locais.",
+            "**http** e **sse** — servidores MCP remotos.",
+            "**OAuth** — login quando o servidor exige.",
+            "**Auditoria** — registro das tools chamadas, para rastreabilidade."
+          ]
+        },
+        { "type": "p", "text": "Pensado para uso **enterprise**: você mantém o controle dos servidores e a visibilidade do que o agente acessa." }
+      ]
+    }
+  ],
+  "requirements": [
+    "Node 18+ (runtime da extensão)",
+    "Servidores MCP para conectar (stdio / http / sse)"
+  ],
+  "faq": [
+    { "q": "Isso burla a política da empresa?", "a": "Não força nada: usa o canal de extensões, que a política já permite, para reconectar o agente a servidores MCP que você controla — com auditoria de tudo." },
+    { "q": "Que transportes suporta?", "a": "stdio, http e sse, com login OAuth quando o servidor exige." }
+  ]
+}

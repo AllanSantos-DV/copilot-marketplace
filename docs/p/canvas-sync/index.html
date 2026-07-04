@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>canvas-sync — copilot-marketplace</title>
+  <meta name="description" content="A infra invisível que faz os canvases dos plugins aparecerem no app." />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#14121C" />
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content="canvas-sync — copilot-marketplace" />
+  <meta property="og:description" content="A infra invisível que faz os canvases dos plugins aparecerem no app." />
+  <meta property="og:url" content="https://allansantos-dv.github.io/copilot-marketplace/p/canvas-sync/" />
+  <link rel="canonical" href="https://allansantos-dv.github.io/copilot-marketplace/p/canvas-sync/" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../assets/styles.css" />
+</head>
+<body class="doc">
+  <a class="skip" href="#conteudo">Pular para o conteúdo</a>
+  <header class="topbar">
+    <a class="brand" href="../../"><span class="brand__glyph" aria-hidden="true">⌁</span> copilot-marketplace</a>
+    <nav class="topnav" aria-label="Seções">
+      <a href="../../#registry">registry</a>
+      <a href="../../#publicar">publicar</a>
+      <a href="https://github.com/AllanSantos-DV/copilot-marketplace" rel="noopener">github<span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main id="conteudo">
+    <nav class="crumbs" aria-label="Trilha">
+      <a href="../../#registry">registry</a>
+      <span class="crumbs__sep" aria-hidden="true">/</span>
+      <span aria-current="page">canvas-sync</span>
+    </nav>
+
+    <header class="doc-hero">
+      <p class="eyebrow">productivity</p>
+      <div class="doc-hero__top">
+        <h1 class="doc-hero__name">canvas-sync</h1>
+        <span class="chip" title="versão publicada">v0.3.0</span>
+      </div>
+      <p class="doc-hero__lede">O app GUI só carrega canvases de <code>~/.copilot/extensions/</code>, mas instalar pelo marketplace cai em <code>installed-plugins/</code>. O <strong>canvas-sync</strong> fecha essa lacuna: num hook de <code>SessionStart</code>, espelha os plugins marcados como canvas para a pasta certa. Idempotente e seguro — você só escolhe o plugin.</p>
+      <div class="doc-hero__cta">
+        <div class="prompt prompt--sm" data-cmd="copilot plugin install canvas-sync@copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin install canvas-sync@copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin install canvas-sync@copilot-marketplace" aria-label="Copiar comando de instalação do canvas-sync">copiar</button>
+      </div>
+      </div>
+      <div class="doc-hero__links">
+        <a class="lnk" href="https://github.com/AllanSantos-DV/copilot-marketplace" rel="noopener">código<span aria-hidden="true">↗</span></a>
+      </div>
+      <ul class="hl" aria-label="Destaques">
+        <li class="hl__item">
+          <h3 class="hl__title">Espelha automaticamente</h3>
+          <p class="hl__body">No início da sessão, copia os plugins com marcador <code>extensions</code> para <code>~/.copilot/extensions/</code>.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Idempotente e seguro</h3>
+          <p class="hl__body">Usa um stamp e nunca sobrescreve uma pasta sem stamp — sua cópia de dev fica intacta.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Zero passo manual</h3>
+          <p class="hl__body">Cada plugin canvas traz um <code>boot.mjs</code> que baixa o canvas-sync sozinho quando ele falta.</p>
+        </li>
+      </ul>
+    </header>
+
+    <div class="doc-grid">
+      <article class="doc-body" id="doc-body">
+        <section class="doc-section" id="o-que-e">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#o-que-e" aria-label="Link para O que é">#</a>O que é</h2>
+          <p>O canvas-sync é a <strong>infra da própria vitrine</strong>. Não é um canvas nem tem UI: é um hook de <code>SessionStart</code> que resolve um detalhe do app — canvases só carregam de uma pasta específica, e o marketplace instala em outra.</p>
+          <p>Ele faz a ponte entre os dois lugares, para que qualquer plugin canvas instalado pelo marketplace simplesmente funcione depois de um reinício.</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Só usa <strong>hooks</strong> (não registra canvas). É a peça que os outros plugins canvas dependem por baixo.</p></aside>
+        </section>
+
+        <section class="doc-section" id="por-que">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#por-que" aria-label="Link para Por que existe">#</a>Por que existe</h2>
+          <p>O app GUI descobre canvases apenas em <code>~/.copilot/extensions/</code>. Instalar um plugin pelo marketplace cai em <code>~/.copilot/installed-plugins/</code> e, sem ajuda, <strong>não</strong> roda como canvas.</p>
+          <ul class="doc-list"><li>Sem o canvas-sync, cada plugin canvas exigiria cópia manual para <code>extensions/</code>.</li><li>Com ele, o espelhamento acontece sozinho no início da sessão.</li><li>O marcador oficial <code>extensions</code> no <code>plugin.json</code> é o que diz o que espelhar.</li></ul>
+        </section>
+
+        <section class="doc-section" id="como-funciona">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#como-funciona" aria-label="Link para Como funciona">#</a>Como funciona</h2>
+          <ol class="doc-steps"><li><h4>Roda no SessionStart</h4><p>O hook executa <code>node sync.mjs</code> no início de cada sessão.</p></li><li><h4>Lê os plugins ativos</h4><p>Filtra em <code>settings.json → enabledPlugins</code> os que têm o marcador <code>extensions</code>.</p></li><li><h4>Espelha para extensions/</h4><p>Copia <code>installed-plugins/&lt;mp&gt;/&lt;plugin&gt;/</code> → <code>extensions/&lt;plugin&gt;/</code>.</p></li><li><h4>Marca com stamp</h4><p>Grava <code>.canvas-sync.json</code>; é idempotente e nunca sobrescreve uma pasta sem stamp.</p></li></ol>
+          <aside class="note note--warn"><span class="note__mark" aria-hidden="true">!</span><p>Após instalar ou atualizar plugins, <strong>reinicie o app uma vez</strong>: o hook popula <code>extensions/</code> no início da sessão e o app descobre os canvases no próximo boot.</p></aside>
+        </section>
+
+        <section class="doc-section" id="instalar">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#instalar" aria-label="Link para Instalar">#</a>Instalar</h2>
+          <p>Registre a vitrine uma vez (se ainda não fez):</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin marketplace add AllanSantos-DV/copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin marketplace add AllanSantos-DV/copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin marketplace add AllanSantos-DV/copilot-marketplace" aria-label="Copiar comando de registro do marketplace">copiar</button>
+      </div>
+          <p>Instale o <code>canvas-sync</code>:</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin install canvas-sync@copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin install canvas-sync@copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin install canvas-sync@copilot-marketplace" aria-label="Copiar comando de instalação do canvas-sync">copiar</button>
+      </div>
+          <p>Atualize quando quiser (ou todos com <code>--all</code>):</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin update canvas-sync">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin update canvas-sync</code>
+        <button class="copy" type="button" data-copy="copilot plugin update canvas-sync" aria-label="Copiar comando de atualização do canvas-sync">copiar</button>
+      </div>
+        </section>
+
+        <section class="doc-section" id="estrutura">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#estrutura" aria-label="Link para Estrutura">#</a>Estrutura</h2>
+          <p>Runtime <strong>vendado</strong> em <code>plugins/canvas-sync/</code> — vem do repositório de origem, então <strong>não se edita à mão</strong> aqui. É isto que o <code>copilot plugin install</code> entrega:</p>
+          <div class="tree">
+            <div class="tree__head"><span class="prompt__glyph" aria-hidden="true">⌁</span> plugins/canvas-sync/</div>
+            <ul class="tree__list">
+            <li class="tree__row">
+              <code class="tree__name">hooks.json</code>
+              <span class="tree__role">Hooks de ciclo de vida (SessionStart e afins).</span>
+              <span class="tree__size">166 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">plugin.json</code>
+              <span class="tree__role">Metadados do plugin + marcadores (extensions / hooks).</span>
+              <span class="tree__size">680 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">README.md</code>
+              <span class="tree__role">Documentação vinda do repositório de origem.</span>
+              <span class="tree__size">1.2 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">sync.mjs</code>
+              <span class="tree__role">Espelha canvas extensions instaladas para ~/.copilot/extensions.</span>
+              <span class="tree__size">9.2 KB</span>
+            </li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="doc-section" id="faq">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#faq" aria-label="Link para Perguntas frequentes">#</a>Perguntas frequentes</h2>
+          <details class="faq">
+            <summary>Preciso instalar isto à mão?</summary>
+            <p>Normalmente não: os plugins canvas baixam o canvas-sync sozinhos via <code>boot.mjs</code>. Você pode instalá-lo junto se quiser garantir.</p>
+          </details>
+          <details class="faq">
+            <summary>Por que preciso reiniciar o app?</summary>
+            <p>O hook popula <code>extensions/</code> no início da sessão; o app descobre os canvases no próximo boot.</p>
+          </details>
+        </section>
+      </article>
+
+      <aside class="doc-rail" aria-label="Nesta página">
+        <nav class="toc" aria-label="Índice">
+          <p class="toc__label">nesta página</p>
+          <ul class="toc__list">
+            <li><a href="#o-que-e">O que é</a></li>
+            <li><a href="#por-que">Por que existe</a></li>
+            <li><a href="#como-funciona">Como funciona</a></li>
+            <li><a href="#instalar">Instalar</a></li>
+            <li><a href="#estrutura">Estrutura</a></li>
+            <li><a href="#faq">Perguntas frequentes</a></li>
+          </ul>
+        </nav>
+          <dl class="meta">
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.3.0</span></dd></div>
+            <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
+            <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
+            <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
+            <div class="meta__row"><dt>tipo</dt><dd><span class="pill">hooks</span></dd></div>
+            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>Node 18+</li><li>GitHub Copilot CLI + app GUI</li></ul></dd></div>
+            <div class="meta__row"><dt>tags</dt><dd><ul class="tags tags--meta"><li>canvas</li><li>sync</li><li>infra</li><li>hooks</li></ul></dd></div>
+          </dl>
+      </aside>
+    </div>
+
+    <nav class="pager" aria-label="Outros plugins">
+      <a class="pager__link pager__link--prev" href="../mcp-bridge/"><span class="pager__dir">← anterior</span><span class="pager__name">mcp-bridge</span></a>
+      <a class="pager__all" href="../../#registry">todos os plugins</a>
+      <span></span>
+    </nav>
+  </main>
+
+  <footer class="foot">
+    <p class="foot__made">Feito por <a href="https://github.com/AllanSantos-DV" rel="noopener">Allan Santos</a> · MIT · página gerada de <code>marketplace.json</code> + <code>docs/content/canvas-sync.json</code></p>
+    <p class="foot__cmd"><span aria-hidden="true">⌁</span> <code>copilot plugin install canvas-sync@copilot-marketplace</code></p>
+  </footer>
+
+  <script src="../../assets/app.js" defer></script>
+</body>
+</html>

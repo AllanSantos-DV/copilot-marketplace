@@ -35,13 +35,16 @@ copilot plugin update --all
 ```
 .
 ├─ .github/plugin/marketplace.json   # manifesto central (o CLI lê; a vitrine também)
+├─ .github/agents/vitrine.agent.md    # agente de publicação (página + design obrigatórios)
 ├─ plugins/<nome>/                    # runtime vendado de cada plugin (NÃO editar à mão)
 │  ├─ plugin.json                     # metadados + marcadores (extensions / hooks)
 │  ├─ hooks.json                      # (opcional) hooks de ciclo de vida
 │  └─ <runtime: extension.mjs, boot.mjs, *.py, *.ps1, *.html, ...>
 ├─ docs/                              # vitrine (GitHub Pages, gerada)
-│  ├─ build.mjs                       # gerador: marketplace.json -> index.html + tabela do README
+│  ├─ build.mjs                       # gerador: manifesto + content -> index + páginas + README
 │  ├─ index.html                      # GERADO (não editar à mão)
+│  ├─ p/<nome>/index.html             # GERADO: a PÁGINA DEDICADA de cada plugin
+│  ├─ content/<nome>.json             # conteúdo rico da página (você escreve; ver §6.1)
 │  └─ assets/{styles.css,app.js}      # design escrito à mão (edite estes ao afinar visual)
 ├─ README.md                          # tabela entre <!-- plugins:start/end --> é GERADA
 └─ AGENTS.md                          # este guia
@@ -133,12 +136,56 @@ caem depois, na ordem do manifesto.
 ## 6. A vitrine (`docs/`)
 
 - Gerada por `node docs/build.mjs` — Node puro, **sem dependências**, sem Actions.
-- O gerador lê `marketplace.json`, escreve `docs/index.html` (cards assados, bom p/ SEO/no-JS)
-  e **sincroniza a tabela do README** entre `<!-- plugins:start -->` e `<!-- plugins:end -->`.
+- O gerador lê `marketplace.json` **+** `docs/content/<nome>.json`, escreve `docs/index.html`
+  (cards assados que linkam para a página dedicada), uma **página dedicada** por plugin em
+  `docs/p/<nome>/index.html` e **sincroniza a tabela do README** entre `<!-- plugins:start -->`
+  e `<!-- plugins:end -->`.
 - Design: `docs/assets/styles.css` e `docs/assets/app.js` são escritos à mão — **edite estes**
-  para mexer no visual; `index.html` é sempre regenerado.
+  para mexer no visual; os `.html` (`index.html` e `p/<nome>/index.html`) são sempre regenerados
+  e **nunca** se editam à mão.
 - Publicação: GitHub Pages, branch `main`, pasta `/docs`. Ligar uma vez:
   `gh api -X POST repos/AllanSantos-DV/copilot-marketplace/pages -f 'source[branch]=main' -f 'source[path]=/docs'`.
+
+### 6.1 Páginas dedicadas e `docs/content/<nome>.json`
+
+Cada plugin tem uma **página dedicada** (`/p/<nome>/`) com o que é, como usar, como instalar,
+a estrutura e a navegação entre plugins. O conteúdo rico vem de `docs/content/<nome>.json`
+(você escreve; **desenhe com a skill `frontend-design`**). Se o arquivo faltar, a página ainda
+é gerada a partir dos metadados — mas o certo é sempre ter o content file.
+
+O gerador **injeta sozinho**: hero (nome, versão, links, install), seção **Instalar**
+(registrar + instalar + atualizar, com aviso de canvas quando aplicável), seção **Estrutura**
+(árvore de `plugins/<nome>/`, derivada do disco), o aside de **meta**, a **TOC** e o **prev/next**.
+Você cuida do resto. Esquema:
+
+```jsonc
+{
+  "tagline": "Gancho de uma linha (vira o card e a meta description).",
+  "lede": "Parágrafo de abertura do hero. Aceita `code` e **negrito**.",
+  "highlights": [ { "title": "...", "body": "..." } ],   // 2–4 cartões
+  "sections": [
+    {
+      "id": "o-que-e",                                    // sem acento -> âncora + TOC
+      "title": "O que é",
+      "blocks": [
+        { "type": "p", "text": "com `code` e **negrito**" },
+        { "type": "list", "items": ["..."] },
+        { "type": "steps", "items": [ { "title": "...", "text": "..." } ] },
+        { "type": "code", "lang": "sh", "code": "...", "copy": true },
+        { "type": "cmd", "text": "copilot ..." },         // prompt copiável
+        { "type": "note", "tone": "info", "text": "callout (info | warn)" }
+      ]
+    }
+  ],
+  "requirements": ["Windows 10/11", "Node 18+"],          // opcional -> aside
+  "faq": [ { "q": "...", "a": "..." } ],                   // opcional
+  "files": { "extension.mjs": "papel custom na Estrutura" } // opcional
+}
+```
+
+> **Design:** estenda a identidade da vitrine (coral = comando, mint = versão/status; mono IBM
+> Plex como voz de terminal). A **assinatura** da página dedicada é a árvore de arquivos
+> (`.tree`). Novos componentes/refinos vão em `docs/assets/`, nunca no HTML gerado.
 
 ## 7. Fluxos
 
@@ -146,9 +193,11 @@ caem depois, na ordem do manifesto.
 
 1. **Vender:** copie o runtime já empacotado para `plugins/<nome>/` (da origem; não edite à mão).
 2. **Versão:** suba `version` em `plugins/<nome>/plugin.json` (semver).
-3. **Manifesto:** reflita `name/version/description` em `.github/plugin/marketplace.json`.
-4. **Gerar:** `node docs/build.mjs` (atualiza `docs/index.html` + tabela do README).
-5. **Commit** em `main` — a publicação. Ex.: `chore(<nome>): sync v<versão>`.
+3. **Página (obrigatório):** escreva/atualize `docs/content/<nome>.json` aplicando a skill
+   `frontend-design` — é a página dedicada do plugin, parte da publicação (ver §6.1).
+4. **Manifesto:** reflita `name/version/description` em `.github/plugin/marketplace.json`.
+5. **Gerar:** `node docs/build.mjs` (atualiza `index.html`, `docs/p/<nome>/` + tabela do README).
+6. **Commit** em `main` — a publicação. Ex.: `chore(<nome>): sync v<versão>`.
 
 > Alguns plugins têm um `publish.ps1` **local** na origem que faz 1–4 e dá push. Ex.: `voice-chat`
 > é publicado do repo `copilot-voice`; `action-bridge` é empacotado com esbuild do repo privado do
@@ -159,9 +208,10 @@ caem depois, na ordem do manifesto.
 1. Crie `plugins/<nome>/` com o runtime + `plugin.json` (seção 4). Se for canvas, inclua
    `"extensions": ["."]`, um `hooks.json` e o `boot.mjs` que baixa o `canvas-sync`.
 2. Acrescente a entrada no array `plugins` de `.github/plugin/marketplace.json`.
-3. (Opcional) Adicione o `<nome>` em `const ORDER` de `docs/build.mjs` para posicioná-lo na vitrine.
-4. `node docs/build.mjs`.
-5. Commit `feat(<nome>): add <nome> v<versão>`.
+3. Escreva `docs/content/<nome>.json` com a skill `frontend-design` — a página dedicada (§6.1).
+4. (Opcional) Adicione o `<nome>` em `const ORDER` de `docs/build.mjs` para posicioná-lo na vitrine.
+5. `node docs/build.mjs`.
+6. Commit `feat(<nome>): add <nome> v<versão>`.
 
 ### 7.3 Migrar/criar uma canvas extension do Copilot
 
@@ -169,6 +219,20 @@ caem depois, na ordem do manifesto.
   (`SessionStart → node boot.mjs`) e o `boot.mjs` que garante o `canvas-sync`.
 - Vende em `plugins/<nome>/`, registre no manifesto, gere a vitrine, commit. O `canvas-sync`
   cuida de espelhar para `~/.copilot/extensions/` na máquina do usuário.
+
+### 7.4 O agente `vitrine` (recomendado)
+
+Para nunca esquecer a etapa de página/design, use o agente **`vitrine`**
+(`.github/agents/vitrine.agent.md`). Ele encapsula o fluxo de §7.1 com a página dedicada como
+passo **obrigatório** (escrever `docs/content/<nome>.json` + aplicar a skill `frontend-design`),
+roda o build e segue as convenções de commit.
+
+- Invoque-o ao publicar/atualizar/criar um plugin nesta vitrine.
+- Se o seu Copilot CLI carrega agentes só de `~/.copilot/agents/`, copie o arquivo para lá
+  (`cp .github/agents/vitrine.agent.md ~/.copilot/agents/`); a versão do repo continua sendo a
+  fonte de verdade.
+- Ele depende da skill `frontend-design` (`~/.copilot/skills/frontend-design`) — se faltar,
+  instale-a antes.
 
 ## 8. Convenções de commit
 
@@ -180,7 +244,8 @@ caem depois, na ordem do manifesto.
 ## 9. Checklist antes do commit
 
 - [ ] `plugin.json` com `version` bumpada e `description` curta em pt-BR.
+- [ ] `docs/content/<nome>.json` criado/atualizado e desenhado com `frontend-design` (§6.1).
 - [ ] Entrada correspondente em `.github/plugin/marketplace.json` (mesma versão/descrição).
-- [ ] `node docs/build.mjs` rodado (index.html + tabela do README atualizados).
-- [ ] Nada editado à mão em `plugins/<nome>/` que devesse vir da origem.
+- [ ] `node docs/build.mjs` rodado (index.html + `docs/p/<nome>/` + tabela do README atualizados).
+- [ ] Nada editado à mão em `plugins/<nome>/` nem nos `.html` gerados (`index.html`, `p/<nome>/`).
 - [ ] Commit em Conventional Commits, uma linha, com o trailer.
