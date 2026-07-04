@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>action-bridge — copilot-marketplace</title>
+  <meta name="description" content="Grave, transcreva e lembre suas reuniões — comandando o app Action pelo agente." />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#14121C" />
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content="action-bridge — copilot-marketplace" />
+  <meta property="og:description" content="Grave, transcreva e lembre suas reuniões — comandando o app Action pelo agente." />
+  <meta property="og:url" content="https://allansantos-dv.github.io/copilot-marketplace/p/action-bridge/" />
+  <link rel="canonical" href="https://allansantos-dv.github.io/copilot-marketplace/p/action-bridge/" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../assets/styles.css" />
+</head>
+<body class="doc">
+  <a class="skip" href="#conteudo">Pular para o conteúdo</a>
+  <header class="topbar">
+    <a class="brand" href="../../"><span class="brand__glyph" aria-hidden="true">⌁</span> copilot-marketplace</a>
+    <nav class="topnav" aria-label="Seções">
+      <a href="../../#registry">registry</a>
+      <a href="../../#publicar">publicar</a>
+      <a href="https://github.com/AllanSantos-DV/copilot-marketplace" rel="noopener">github<span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main id="conteudo">
+    <nav class="crumbs" aria-label="Trilha">
+      <a href="../../#registry">registry</a>
+      <span class="crumbs__sep" aria-hidden="true">/</span>
+      <span aria-current="page">action-bridge</span>
+    </nav>
+
+    <header class="doc-hero">
+      <p class="eyebrow">productivity</p>
+      <div class="doc-hero__top">
+        <h1 class="doc-hero__name">action-bridge</h1>
+        <span class="chip" title="versão publicada">v1.1.0</span>
+      </div>
+      <p class="doc-hero__lede">O <strong>action-bridge</strong> conecta o Copilot ao app <strong>Action</strong> (captura e memória de reuniões, 100% local no Windows). Pelo próprio agente você lista reuniões, lê transcrições, busca na memória semântica cruzada, cura decisões e ações e navega o grafo — e o Action se instala sozinho quando ainda não existe.</p>
+      <div class="doc-hero__cta">
+        <div class="prompt prompt--sm" data-cmd="copilot plugin install action-bridge@copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin install action-bridge@copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin install action-bridge@copilot-marketplace" aria-label="Copiar comando de instalação do action-bridge">copiar</button>
+      </div>
+      </div>
+      <div class="doc-hero__links">
+        <a class="lnk" href="https://github.com/AllanSantos-DV/action-releases" rel="noopener">código<span aria-hidden="true">↗</span></a>
+      </div>
+      <ul class="hl" aria-label="Destaques">
+        <li class="hl__item">
+          <h3 class="hl__title">Reuniões sob comando</h3>
+          <p class="hl__body">Prepara a gravação, lista e abre reuniões e lê a transcrição diarizada — tudo por conversa.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Memória que conecta</h3>
+          <p class="hl__body">Busca semântica em todo o histórico e sugere quais reuniões passadas se ligam à de agora.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Instala o Action sozinho</h3>
+          <p class="hl__body">Se o app não existe, o bootstrap baixa a última release e registra — sem passo manual.</p>
+        </li>
+      </ul>
+    </header>
+
+    <div class="doc-grid">
+      <article class="doc-body" id="doc-body">
+        <section class="doc-section" id="o-que-e">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#o-que-e" aria-label="Link para O que é">#</a>O que é</h2>
+          <p>O action-bridge é uma ponte <strong>MCP</strong> entre o agente do Copilot e o app Action. Ele expõe ao agente as ferramentas do Action — reuniões, transcrição, memória, curadoria e grafo — para você operar tudo por linguagem natural, sem sair do terminal.</p>
+          <p>O Action guarda os dados <strong>localmente</strong> (áudio, transcrição e memória em DuckDB na sua máquina). Há um modo equipe opcional (Postgres + pgvector) que você liga explicitamente quando quer um acervo compartilhado.</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Registra um <strong>canvas</strong> e usa <strong>hooks</strong>; depois de instalar, reinicie o app uma vez para o painel e os hooks entrarem.</p></aside>
+        </section>
+
+        <section class="doc-section" id="como-usar">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#como-usar" aria-label="Link para Como usar">#</a>Como usar</h2>
+          <ol class="doc-steps"><li><h4>Instale o plugin</h4><p>Pelo marketplace (comando na seção Instalar).</p></li><li><h4>Deixe o Action se instalar</h4><p>Na primeira tool que precisar dele, o bootstrap baixa e registra o app — você não faz nada.</p></li><li><h4>Prepare uma gravação</h4><p>Peça ao agente para preparar a reunião; o app abre pronto e você aperta Start (a captura é sempre uma ação sua).</p></li><li><h4>Depois, cure e busque</h4><p>Peça o resumo, extraia decisões e to-dos, e busque na memória cruzada por assuntos.</p></li></ol>
+          <aside class="note note--warn"><span class="note__mark" aria-hidden="true">!</span><p>O app Action é <strong>Windows-only</strong>. A extensão orquestra tudo, mas a captura e a memória vivem no app local.</p></aside>
+        </section>
+
+        <section class="doc-section" id="recursos">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#recursos" aria-label="Link para O que dá para fazer">#</a>O que dá para fazer</h2>
+          <ul class="doc-list"><li><strong>Reuniões</strong> — listar, abrir, atualizar metadados e renomear locutores.</li><li><strong>Transcrição</strong> — ler segmentos diarizados de cada reunião.</li><li><strong>Memória semântica</strong> — indexar e buscar em todo o histórico, com reuniões relacionadas.</li><li><strong>Curadoria</strong> — salvar resumo, decisões e to-dos, materializados no grafo.</li><li><strong>Grafo</strong> — criar entidades e relações e consultar com SQL de leitura.</li><li><strong>Modo equipe</strong> — conectar a um Postgres + pgvector compartilhado (opcional).</li></ul>
+          <p>Tudo isso pensado com <strong>LGPD</strong> em mente: minimização, expurgo por retenção e remoção de perfis de voz quando você pede.</p>
+        </section>
+
+        <section class="doc-section" id="instalar">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#instalar" aria-label="Link para Instalar">#</a>Instalar</h2>
+          <p>Registre a vitrine uma vez (se ainda não fez):</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin marketplace add AllanSantos-DV/copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin marketplace add AllanSantos-DV/copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin marketplace add AllanSantos-DV/copilot-marketplace" aria-label="Copiar comando de registro do marketplace">copiar</button>
+      </div>
+          <p>Instale o <code>action-bridge</code>:</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin install action-bridge@copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin install action-bridge@copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin install action-bridge@copilot-marketplace" aria-label="Copiar comando de instalação do action-bridge">copiar</button>
+      </div>
+          <p>Atualize quando quiser (ou todos com <code>--all</code>):</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin update action-bridge">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin update action-bridge</code>
+        <button class="copy" type="button" data-copy="copilot plugin update action-bridge" aria-label="Copiar comando de atualização do action-bridge">copiar</button>
+      </div>
+          <aside class="note note--warn"><span class="note__mark" aria-hidden="true">!</span><p>Este plugin registra um <strong>canvas</strong> (painel no app). Depois de instalar, <strong>reinicie o app uma vez</strong>: o <code>canvas-sync</code> espelha a extensão para <code>~/.copilot/extensions/</code> e o app a descobre no próximo boot.</p></aside>
+        </section>
+
+        <section class="doc-section" id="estrutura">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#estrutura" aria-label="Link para Estrutura">#</a>Estrutura</h2>
+          <p>Runtime <strong>vendado</strong> em <code>plugins/action-bridge/</code> — vem do repositório de origem, então <strong>não se edita à mão</strong> aqui. É isto que o <code>copilot plugin install</code> entrega:</p>
+          <div class="tree">
+            <div class="tree__head"><span class="prompt__glyph" aria-hidden="true">⌁</span> plugins/action-bridge/</div>
+            <ul class="tree__list">
+            <li class="tree__row">
+              <code class="tree__name">boot.mjs</code>
+              <span class="tree__role">Bootstrap de SessionStart: baixa/garante o canvas-sync na máquina.</span>
+              <span class="tree__size">7.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">extension.mjs</code>
+              <span class="tree__role">Extensão in-app: hooks e tools da sessão viva do agente.</span>
+              <span class="tree__size">566 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">hooks.json</code>
+              <span class="tree__role">Hooks de ciclo de vida (SessionStart e afins).</span>
+              <span class="tree__size">166 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">plugin.json</code>
+              <span class="tree__role">Metadados do plugin + marcadores (extensions / hooks).</span>
+              <span class="tree__size">800 B</span>
+            </li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="doc-section" id="faq">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#faq" aria-label="Link para Perguntas frequentes">#</a>Perguntas frequentes</h2>
+          <details class="faq">
+            <summary>Meus dados vão para a nuvem?</summary>
+            <p>Não por padrão — o Action é 100% local e a memória fica em DuckDB na sua máquina. O modo equipe (Postgres+pgvector) é opcional e ligado por você.</p>
+          </details>
+          <details class="faq">
+            <summary>Como instalo o app Action?</summary>
+            <p>Você não precisa: na primeira vez que uma ferramenta o exige, o plugin baixa a última release e registra o app automaticamente.</p>
+          </details>
+        </section>
+      </article>
+
+      <aside class="doc-rail" aria-label="Nesta página">
+        <nav class="toc" aria-label="Índice">
+          <p class="toc__label">nesta página</p>
+          <ul class="toc__list">
+            <li><a href="#o-que-e">O que é</a></li>
+            <li><a href="#como-usar">Como usar</a></li>
+            <li><a href="#recursos">O que dá para fazer</a></li>
+            <li><a href="#instalar">Instalar</a></li>
+            <li><a href="#estrutura">Estrutura</a></li>
+            <li><a href="#faq">Perguntas frequentes</a></li>
+          </ul>
+        </nav>
+          <dl class="meta">
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.1.0</span></dd></div>
+            <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
+            <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
+            <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
+            <div class="meta__row"><dt>tipo</dt><dd><span class="pill">canvas</span> <span class="pill">hooks</span></dd></div>
+            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>Windows (o app Action é Windows-only)</li><li>Espaço em disco para modelos de voz e embeddings</li><li>Node 18+ (runtime da extensão)</li></ul></dd></div>
+            <div class="meta__row"><dt>tags</dt><dd><ul class="tags tags--meta"><li>action</li><li>meetings</li><li>reunioes</li><li>transcription</li><li>mcp</li><li>memory</li></ul></dd></div>
+          </dl>
+      </aside>
+    </div>
+
+    <nav class="pager" aria-label="Outros plugins">
+      <a class="pager__link pager__link--prev" href="../voice-chat/"><span class="pager__dir">← anterior</span><span class="pager__name">voice-chat</span></a>
+      <a class="pager__all" href="../../#registry">todos os plugins</a>
+      <a class="pager__link pager__link--next" href="../copilot-mobile/"><span class="pager__dir">próximo →</span><span class="pager__name">copilot-mobile</span></a>
+    </nav>
+  </main>
+
+  <footer class="foot">
+    <p class="foot__made">Feito por <a href="https://github.com/AllanSantos-DV" rel="noopener">Allan Santos</a> · MIT · página gerada de <code>marketplace.json</code> + <code>docs/content/action-bridge.json</code></p>
+    <p class="foot__cmd"><span aria-hidden="true">⌁</span> <code>copilot plugin install action-bridge@copilot-marketplace</code></p>
+  </footer>
+
+  <script src="../../assets/app.js" defer></script>
+</body>
+</html>

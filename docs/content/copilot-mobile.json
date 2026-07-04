@@ -1,0 +1,61 @@
+{
+  "tagline": "Uma ponte entre o Copilot no PC e o seu celular — com resumo falado e detecção de drift.",
+  "lede": "O **copilot-mobile** é a extensão in-app mínima que liga sua sessão do Copilot ao app no celular. Ela faz só o que exige a sessão viva: injeta o resumo falado (🔊) a cada turno e avisa quando o celular respondeu turnos que o PC ainda não viu. Pareamento, transporte e configuração ficam no **daemon apartado** (ícone da bandeja).",
+  "highlights": [
+    { "title": "Resumo falado no celular", "body": "Injeta a instrução 🔊 e o daemon transforma essa linha no áudio que toca no telefone." },
+    { "title": "Sem sessão duplicada", "body": "O plano de controle (transporte, pareamento, túnel) mora no daemon — a extensão fica leve e não compete pela sessão." },
+    { "title": "Aviso de drift", "body": "Conta os turnos vindos do celular no disco e pede para sincronizar quando o PC fica para trás." }
+  ],
+  "sections": [
+    {
+      "id": "o-que-e",
+      "title": "O que é",
+      "blocks": [
+        { "type": "p", "text": "O copilot-mobile deixa você continuar uma conversa do Copilot pelo celular. Esta extensão é a parte **mínima** que precisa rodar dentro da sessão do agente; o trabalho pesado — transporte, pareamento, stream e a tela de configuração — vive num **daemon apartado**, sempre ligado, aberto pelo ícone da bandeja." },
+        { "type": "p", "text": "Na prática ela faz duas coisas: garante que cada resposta termine com um resumo falado (que vira áudio no telefone) e detecta quando o celular já respondeu turnos que a sessão do PC ainda não incorporou." },
+        { "type": "note", "tone": "info", "text": "Registra um **canvas** e usa **hooks**; reinicie o app uma vez após instalar. O daemon é baixado apartado na primeira execução (release buildada, sem build)." }
+      ]
+    },
+    {
+      "id": "como-usar",
+      "title": "Como usar",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            { "title": "Instale o plugin", "text": "Pelo marketplace (comando na seção Instalar)." },
+            { "title": "Reinicie o app", "text": "Uma vez, para os hooks e o daemon entrarem." },
+            { "title": "Abra o daemon na bandeja", "text": "O ícone da bandeja abre o painel de configuração — funciona mesmo com o app fechado." },
+            { "title": "Arme o transporte", "text": "Escolha off / lan / tailscale / public conforme onde o celular vai alcançar o PC." },
+            { "title": "Pareie o celular", "text": "Escaneie o QR do painel no app Android e comece a conversar de qualquer lugar." }
+          ]
+        },
+        { "type": "note", "tone": "info", "text": "Enquanto o transporte estiver em **off**, a extensão não injeta o resumo falado — nada vaza sem você armar." }
+      ]
+    },
+    {
+      "id": "como-funciona",
+      "title": "Como funciona",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "**Resumo falado** — a cada turno, injeta a instrução para terminar a resposta com uma linha 🔊; o daemon a transforma em áudio no celular.",
+            "**Drift celular→PC** — o daemon grava os turnos do celular no disco por um runtime separado; a extensão compara as contagens e avisa quando há turnos faltando no chat do PC.",
+            "**Plano de controle no daemon** — transporte, pareamento, SSE e túnel ficam fora da sessão, sempre disponíveis."
+          ]
+        },
+        { "type": "p", "text": "A detecção de drift é **lógica pura e testada** (`drift.mjs`, 17 casos): o chamador passa as contagens, sem I/O escondido — fácil de confiar." }
+      ]
+    }
+  ],
+  "requirements": [
+    "App copilot-mobile (Android) via GitHub Releases",
+    "Daemon apartado (baixado na 1ª execução)",
+    "Node 18+ (runtime da extensão)"
+  ],
+  "faq": [
+    { "q": "Onde configuro transporte e pareamento?", "a": "No daemon, pelo ícone da bandeja — ele serve o próprio painel e funciona mesmo com o app fechado." },
+    { "q": "Por que a extensão é tão pequena?", "a": "De propósito: antes ela subia um HTTP server completo e um canvas de config, duplicando o daemon e fazendo cada sessão competir pelo controle. Agora só ficam os dois hooks que dependem da sessão viva." }
+  ]
+}

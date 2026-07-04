@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>voice-chat — copilot-marketplace</title>
+  <meta name="description" content="Fale com o Copilot e ouça a resposta — transcrição e voz 100% locais, em português." />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#14121C" />
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content="voice-chat — copilot-marketplace" />
+  <meta property="og:description" content="Fale com o Copilot e ouça a resposta — transcrição e voz 100% locais, em português." />
+  <meta property="og:url" content="https://allansantos-dv.github.io/copilot-marketplace/p/voice-chat/" />
+  <link rel="canonical" href="https://allansantos-dv.github.io/copilot-marketplace/p/voice-chat/" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../assets/styles.css" />
+</head>
+<body class="doc">
+  <a class="skip" href="#conteudo">Pular para o conteúdo</a>
+  <header class="topbar">
+    <a class="brand" href="../../"><span class="brand__glyph" aria-hidden="true">⌁</span> copilot-marketplace</a>
+    <nav class="topnav" aria-label="Seções">
+      <a href="../../#registry">registry</a>
+      <a href="../../#publicar">publicar</a>
+      <a href="https://github.com/AllanSantos-DV/copilot-marketplace" rel="noopener">github<span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main id="conteudo">
+    <nav class="crumbs" aria-label="Trilha">
+      <a href="../../#registry">registry</a>
+      <span class="crumbs__sep" aria-hidden="true">/</span>
+      <span aria-current="page">voice-chat</span>
+    </nav>
+
+    <header class="doc-hero">
+      <p class="eyebrow">productivity</p>
+      <div class="doc-hero__top">
+        <h1 class="doc-hero__name">voice-chat</h1>
+        <span class="chip" title="versão publicada">v1.2.1</span>
+      </div>
+      <p class="doc-hero__lede">O <strong>voice-chat</strong> transforma o terminal numa conversa: você fala, o Whisper (ou o motor único <code>vox-engine</code>) transcreve, o agente responde e uma voz local em pt-BR lê o resumo de volta. Nada sai da sua máquina.</p>
+      <div class="doc-hero__cta">
+        <div class="prompt prompt--sm" data-cmd="copilot plugin install voice-chat@copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin install voice-chat@copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin install voice-chat@copilot-marketplace" aria-label="Copiar comando de instalação do voice-chat">copiar</button>
+      </div>
+      </div>
+      <div class="doc-hero__links">
+        <a class="lnk" href="https://github.com/AllanSantos-DV/copilot-voice" rel="noopener">código<span aria-hidden="true">↗</span></a>
+      </div>
+      <ul class="hl" aria-label="Destaques">
+        <li class="hl__item">
+          <h3 class="hl__title">Fala → texto, local</h3>
+          <p class="hl__body">Grava o microfone e transcreve com Whisper on-device — sem nuvem, sem chave de API.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Resposta falada</h3>
+          <p class="hl__body">A cada turno injeta a instrução do resumo 🔊 e sintetiza áudio em português no Windows.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">vox-engine ou fallback</h3>
+          <p class="hl__body">Usa o motor único <code>vox-engine</code> quando existe (STT compartilhado, melhor qualidade) e cai para o Whisper local quando não.</p>
+        </li>
+      </ul>
+    </header>
+
+    <div class="doc-grid">
+      <article class="doc-body" id="doc-body">
+        <section class="doc-section" id="o-que-e">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#o-que-e" aria-label="Link para O que é">#</a>O que é</h2>
+          <p>O voice-chat é uma <strong>canvas extension</strong> do GitHub Copilot CLI: abre um painel de voz no app e liga o ciclo fala → agente → fala. Você segura para falar, ele transcreve localmente, manda o texto ao agente e devolve um resumo em áudio na sua língua.</p>
+          <p>É pensado para acompanhar sessões longas sem tirar os olhos do que importa: o áudio de saída é um <strong>resumo falado</strong>, curto e natural, não a leitura crua da resposta inteira.</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Como registra um canvas, depois de instalar é preciso <strong>reiniciar o app uma vez</strong> para o painel aparecer (o <code>canvas-sync</code> cuida do espelhamento).</p></aside>
+        </section>
+
+        <section class="doc-section" id="como-usar">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#como-usar" aria-label="Link para Como usar">#</a>Como usar</h2>
+          <ol class="doc-steps"><li><h4>Instale o plugin</h4><p>Pelo marketplace, com o comando da seção Instalar abaixo.</p></li><li><h4>Reinicie o app</h4><p>Uma vez, para o canvas de voz ser descoberto.</p></li><li><h4>Abra o painel Voz</h4><p>O canvas mostra o microfone e o estado (ouvindo, transcrevendo, falando).</p></li><li><h4>Segure para falar</h4><p>Fale sua pergunta; ao soltar, o Whisper transcreve e o agente responde com um resumo em áudio.</p></li></ol>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Na primeira fala o modelo de voz pode levar alguns segundos para aquecer; depois fica instantâneo.</p></aside>
+        </section>
+
+        <section class="doc-section" id="como-funciona">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#como-funciona" aria-label="Link para Como funciona">#</a>Como funciona</h2>
+          <ul class="doc-list"><li><strong>Captura</strong> — grava o microfone enquanto você segura o botão do painel.</li><li><strong>STT</strong> — transcreve com o <code>vox-engine</code> (se presente) ou com o Whisper local como fallback.</li><li><strong>Agente</strong> — envia o texto transcrito como um turno normal do Copilot.</li><li><strong>TTS</strong> — sintetiza um resumo falado em pt-BR pela voz do Windows (<code>tts.ps1</code>).</li></ul>
+          <p>O worker de voz (<code>voice_worker.py</code>) roda apartado e é reusado por outros plugins da vitrine que precisam de voz — por isso o STT é compartilhado quando o <code>vox-engine</code> está disponível.</p>
+        </section>
+
+        <section class="doc-section" id="instalar">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#instalar" aria-label="Link para Instalar">#</a>Instalar</h2>
+          <p>Registre a vitrine uma vez (se ainda não fez):</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin marketplace add AllanSantos-DV/copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin marketplace add AllanSantos-DV/copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin marketplace add AllanSantos-DV/copilot-marketplace" aria-label="Copiar comando de registro do marketplace">copiar</button>
+      </div>
+          <p>Instale o <code>voice-chat</code>:</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin install voice-chat@copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin install voice-chat@copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin install voice-chat@copilot-marketplace" aria-label="Copiar comando de instalação do voice-chat">copiar</button>
+      </div>
+          <p>Atualize quando quiser (ou todos com <code>--all</code>):</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin update voice-chat">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin update voice-chat</code>
+        <button class="copy" type="button" data-copy="copilot plugin update voice-chat" aria-label="Copiar comando de atualização do voice-chat">copiar</button>
+      </div>
+          <aside class="note note--warn"><span class="note__mark" aria-hidden="true">!</span><p>Este plugin registra um <strong>canvas</strong> (painel no app). Depois de instalar, <strong>reinicie o app uma vez</strong>: o <code>canvas-sync</code> espelha a extensão para <code>~/.copilot/extensions/</code> e o app a descobre no próximo boot.</p></aside>
+        </section>
+
+        <section class="doc-section" id="estrutura">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#estrutura" aria-label="Link para Estrutura">#</a>Estrutura</h2>
+          <p>Runtime <strong>vendado</strong> em <code>plugins/voice-chat/</code> — vem do repositório de origem, então <strong>não se edita à mão</strong> aqui. É isto que o <code>copilot plugin install</code> entrega:</p>
+          <div class="tree">
+            <div class="tree__head"><span class="prompt__glyph" aria-hidden="true">⌁</span> plugins/voice-chat/</div>
+            <ul class="tree__list">
+            <li class="tree__row">
+              <code class="tree__name">extension.mjs</code>
+              <span class="tree__role">Extensão in-app: hooks e tools da sessão viva do agente.</span>
+              <span class="tree__size">86 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">iframe.html</code>
+              <span class="tree__role">Canvas: painel de UI carregado pelo app GUI.</span>
+              <span class="tree__size">55 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">plugin.json</code>
+              <span class="tree__role">Metadados do plugin + marcadores (extensions / hooks).</span>
+              <span class="tree__size">640 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">requirements.txt</code>
+              <span class="tree__role">Dependências Python do worker de voz.</span>
+              <span class="tree__size">308 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">tts.ps1</code>
+              <span class="tree__role">Síntese de voz local no Windows (fala o resumo).</span>
+              <span class="tree__size">848 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">voice_worker.py</code>
+              <span class="tree__role">Worker de voz local (STT / Whisper).</span>
+              <span class="tree__size">87 KB</span>
+            </li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="doc-section" id="faq">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#faq" aria-label="Link para Perguntas frequentes">#</a>Perguntas frequentes</h2>
+          <details class="faq">
+            <summary>Precisa de internet?</summary>
+            <p>Não para a voz: transcrição (Whisper) e síntese rodam localmente. Só o agente do Copilot usa a rede, como de costume.</p>
+          </details>
+          <details class="faq">
+            <summary>Funciona no Linux ou macOS?</summary>
+            <p>O núcleo de STT é portável, mas a fala de saída usa a voz do Windows (<code>tts.ps1</code>). Hoje o foco é Windows.</p>
+          </details>
+        </section>
+      </article>
+
+      <aside class="doc-rail" aria-label="Nesta página">
+        <nav class="toc" aria-label="Índice">
+          <p class="toc__label">nesta página</p>
+          <ul class="toc__list">
+            <li><a href="#o-que-e">O que é</a></li>
+            <li><a href="#como-usar">Como usar</a></li>
+            <li><a href="#como-funciona">Como funciona</a></li>
+            <li><a href="#instalar">Instalar</a></li>
+            <li><a href="#estrutura">Estrutura</a></li>
+            <li><a href="#faq">Perguntas frequentes</a></li>
+          </ul>
+        </nav>
+          <dl class="meta">
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.2.1</span></dd></div>
+            <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
+            <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
+            <div class="meta__row"><dt>origem</dt><dd>github · AllanSantos-DV/copilot-voice</dd></div>
+            <div class="meta__row"><dt>tipo</dt><dd><span class="pill">canvas</span></dd></div>
+            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>Windows 10/11 (voz de saída via PowerShell)</li><li>Python 3.10+ (worker Whisper)</li><li>Node 18+ (runtime da extensão)</li><li>Microfone</li></ul></dd></div>
+            <div class="meta__row"><dt>tags</dt><dd><ul class="tags tags--meta"><li>voice</li><li>voz</li><li>tts</li><li>stt</li><li>whisper</li><li>pt-BR</li></ul></dd></div>
+          </dl>
+      </aside>
+    </div>
+
+    <nav class="pager" aria-label="Outros plugins">
+      <span></span>
+      <a class="pager__all" href="../../#registry">todos os plugins</a>
+      <a class="pager__link pager__link--next" href="../action-bridge/"><span class="pager__dir">próximo →</span><span class="pager__name">action-bridge</span></a>
+    </nav>
+  </main>
+
+  <footer class="foot">
+    <p class="foot__made">Feito por <a href="https://github.com/AllanSantos-DV" rel="noopener">Allan Santos</a> · MIT · página gerada de <code>marketplace.json</code> + <code>docs/content/voice-chat.json</code></p>
+    <p class="foot__cmd"><span aria-hidden="true">⌁</span> <code>copilot plugin install voice-chat@copilot-marketplace</code></p>
+  </footer>
+
+  <script src="../../assets/app.js" defer></script>
+</body>
+</html>

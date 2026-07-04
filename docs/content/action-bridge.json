@@ -1,0 +1,63 @@
+{
+  "tagline": "Grave, transcreva e lembre suas reuniões — comandando o app Action pelo agente.",
+  "lede": "O **action-bridge** conecta o Copilot ao app **Action** (captura e memória de reuniões, 100% local no Windows). Pelo próprio agente você lista reuniões, lê transcrições, busca na memória semântica cruzada, cura decisões e ações e navega o grafo — e o Action se instala sozinho quando ainda não existe.",
+  "highlights": [
+    { "title": "Reuniões sob comando", "body": "Prepara a gravação, lista e abre reuniões e lê a transcrição diarizada — tudo por conversa." },
+    { "title": "Memória que conecta", "body": "Busca semântica em todo o histórico e sugere quais reuniões passadas se ligam à de agora." },
+    { "title": "Instala o Action sozinho", "body": "Se o app não existe, o bootstrap baixa a última release e registra — sem passo manual." }
+  ],
+  "sections": [
+    {
+      "id": "o-que-e",
+      "title": "O que é",
+      "blocks": [
+        { "type": "p", "text": "O action-bridge é uma ponte **MCP** entre o agente do Copilot e o app Action. Ele expõe ao agente as ferramentas do Action — reuniões, transcrição, memória, curadoria e grafo — para você operar tudo por linguagem natural, sem sair do terminal." },
+        { "type": "p", "text": "O Action guarda os dados **localmente** (áudio, transcrição e memória em DuckDB na sua máquina). Há um modo equipe opcional (Postgres + pgvector) que você liga explicitamente quando quer um acervo compartilhado." },
+        { "type": "note", "tone": "info", "text": "Registra um **canvas** e usa **hooks**; depois de instalar, reinicie o app uma vez para o painel e os hooks entrarem." }
+      ]
+    },
+    {
+      "id": "como-usar",
+      "title": "Como usar",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            { "title": "Instale o plugin", "text": "Pelo marketplace (comando na seção Instalar)." },
+            { "title": "Deixe o Action se instalar", "text": "Na primeira tool que precisar dele, o bootstrap baixa e registra o app — você não faz nada." },
+            { "title": "Prepare uma gravação", "text": "Peça ao agente para preparar a reunião; o app abre pronto e você aperta Start (a captura é sempre uma ação sua)." },
+            { "title": "Depois, cure e busque", "text": "Peça o resumo, extraia decisões e to-dos, e busque na memória cruzada por assuntos." }
+          ]
+        },
+        { "type": "note", "tone": "warn", "text": "O app Action é **Windows-only**. A extensão orquestra tudo, mas a captura e a memória vivem no app local." }
+      ]
+    },
+    {
+      "id": "recursos",
+      "title": "O que dá para fazer",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "**Reuniões** — listar, abrir, atualizar metadados e renomear locutores.",
+            "**Transcrição** — ler segmentos diarizados de cada reunião.",
+            "**Memória semântica** — indexar e buscar em todo o histórico, com reuniões relacionadas.",
+            "**Curadoria** — salvar resumo, decisões e to-dos, materializados no grafo.",
+            "**Grafo** — criar entidades e relações e consultar com SQL de leitura.",
+            "**Modo equipe** — conectar a um Postgres + pgvector compartilhado (opcional)."
+          ]
+        },
+        { "type": "p", "text": "Tudo isso pensado com **LGPD** em mente: minimização, expurgo por retenção e remoção de perfis de voz quando você pede." }
+      ]
+    }
+  ],
+  "requirements": [
+    "Windows (o app Action é Windows-only)",
+    "Espaço em disco para modelos de voz e embeddings",
+    "Node 18+ (runtime da extensão)"
+  ],
+  "faq": [
+    { "q": "Meus dados vão para a nuvem?", "a": "Não por padrão — o Action é 100% local e a memória fica em DuckDB na sua máquina. O modo equipe (Postgres+pgvector) é opcional e ligado por você." },
+    { "q": "Como instalo o app Action?", "a": "Você não precisa: na primeira vez que uma ferramenta o exige, o plugin baixa a última release e registra o app automaticamente." }
+  ]
+}

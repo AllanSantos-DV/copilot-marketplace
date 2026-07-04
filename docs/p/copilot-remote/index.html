@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>copilot-remote — copilot-marketplace</title>
+  <meta name="description" content="Controle sessões do Copilot em outras máquinas — do seu desktop, por voz e arquivos." />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#14121C" />
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content="copilot-remote — copilot-marketplace" />
+  <meta property="og:description" content="Controle sessões do Copilot em outras máquinas — do seu desktop, por voz e arquivos." />
+  <meta property="og:url" content="https://allansantos-dv.github.io/copilot-marketplace/p/copilot-remote/" />
+  <link rel="canonical" href="https://allansantos-dv.github.io/copilot-marketplace/p/copilot-remote/" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../assets/styles.css" />
+</head>
+<body class="doc">
+  <a class="skip" href="#conteudo">Pular para o conteúdo</a>
+  <header class="topbar">
+    <a class="brand" href="../../"><span class="brand__glyph" aria-hidden="true">⌁</span> copilot-marketplace</a>
+    <nav class="topnav" aria-label="Seções">
+      <a href="../../#registry">registry</a>
+      <a href="../../#publicar">publicar</a>
+      <a href="https://github.com/AllanSantos-DV/copilot-marketplace" rel="noopener">github<span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main id="conteudo">
+    <nav class="crumbs" aria-label="Trilha">
+      <a href="../../#registry">registry</a>
+      <span class="crumbs__sep" aria-hidden="true">/</span>
+      <span aria-current="page">copilot-remote</span>
+    </nav>
+
+    <header class="doc-hero">
+      <p class="eyebrow">productivity</p>
+      <div class="doc-hero__top">
+        <h1 class="doc-hero__name">copilot-remote</h1>
+        <span class="chip" title="versão publicada">v0.1.0</span>
+      </div>
+      <p class="doc-hero__lede">O <strong>copilot-remote</strong> usa o daemon do copilot-mobile para alcançar sessões do Copilot em outros computadores. Escolha a máquina, liste as sessões, converse com o agente de lá, mande áudio (reusando o motor de voz local) e arquivos — tudo de um painel no desktop.</p>
+      <div class="doc-hero__cta">
+        <div class="prompt prompt--sm" data-cmd="copilot plugin install copilot-remote@copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin install copilot-remote@copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin install copilot-remote@copilot-marketplace" aria-label="Copiar comando de instalação do copilot-remote">copiar</button>
+      </div>
+      </div>
+      <div class="doc-hero__links">
+        <a class="lnk" href="https://github.com/AllanSantos-DV/copilot-remote" rel="noopener">código<span aria-hidden="true">↗</span></a>
+      </div>
+      <ul class="hl" aria-label="Destaques">
+        <li class="hl__item">
+          <h3 class="hl__title">Alcance outras máquinas</h3>
+          <p class="hl__body">Conecta na ponte de um PC remoto e fala com o agente dele como se estivesse na frente.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Voz e arquivos</h3>
+          <p class="hl__body">Reusa o motor de voz local para mandar áudio e envia arquivos direto para a sessão remota.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Painel no desktop</h3>
+          <p class="hl__body">Um canvas lista máquinas e sessões e mantém a conversa viva, com perguntas e permissões.</p>
+        </li>
+      </ul>
+    </header>
+
+    <div class="doc-grid">
+      <article class="doc-body" id="doc-body">
+        <section class="doc-section" id="o-que-e">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#o-que-e" aria-label="Link para O que é">#</a>O que é</h2>
+          <p>O copilot-remote é a face <strong>desktop → desktop</strong> da ponte do copilot-mobile. Em vez de comandar pelo celular, você abre um painel no seu PC e controla o agente de outra máquina: manda instruções, responde perguntas dele, aprova permissões e acompanha turnos longos.</p>
+          <p>É a mesma infra do copilot-mobile por baixo — o daemon apartado e seu transporte — reaproveitada para conversa agente-a-agente entre computadores.</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Registra um <strong>canvas</strong> e usa <strong>hooks</strong>; reinicie o app uma vez após instalar.</p></aside>
+        </section>
+
+        <section class="doc-section" id="como-usar">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#como-usar" aria-label="Link para Como usar">#</a>Como usar</h2>
+          <ol class="doc-steps"><li><h4>Instale o plugin</h4><p>Pelo marketplace (comando na seção Instalar).</p></li><li><h4>Reinicie o app</h4><p>Uma vez, para o canvas Controle Remoto aparecer.</p></li><li><h4>Arme a máquina remota</h4><p>No PC de destino, o daemon do copilot-mobile precisa estar rodando e com um transporte armado (lan / tailscale / public).</p></li><li><h4>Pareie</h4><p>No painel, informe a URL da ponte remota e o código de pareamento de 6 dígitos (só na primeira vez).</p></li><li><h4>Converse</h4><p>Escolha a sessão, mande instruções, áudio e arquivos, e responda perguntas ou permissões do agente remoto.</p></li></ol>
+          <aside class="note note--warn"><span class="note__mark" aria-hidden="true">!</span><p>A máquina remota precisa do <strong>copilot-mobile</strong> instalado e com o daemon armado — é ele que expõe as sessões.</p></aside>
+        </section>
+
+        <section class="doc-section" id="como-funciona">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#como-funciona" aria-label="Link para Como funciona">#</a>Como funciona</h2>
+          <ul class="doc-list"><li><strong>Reusa o daemon</strong> do copilot-mobile como plano de controle e transporte.</li><li><strong>Alcança por LAN, Tailscale ou URL pública</strong>, conforme o transporte armado no destino.</li><li><strong>Motor de voz local</strong> — o mesmo do voice-chat, para mandar áudio à sessão remota.</li><li><strong>Perguntas e permissões</strong> — quando o agente remoto pergunta ou pede permissão, o painel te deixa responder e decidir.</li></ul>
+          <p>Você (com base no plano) manda a instrução e recebe de volta a resposta do agente da outra máquina — o coração da conversa agente-a-agente.</p>
+        </section>
+
+        <section class="doc-section" id="instalar">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#instalar" aria-label="Link para Instalar">#</a>Instalar</h2>
+          <p>Registre a vitrine uma vez (se ainda não fez):</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin marketplace add AllanSantos-DV/copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin marketplace add AllanSantos-DV/copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin marketplace add AllanSantos-DV/copilot-marketplace" aria-label="Copiar comando de registro do marketplace">copiar</button>
+      </div>
+          <p>Instale o <code>copilot-remote</code>:</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin install copilot-remote@copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin install copilot-remote@copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin install copilot-remote@copilot-marketplace" aria-label="Copiar comando de instalação do copilot-remote">copiar</button>
+      </div>
+          <p>Atualize quando quiser (ou todos com <code>--all</code>):</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin update copilot-remote">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin update copilot-remote</code>
+        <button class="copy" type="button" data-copy="copilot plugin update copilot-remote" aria-label="Copiar comando de atualização do copilot-remote">copiar</button>
+      </div>
+          <aside class="note note--warn"><span class="note__mark" aria-hidden="true">!</span><p>Este plugin registra um <strong>canvas</strong> (painel no app). Depois de instalar, <strong>reinicie o app uma vez</strong>: o <code>canvas-sync</code> espelha a extensão para <code>~/.copilot/extensions/</code> e o app a descobre no próximo boot.</p></aside>
+        </section>
+
+        <section class="doc-section" id="estrutura">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#estrutura" aria-label="Link para Estrutura">#</a>Estrutura</h2>
+          <p>Runtime <strong>vendado</strong> em <code>plugins/copilot-remote/</code> — vem do repositório de origem, então <strong>não se edita à mão</strong> aqui. É isto que o <code>copilot plugin install</code> entrega:</p>
+          <div class="tree">
+            <div class="tree__head"><span class="prompt__glyph" aria-hidden="true">⌁</span> plugins/copilot-remote/</div>
+            <ul class="tree__list">
+            <li class="tree__row">
+              <code class="tree__name">boot.mjs</code>
+              <span class="tree__role">Bootstrap de SessionStart: baixa/garante o canvas-sync na máquina.</span>
+              <span class="tree__size">7.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">client.mjs</code>
+              <span class="tree__role">Cliente de transporte (HTTP/SSE).</span>
+              <span class="tree__size">14 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">daemon.mjs</code>
+              <span class="tree__role">Fala com o daemon apartado (fora da sessão).</span>
+              <span class="tree__size">11 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">extension.mjs</code>
+              <span class="tree__role">Extensão in-app: hooks e tools da sessão viva do agente.</span>
+              <span class="tree__size">58 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">hooks.json</code>
+              <span class="tree__role">Hooks de ciclo de vida (SessionStart e afins).</span>
+              <span class="tree__size">166 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">panel.html</code>
+              <span class="tree__role">Canvas: painel de UI carregado pelo app GUI.</span>
+              <span class="tree__size">21 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">plugin.json</code>
+              <span class="tree__role">Metadados do plugin + marcadores (extensions / hooks).</span>
+              <span class="tree__size">746 B</span>
+            </li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="doc-section" id="faq">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#faq" aria-label="Link para Perguntas frequentes">#</a>Perguntas frequentes</h2>
+          <details class="faq">
+            <summary>Preciso do copilot-mobile também?</summary>
+            <p>Sim: o copilot-remote reusa o daemon e o transporte do copilot-mobile para alcançar a máquina remota.</p>
+          </details>
+          <details class="faq">
+            <summary>Funciona pela internet?</summary>
+            <p>Sim, via Tailscale ou uma URL pública exposta pelo daemon remoto; em LAN funciona direto.</p>
+          </details>
+        </section>
+      </article>
+
+      <aside class="doc-rail" aria-label="Nesta página">
+        <nav class="toc" aria-label="Índice">
+          <p class="toc__label">nesta página</p>
+          <ul class="toc__list">
+            <li><a href="#o-que-e">O que é</a></li>
+            <li><a href="#como-usar">Como usar</a></li>
+            <li><a href="#como-funciona">Como funciona</a></li>
+            <li><a href="#instalar">Instalar</a></li>
+            <li><a href="#estrutura">Estrutura</a></li>
+            <li><a href="#faq">Perguntas frequentes</a></li>
+          </ul>
+        </nav>
+          <dl class="meta">
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.1.0</span></dd></div>
+            <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
+            <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
+            <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
+            <div class="meta__row"><dt>tipo</dt><dd><span class="pill">canvas</span> <span class="pill">hooks</span></dd></div>
+            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>copilot-mobile instalado na máquina remota, com o daemon armado</li><li>Rede entre as máquinas (LAN, Tailscale ou URL pública)</li><li>Node 18+ (runtime da extensão)</li></ul></dd></div>
+            <div class="meta__row"><dt>tags</dt><dd><ul class="tags tags--meta"><li>remote</li><li>daemon</li><li>copilot-mobile</li><li>sessions</li><li>voice</li><li>pt-BR</li></ul></dd></div>
+          </dl>
+      </aside>
+    </div>
+
+    <nav class="pager" aria-label="Outros plugins">
+      <a class="pager__link pager__link--prev" href="../copilot-mobile/"><span class="pager__dir">← anterior</span><span class="pager__name">copilot-mobile</span></a>
+      <a class="pager__all" href="../../#registry">todos os plugins</a>
+      <a class="pager__link pager__link--next" href="../mcp-bridge/"><span class="pager__dir">próximo →</span><span class="pager__name">mcp-bridge</span></a>
+    </nav>
+  </main>
+
+  <footer class="foot">
+    <p class="foot__made">Feito por <a href="https://github.com/AllanSantos-DV" rel="noopener">Allan Santos</a> · MIT · página gerada de <code>marketplace.json</code> + <code>docs/content/copilot-remote.json</code></p>
+    <p class="foot__cmd"><span aria-hidden="true">⌁</span> <code>copilot plugin install copilot-remote@copilot-marketplace</code></p>
+  </footer>
+
+  <script src="../../assets/app.js" defer></script>
+</body>
+</html>

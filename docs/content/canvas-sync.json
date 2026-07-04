@@ -1,0 +1,59 @@
+{
+  "tagline": "A infra invisível que faz os canvases dos plugins aparecerem no app.",
+  "lede": "O app GUI só carrega canvases de `~/.copilot/extensions/`, mas instalar pelo marketplace cai em `installed-plugins/`. O **canvas-sync** fecha essa lacuna: num hook de `SessionStart`, espelha os plugins marcados como canvas para a pasta certa. Idempotente e seguro — você só escolhe o plugin.",
+  "highlights": [
+    { "title": "Espelha automaticamente", "body": "No início da sessão, copia os plugins com marcador `extensions` para `~/.copilot/extensions/`." },
+    { "title": "Idempotente e seguro", "body": "Usa um stamp e nunca sobrescreve uma pasta sem stamp — sua cópia de dev fica intacta." },
+    { "title": "Zero passo manual", "body": "Cada plugin canvas traz um `boot.mjs` que baixa o canvas-sync sozinho quando ele falta." }
+  ],
+  "sections": [
+    {
+      "id": "o-que-e",
+      "title": "O que é",
+      "blocks": [
+        { "type": "p", "text": "O canvas-sync é a **infra da própria vitrine**. Não é um canvas nem tem UI: é um hook de `SessionStart` que resolve um detalhe do app — canvases só carregam de uma pasta específica, e o marketplace instala em outra." },
+        { "type": "p", "text": "Ele faz a ponte entre os dois lugares, para que qualquer plugin canvas instalado pelo marketplace simplesmente funcione depois de um reinício." },
+        { "type": "note", "tone": "info", "text": "Só usa **hooks** (não registra canvas). É a peça que os outros plugins canvas dependem por baixo." }
+      ]
+    },
+    {
+      "id": "por-que",
+      "title": "Por que existe",
+      "blocks": [
+        { "type": "p", "text": "O app GUI descobre canvases apenas em `~/.copilot/extensions/`. Instalar um plugin pelo marketplace cai em `~/.copilot/installed-plugins/` e, sem ajuda, **não** roda como canvas." },
+        {
+          "type": "list",
+          "items": [
+            "Sem o canvas-sync, cada plugin canvas exigiria cópia manual para `extensions/`.",
+            "Com ele, o espelhamento acontece sozinho no início da sessão.",
+            "O marcador oficial `extensions` no `plugin.json` é o que diz o que espelhar."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "como-funciona",
+      "title": "Como funciona",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            { "title": "Roda no SessionStart", "text": "O hook executa `node sync.mjs` no início de cada sessão." },
+            { "title": "Lê os plugins ativos", "text": "Filtra em `settings.json → enabledPlugins` os que têm o marcador `extensions`." },
+            { "title": "Espelha para extensions/", "text": "Copia `installed-plugins/<mp>/<plugin>/` → `extensions/<plugin>/`." },
+            { "title": "Marca com stamp", "text": "Grava `.canvas-sync.json`; é idempotente e nunca sobrescreve uma pasta sem stamp." }
+          ]
+        },
+        { "type": "note", "tone": "warn", "text": "Após instalar ou atualizar plugins, **reinicie o app uma vez**: o hook popula `extensions/` no início da sessão e o app descobre os canvases no próximo boot." }
+      ]
+    }
+  ],
+  "requirements": [
+    "Node 18+",
+    "GitHub Copilot CLI + app GUI"
+  ],
+  "faq": [
+    { "q": "Preciso instalar isto à mão?", "a": "Normalmente não: os plugins canvas baixam o canvas-sync sozinhos via `boot.mjs`. Você pode instalá-lo junto se quiser garantir." },
+    { "q": "Por que preciso reiniciar o app?", "a": "O hook popula `extensions/` no início da sessão; o app descobre os canvases no próximo boot." }
+  ]
+}

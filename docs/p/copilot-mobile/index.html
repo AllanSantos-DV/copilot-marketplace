@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>copilot-mobile — copilot-marketplace</title>
+  <meta name="description" content="Uma ponte entre o Copilot no PC e o seu celular — com resumo falado e detecção de drift." />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#14121C" />
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content="copilot-mobile — copilot-marketplace" />
+  <meta property="og:description" content="Uma ponte entre o Copilot no PC e o seu celular — com resumo falado e detecção de drift." />
+  <meta property="og:url" content="https://allansantos-dv.github.io/copilot-marketplace/p/copilot-mobile/" />
+  <link rel="canonical" href="https://allansantos-dv.github.io/copilot-marketplace/p/copilot-mobile/" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../assets/styles.css" />
+</head>
+<body class="doc">
+  <a class="skip" href="#conteudo">Pular para o conteúdo</a>
+  <header class="topbar">
+    <a class="brand" href="../../"><span class="brand__glyph" aria-hidden="true">⌁</span> copilot-marketplace</a>
+    <nav class="topnav" aria-label="Seções">
+      <a href="../../#registry">registry</a>
+      <a href="../../#publicar">publicar</a>
+      <a href="https://github.com/AllanSantos-DV/copilot-marketplace" rel="noopener">github<span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main id="conteudo">
+    <nav class="crumbs" aria-label="Trilha">
+      <a href="../../#registry">registry</a>
+      <span class="crumbs__sep" aria-hidden="true">/</span>
+      <span aria-current="page">copilot-mobile</span>
+    </nav>
+
+    <header class="doc-hero">
+      <p class="eyebrow">productivity</p>
+      <div class="doc-hero__top">
+        <h1 class="doc-hero__name">copilot-mobile</h1>
+        <span class="chip" title="versão publicada">v0.3.2</span>
+      </div>
+      <p class="doc-hero__lede">O <strong>copilot-mobile</strong> é a extensão in-app mínima que liga sua sessão do Copilot ao app no celular. Ela faz só o que exige a sessão viva: injeta o resumo falado (🔊) a cada turno e avisa quando o celular respondeu turnos que o PC ainda não viu. Pareamento, transporte e configuração ficam no <strong>daemon apartado</strong> (ícone da bandeja).</p>
+      <div class="doc-hero__cta">
+        <div class="prompt prompt--sm" data-cmd="copilot plugin install copilot-mobile@copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin install copilot-mobile@copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin install copilot-mobile@copilot-marketplace" aria-label="Copiar comando de instalação do copilot-mobile">copiar</button>
+      </div>
+      </div>
+      <div class="doc-hero__links">
+        <a class="lnk" href="https://github.com/AllanSantos-DV/copilot-mobile" rel="noopener">código<span aria-hidden="true">↗</span></a>
+      </div>
+      <ul class="hl" aria-label="Destaques">
+        <li class="hl__item">
+          <h3 class="hl__title">Resumo falado no celular</h3>
+          <p class="hl__body">Injeta a instrução 🔊 e o daemon transforma essa linha no áudio que toca no telefone.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Sem sessão duplicada</h3>
+          <p class="hl__body">O plano de controle (transporte, pareamento, túnel) mora no daemon — a extensão fica leve e não compete pela sessão.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Aviso de drift</h3>
+          <p class="hl__body">Conta os turnos vindos do celular no disco e pede para sincronizar quando o PC fica para trás.</p>
+        </li>
+      </ul>
+    </header>
+
+    <div class="doc-grid">
+      <article class="doc-body" id="doc-body">
+        <section class="doc-section" id="o-que-e">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#o-que-e" aria-label="Link para O que é">#</a>O que é</h2>
+          <p>O copilot-mobile deixa você continuar uma conversa do Copilot pelo celular. Esta extensão é a parte <strong>mínima</strong> que precisa rodar dentro da sessão do agente; o trabalho pesado — transporte, pareamento, stream e a tela de configuração — vive num <strong>daemon apartado</strong>, sempre ligado, aberto pelo ícone da bandeja.</p>
+          <p>Na prática ela faz duas coisas: garante que cada resposta termine com um resumo falado (que vira áudio no telefone) e detecta quando o celular já respondeu turnos que a sessão do PC ainda não incorporou.</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Registra um <strong>canvas</strong> e usa <strong>hooks</strong>; reinicie o app uma vez após instalar. O daemon é baixado apartado na primeira execução (release buildada, sem build).</p></aside>
+        </section>
+
+        <section class="doc-section" id="como-usar">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#como-usar" aria-label="Link para Como usar">#</a>Como usar</h2>
+          <ol class="doc-steps"><li><h4>Instale o plugin</h4><p>Pelo marketplace (comando na seção Instalar).</p></li><li><h4>Reinicie o app</h4><p>Uma vez, para os hooks e o daemon entrarem.</p></li><li><h4>Abra o daemon na bandeja</h4><p>O ícone da bandeja abre o painel de configuração — funciona mesmo com o app fechado.</p></li><li><h4>Arme o transporte</h4><p>Escolha off / lan / tailscale / public conforme onde o celular vai alcançar o PC.</p></li><li><h4>Pareie o celular</h4><p>Escaneie o QR do painel no app Android e comece a conversar de qualquer lugar.</p></li></ol>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Enquanto o transporte estiver em <strong>off</strong>, a extensão não injeta o resumo falado — nada vaza sem você armar.</p></aside>
+        </section>
+
+        <section class="doc-section" id="como-funciona">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#como-funciona" aria-label="Link para Como funciona">#</a>Como funciona</h2>
+          <ul class="doc-list"><li><strong>Resumo falado</strong> — a cada turno, injeta a instrução para terminar a resposta com uma linha 🔊; o daemon a transforma em áudio no celular.</li><li><strong>Drift celular→PC</strong> — o daemon grava os turnos do celular no disco por um runtime separado; a extensão compara as contagens e avisa quando há turnos faltando no chat do PC.</li><li><strong>Plano de controle no daemon</strong> — transporte, pareamento, SSE e túnel ficam fora da sessão, sempre disponíveis.</li></ul>
+          <p>A detecção de drift é <strong>lógica pura e testada</strong> (<code>drift.mjs</code>, 17 casos): o chamador passa as contagens, sem I/O escondido — fácil de confiar.</p>
+        </section>
+
+        <section class="doc-section" id="instalar">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#instalar" aria-label="Link para Instalar">#</a>Instalar</h2>
+          <p>Registre a vitrine uma vez (se ainda não fez):</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin marketplace add AllanSantos-DV/copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin marketplace add AllanSantos-DV/copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin marketplace add AllanSantos-DV/copilot-marketplace" aria-label="Copiar comando de registro do marketplace">copiar</button>
+      </div>
+          <p>Instale o <code>copilot-mobile</code>:</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin install copilot-mobile@copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin install copilot-mobile@copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin install copilot-mobile@copilot-marketplace" aria-label="Copiar comando de instalação do copilot-mobile">copiar</button>
+      </div>
+          <p>Atualize quando quiser (ou todos com <code>--all</code>):</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin update copilot-mobile">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin update copilot-mobile</code>
+        <button class="copy" type="button" data-copy="copilot plugin update copilot-mobile" aria-label="Copiar comando de atualização do copilot-mobile">copiar</button>
+      </div>
+          <aside class="note note--warn"><span class="note__mark" aria-hidden="true">!</span><p>Este plugin registra um <strong>canvas</strong> (painel no app). Depois de instalar, <strong>reinicie o app uma vez</strong>: o <code>canvas-sync</code> espelha a extensão para <code>~/.copilot/extensions/</code> e o app a descobre no próximo boot.</p></aside>
+        </section>
+
+        <section class="doc-section" id="estrutura">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#estrutura" aria-label="Link para Estrutura">#</a>Estrutura</h2>
+          <p>Runtime <strong>vendado</strong> em <code>plugins/copilot-mobile/</code> — vem do repositório de origem, então <strong>não se edita à mão</strong> aqui. É isto que o <code>copilot plugin install</code> entrega:</p>
+          <div class="tree">
+            <div class="tree__head"><span class="prompt__glyph" aria-hidden="true">⌁</span> plugins/copilot-mobile/</div>
+            <ul class="tree__list">
+            <li class="tree__row">
+              <code class="tree__name">boot.mjs</code>
+              <span class="tree__role">Bootstrap de SessionStart: baixa/garante o canvas-sync na máquina.</span>
+              <span class="tree__size">7.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">bootstrap.mjs</code>
+              <span class="tree__role">Provisiona o runtime pesado sob demanda (baixa a release buildada).</span>
+              <span class="tree__size">8.2 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">drift.mjs</code>
+              <span class="tree__role">Detecção pura de drift celular→PC (sem I/O, testada).</span>
+              <span class="tree__size">3.0 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">extension.mjs</code>
+              <span class="tree__role">Extensão in-app: hooks e tools da sessão viva do agente.</span>
+              <span class="tree__size">6.2 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">hooks.json</code>
+              <span class="tree__role">Hooks de ciclo de vida (SessionStart e afins).</span>
+              <span class="tree__size">166 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">plugin.json</code>
+              <span class="tree__role">Metadados do plugin + marcadores (extensions / hooks).</span>
+              <span class="tree__size">804 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">README.md</code>
+              <span class="tree__role">Documentação vinda do repositório de origem.</span>
+              <span class="tree__size">2.2 KB</span>
+            </li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="doc-section" id="faq">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#faq" aria-label="Link para Perguntas frequentes">#</a>Perguntas frequentes</h2>
+          <details class="faq">
+            <summary>Onde configuro transporte e pareamento?</summary>
+            <p>No daemon, pelo ícone da bandeja — ele serve o próprio painel e funciona mesmo com o app fechado.</p>
+          </details>
+          <details class="faq">
+            <summary>Por que a extensão é tão pequena?</summary>
+            <p>De propósito: antes ela subia um HTTP server completo e um canvas de config, duplicando o daemon e fazendo cada sessão competir pelo controle. Agora só ficam os dois hooks que dependem da sessão viva.</p>
+          </details>
+        </section>
+      </article>
+
+      <aside class="doc-rail" aria-label="Nesta página">
+        <nav class="toc" aria-label="Índice">
+          <p class="toc__label">nesta página</p>
+          <ul class="toc__list">
+            <li><a href="#o-que-e">O que é</a></li>
+            <li><a href="#como-usar">Como usar</a></li>
+            <li><a href="#como-funciona">Como funciona</a></li>
+            <li><a href="#instalar">Instalar</a></li>
+            <li><a href="#estrutura">Estrutura</a></li>
+            <li><a href="#faq">Perguntas frequentes</a></li>
+          </ul>
+        </nav>
+          <dl class="meta">
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.3.2</span></dd></div>
+            <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
+            <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
+            <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
+            <div class="meta__row"><dt>tipo</dt><dd><span class="pill">canvas</span> <span class="pill">hooks</span></dd></div>
+            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>App copilot-mobile (Android) via GitHub Releases</li><li>Daemon apartado (baixado na 1ª execução)</li><li>Node 18+ (runtime da extensão)</li></ul></dd></div>
+            <div class="meta__row"><dt>tags</dt><dd><ul class="tags tags--meta"><li>copilot-mobile</li><li>daemon</li><li>mobile</li><li>bridge</li><li>remote</li><li>pt-BR</li></ul></dd></div>
+          </dl>
+      </aside>
+    </div>
+
+    <nav class="pager" aria-label="Outros plugins">
+      <a class="pager__link pager__link--prev" href="../action-bridge/"><span class="pager__dir">← anterior</span><span class="pager__name">action-bridge</span></a>
+      <a class="pager__all" href="../../#registry">todos os plugins</a>
+      <a class="pager__link pager__link--next" href="../copilot-remote/"><span class="pager__dir">próximo →</span><span class="pager__name">copilot-remote</span></a>
+    </nav>
+  </main>
+
+  <footer class="foot">
+    <p class="foot__made">Feito por <a href="https://github.com/AllanSantos-DV" rel="noopener">Allan Santos</a> · MIT · página gerada de <code>marketplace.json</code> + <code>docs/content/copilot-mobile.json</code></p>
+    <p class="foot__cmd"><span aria-hidden="true">⌁</span> <code>copilot plugin install copilot-mobile@copilot-marketplace</code></p>
+  </footer>
+
+  <script src="../../assets/app.js" defer></script>
+</body>
+</html>
