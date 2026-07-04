@@ -18,6 +18,7 @@ import os
 import json
 import time
 import struct
+import subprocess
 import tarfile
 import threading
 import traceback
@@ -288,6 +289,11 @@ CHUNK_TARGET_S = 8.0
 VOX_ENGINE_ENABLED = os.environ.get("VOICE_USE_VOX_ENGINE", "1").strip() not in ("0", "false", "")
 VOX_PIPE = os.environ.get("VOX_PIPE", r"\\.\pipe\vox")
 VOX_PROFILE = os.environ.get("VOICE_VOX_PROFILE", "dictation").strip() or "dictation"
+# Teto de sanidade p/ o tamanho de um frame vindo do motor: um header gigante
+# (stream desincronizado / peer hostil) é rejeitado ALTO em vez de tentar ler GBs
+# (evita OOM/wedge). E um timeout no request evita travar o loop de comandos.
+VOX_MAX_FRAME = 64 * 1024 * 1024
+VOX_REQ_TIMEOUT = float(os.environ.get("VOX_REQ_TIMEOUT", "30").strip() or "30")
 GH_BASE = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
 TTS_MODEL = (os.environ.get("VOICE_TTS_MODEL", "vits-piper-pt_BR-miro-high").strip()
              or "vits-piper-pt_BR-miro-high")
@@ -1649,23 +1655,39 @@ def mic_monitor():
         time.sleep(3.0)
 
 
+class VoxEngineError(RuntimeError):
+    """Motor de voz (vox-engine) indisponível ou falhou. NÃO há fallback silencioso
+    para o STT local — o chamador deve reportar o erro ALTO (visível na UI)."""
+
+
 class _VoxBridge:
     """Cliente STDLIB-puro do motor único (vox-engine) via named pipe.
 
     Substitui o STT local do voice-chat pelo motor compartilhado (perfil
     ``dictation`` → turbo). Não usa pywin32 (abre o pipe como arquivo), então
     roda em qualquer python do worker. Se o motor não estiver no ar, tenta subir
-    o daemon INSTALADO; se nada funcionar, ``transcribe`` retorna ``None`` e o
-    chamador cai para o recognizer local (fallback resiliente e reversível).
+    o daemon INSTALADO. Em qualquer falha, ``transcribe`` LEVANTA
+    :class:`VoxEngineError` — sem fallback silencioso, sem erro mudo (regra do
+    projeto: fallback automático introduz ponto de falha e mascara problema).
     """
 
     def __init__(self, pipe=VOX_PIPE, profile=VOX_PROFILE):
         self._pipe_name = pipe
         self._profile = profile
         self._fh = None
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()        # serializa 1 request/response (framing)
+        self._conn_lock = threading.Lock()   # serializa (re)conexão/spawn
         self._rid = 0
-        self._dead = False   # falha permanente na sessão → não retenta (usa local)
+        self._next_retry = 0.0               # monotonic: cooldown p/ não bater no motor caído
+        self._cooldown = 10.0                # s entre tentativas de spawn quando fora
+
+    def _close_fh(self):
+        try:
+            if self._fh:
+                self._fh.close()
+        except OSError:
+            pass
+        self._fh = None
 
     # ---- conexão ----
     def _open(self):
@@ -1682,81 +1704,153 @@ class _VoxBridge:
         pyw = os.path.join(root, "venv", "Scripts", "pythonw.exe")
         if not os.path.exists(pyw):
             return False
-        log = os.path.join(root, "logs", "daemon.log")
+        log_path = os.path.join(root, "logs", "daemon.log")
         try:
-            os.makedirs(os.path.dirname(log), exist_ok=True)
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
             flags = 0x00000008 | 0x08000000  # DETACHED_PROCESS | CREATE_NO_WINDOW
             subprocess.Popen([pyw, "-m", "vox_engine", "--pipe", self._pipe_name,
-                              "--log-file", log], creationflags=flags, close_fds=True,
+                              "--log-file", log_path], creationflags=flags, close_fds=True,
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL)
             return True
-        except OSError:
+        except Exception as exc:   # NUNCA deixa escapar como erro mudo (ex.: OSError/NameError)
+            log(f"vox-engine: falha ao subir daemon instalado: {exc}")
             return False
 
     def ensure(self, boot_timeout=60.0):
-        """Garante conexão: conecta; se cair, sobe o daemon instalado e aguarda."""
+        """Garante conexão SEM segurar o lock de request e SEM erro mudo.
+
+        Retorna True/False (nunca levanta). Respeita um cooldown: quando o motor
+        está fora, não fica re-spawnando nem esperando ``boot_timeout`` a cada
+        chamada — fast-fail até ``_next_retry``. Só o boot (boot_timeout>0)
+        aguarda o daemon subir; o caminho de decode usa boot_timeout=0 e um
+        acquire NÃO-bloqueante: se o boot estiver segurando o conn_lock, retorna
+        False na hora (não trava o thread de decode/wake — MED-2)."""
         if self._fh is not None:
             return True
-        if self._open():
-            return True
-        if not self._start_installed_daemon():
-            return False
-        deadline = time.time() + boot_timeout
-        while time.time() < deadline:
+        if boot_timeout <= 0:
+            if not self._conn_lock.acquire(blocking=False):
+                return False
+        else:
+            self._conn_lock.acquire()
+        try:
+            if self._fh is not None:
+                return True
             if self._open():
                 return True
-            time.sleep(0.5)
-        return False
+            if time.monotonic() < self._next_retry:
+                return False                       # cooldown: não bate no motor caído
+            try:
+                started = self._start_installed_daemon()
+            except Exception as exc:               # blindagem total (sem erro mudo)
+                log(f"vox-engine ensure erro: {exc}")
+                started = False
+            if not started:
+                self._next_retry = time.monotonic() + self._cooldown
+                return False
+            deadline = time.time() + max(0.0, boot_timeout)
+            while time.time() < deadline:
+                if self._open():
+                    return True
+                time.sleep(0.5)
+            self._next_retry = time.monotonic() + self._cooldown
+            return False
+        finally:
+            self._conn_lock.release()
 
     # ---- protocolo (framed: [u32 json_len][u32 audio_len][json][audio]) ----
-    def _read_exact(self, n):
+    def _read_exact(self, fh, n):
+        """Lê n bytes de UM handle específico (passado explicitamente). Nunca
+        relê self._fh — assim uma thread leitora abandonada fica presa no SEU
+        pipe e não migra p/ um pipe reconectado (HIGH-1)."""
         buf = b""
         while len(buf) < n:
-            chunk = self._fh.read(n - len(buf))
+            chunk = fh.read(n - len(buf))
             if not chunk:
                 raise EOFError("pipe fechado")
             buf += chunk
         return buf
 
-    def _request(self, header, audio=b""):
+    def _request(self, header, audio=b"", timeout=VOX_REQ_TIMEOUT):
+        """Envia 1 frame e lê a resposta com TETO de tamanho e TIMEOUT.
+
+        A leitura roda numa thread separada presa ao handle ``fh`` capturado
+        aqui; o chamador faz join(timeout). Se o motor travar no meio do frame,
+        o loop de comandos NÃO congela — vira erro ALTO (VoxEngineError), nunca
+        wedge mudo. Header de tamanho absurdo é rejeitado sem ler o corpo."""
+        fh = self._fh
+        if fh is None:
+            raise EOFError("pipe fechado")
         jb = json.dumps(header).encode("utf-8")
-        self._fh.write(struct.pack(">II", len(jb), len(audio)) + jb + audio)
-        self._fh.flush()
-        head = self._read_exact(8)
-        jl, al = struct.unpack(">II", head)
-        jb = self._read_exact(jl)
-        audio_out = self._read_exact(al) if al else b""
-        return json.loads(jb.decode("utf-8")), audio_out
+        fh.write(struct.pack(">II", len(jb), len(audio)) + jb + audio)
+        fh.flush()
+        out = {}
+
+        def _read_reply():
+            try:
+                head = self._read_exact(fh, 8)
+                jl, al = struct.unpack(">II", head)
+                if jl > VOX_MAX_FRAME or al > VOX_MAX_FRAME:
+                    raise ValueError(f"frame absurdo do motor (jl={jl}, al={al})")
+                body = self._read_exact(fh, jl)
+                audio_out = self._read_exact(fh, al) if al else b""
+                out["resp"] = (json.loads(body.decode("utf-8")), audio_out)
+            except Exception as exc:   # noqa: BLE001 — vira VoxEngineError no chamador
+                out["err"] = exc
+
+        rt = threading.Thread(target=_read_reply, daemon=True)
+        rt.start()
+        rt.join(timeout)
+        if rt.is_alive():
+            # Motor travado no meio do frame. NÃO chamamos .close() (fechar com um
+            # read() pendente noutra thread BLOQUEIA no lock interno do objeto e
+            # travaria o loop — era o wedge). A thread leitora fica presa NO SEU
+            # próprio ``fh`` (capturado acima), então nunca lê de um pipe novo, e
+            # morre quando esse handle fechar. Soltamos só a referência viva.
+            if self._fh is fh:
+                self._fh = None
+            raise EOFError(f"timeout ({timeout:.0f}s) aguardando resposta do motor")
+        if "err" in out:
+            raise out["err"]
+        return out["resp"]
+
+    def info(self, boot_timeout=60.0):
+        """{model, provider, stt_ready, ...} do motor, ou levanta VoxEngineError."""
+        if not self.ensure(boot_timeout=boot_timeout):
+            raise VoxEngineError("motor de voz (vox-engine) indisponível")
+        with self._lock:
+            if self._fh is None:
+                raise VoxEngineError("conexão com o motor caiu")
+            try:
+                self._rid += 1
+                h, _ = self._request({"cmd": "info", "req_id": str(self._rid)})
+                return h
+            except Exception as exc:   # QUALQUER falha de framing → erro ALTO (sem mudo)
+                self._close_fh()
+                raise VoxEngineError(f"falha ao consultar o motor: {exc}") from exc
 
     def transcribe(self, seg, language):
-        """seg (float32 16k numpy) -> texto (str), ou None (chamador cai p/ local)."""
-        if self._dead or not VOX_ENGINE_ENABLED:
-            return None
+        """seg (float32 16k numpy) -> texto (str). LEVANTA :class:`VoxEngineError`
+        em qualquer falha — sem fallback silencioso, sem erro mudo. Fast-fail
+        (boot_timeout=0): não trava o thread de decode esperando o daemon subir."""
+        if not self.ensure(boot_timeout=0.0):
+            raise VoxEngineError("motor de voz (vox-engine) indisponível")
         with self._lock:
+            if self._fh is None:
+                raise VoxEngineError("conexão com o motor caiu")
             try:
-                if self._fh is None and not self.ensure():
-                    self._dead = True   # sem motor nesta sessão → não retenta
-                    log("vox-engine indisponível; usando STT local")
-                    return None
                 self._rid += 1
                 pcm = np.ascontiguousarray(seg, dtype="<f4").tobytes()
                 h, _ = self._request({"cmd": "transcribe", "req_id": str(self._rid),
                                       "session": "voice-chat", "lang": language or "",
                                       "profile": self._profile}, pcm)
-                if h.get("event") == "result":
-                    return (h.get("text") or "").strip()
-                log(f"vox-engine result inesperado: {h.get('event')}/{h.get('code')}")
-                return None
-            except (OSError, EOFError, ValueError) as exc:
-                log(f"vox-engine erro ({exc}); reconecta no próximo")
-                try:
-                    if self._fh:
-                        self._fh.close()
-                except OSError:
-                    pass
-                self._fh = None
-                return None
+            except Exception as exc:   # OSError/EOFError/ValueError/struct.error/numpy… → ALTO
+                self._close_fh()   # reconecta na próxima chamada
+                raise VoxEngineError(f"falha ao falar com o motor: {exc}") from exc
+            if h.get("event") == "result":
+                return (h.get("text") or "").strip()
+            raise VoxEngineError(
+                f"motor retornou {h.get('event')}/{h.get('code')}: {h.get('message') or ''}")
 
     def close(self):
         try:
@@ -1772,17 +1866,113 @@ def main():
              "model": MODEL}
     recorder = Recorder()
 
-    try:
-        recognizer = build_recognizer(state["model"], state["language"])
-    except Exception as exc:
-        log("model load failed:\n" + traceback.format_exc())
-        emit({"event": "error", "fatal": True,
-              "msg": f"Falha ao carregar modelo: {exc}"})
-        return
+    rec_lock = threading.Lock()
+    vox = _VoxBridge()
+    recognizer = None
 
-    emit({"event": "ready", "model": state["model"],
-          "language": state["language"], "device": EFFECTIVE_PROVIDER})
-    emit({"event": "gpu_status", **gpu_status()})
+    _last_vox_err = [0.0]
+    _vox_fail = [0]            # falhas consecutivas do motor (reset ao recuperar)
+    _vox_fatal_shown = [False]  # já sinalizou motor-down persistente?
+    _vox_state_lock = threading.Lock()  # RMW dos contadores é de várias threads (LOW-4)
+
+    def _emit_vox_error(msg, force_fatal=False):
+        """Erro de motor ALTO e VISÍVEL — NUNCA mudo. Uma falha isolada vira toast;
+        falha SUSTENTADA (>=2 seguidas, ou boot) escala p/ estado FATAL persistente
+        (motor-down na UI) mostrado 1x. Enquanto fatal, evita spam mas segue visível
+        (o estado já está aceso), então nenhum surto fica invisível. Serializado p/
+        que o read-modify-write dos contadores não perca escalada entre threads."""
+        with _vox_state_lock:
+            _vox_fail[0] += 1
+            n = _vox_fail[0]
+            now = time.time()
+            fatal = force_fatal or n >= 2
+            if fatal and not _vox_fatal_shown[0]:
+                _vox_fatal_shown[0] = True
+                _last_vox_err[0] = now
+                ev = {"event": "error", "source": "vox-engine", "fatal": True,
+                      "msg": f"Motor de voz indisponível: {msg}"}
+            elif fatal and now - _last_vox_err[0] > 3.0:
+                _last_vox_err[0] = now
+                ev = {"event": "error", "source": "vox-engine", "fatal": False,
+                      "msg": f"Motor de voz ainda indisponível: {msg}"}
+            elif not fatal:
+                _last_vox_err[0] = now
+                ev = {"event": "error", "source": "vox-engine", "fatal": False,
+                      "msg": f"Motor de voz indisponível: {msg}"}
+            else:
+                ev = None
+        log(f"vox-engine ERRO #{n}: {msg}")
+        if ev is not None:
+            emit(ev)
+
+    def _vox_recovered():
+        """Motor respondeu de novo. Só reemite 'ready' se a UI foi realmente
+        DERRUBADA (estado fatal aceso) — um blip isolado sub-fatal apenas zera o
+        contador em silêncio, sem re-aquecer TTS / re-armar wake a cada falha (MED-3)."""
+        with _vox_state_lock:
+            was_down = _vox_fatal_shown[0]
+            if not (_vox_fail[0] or was_down):
+                return
+            _vox_fail[0] = 0
+            _vox_fatal_shown[0] = False
+            if not was_down:
+                return  # blip sub-fatal: reset silencioso, sem 'ready' espúrio
+            ev = {"event": "ready", "model": state.get("model", VOX_PROFILE),
+                  "source": "vox-engine", "language": state["language"],
+                  "device": state.get("device", "?")}
+        log("vox-engine recuperado")
+        emit(ev)
+
+    if VOX_ENGINE_ENABLED:
+        # MODO MOTOR (padrão): o STT vem SÓ do vox-engine. Sem recognizer local,
+        # sem fallback silencioso — se o motor falhar, erro ALTO na UI. O boot
+        # roda em background (não trava o loop de comandos) e retenta; o 1º erro
+        # é fatal p/ a UI mostrar "motor indisponível", e um 'ready' posterior
+        # recupera sozinho quando o motor sobe.
+        log(f"vox-engine: modo motor (pipe={VOX_PIPE}, profile={VOX_PROFILE}); sem fallback local")
+
+        def _motor_boot():
+            attempt = 0
+            while True:
+                try:
+                    nfo = vox.info()
+                    dev = nfo.get("provider") or "?"
+                    mdl = nfo.get("model") or VOX_PROFILE
+                    state["device"] = dev
+                    state["model"] = mdl
+                    log(f"vox-engine pronto (model={mdl}, device={dev})")
+                    with _vox_state_lock:
+                        _vox_fail[0] = 0
+                        _vox_fatal_shown[0] = False
+                    emit({"event": "ready", "model": mdl, "source": "vox-engine",
+                          "language": state["language"], "device": dev})
+                    return
+                except VoxEngineError as exc:
+                    attempt += 1
+                    _emit_vox_error(f"{exc} (tentativa {attempt})", force_fatal=True)
+                    if attempt >= 12:
+                        log("vox-engine: boot desistiu após várias tentativas; segue em erro")
+                        return
+                    time.sleep(min(5.0, float(attempt)))
+        threading.Thread(target=_motor_boot, daemon=True).start()
+    else:
+        # MODO LOCAL EXPLÍCITO (VOICE_USE_VOX_ENGINE=0): escolha deliberada do
+        # usuário, NÃO um fallback automático.
+        try:
+            recognizer = build_recognizer(state["model"], state["language"])
+        except Exception as exc:
+            log("model load failed:\n" + traceback.format_exc())
+            emit({"event": "error", "fatal": True,
+                  "msg": f"Falha ao carregar modelo: {exc}"})
+            return
+        emit({"event": "ready", "model": state["model"],
+              "language": state["language"], "device": EFFECTIVE_PROVIDER})
+        log(f"ready LOCAL (model={state['model']}, language={state['language']}, device={EFFECTIVE_PROVIDER})")
+
+    try:
+        emit({"event": "gpu_status", **gpu_status()})
+    except Exception as exc:
+        log(f"gpu_status failed: {exc}")
     _mok, _mname, _mreason = detect_mic()
     emit({"event": "mic", "ok": _mok, "name": _mname, "reason": _mreason})
     emit({"event": "mics", **list_mics()})
@@ -1794,28 +1984,33 @@ def main():
         except Exception as exc:
             log(f"vad prefetch failed (wake will retry when enabled): {exc}")
     threading.Thread(target=_prefetch_vad, daemon=True).start()
-    log(f"ready (model={state['model']}, language={state['language']}, device={EFFECTIVE_PROVIDER})")
 
-    rec_lock = threading.Lock()
-    vox = _VoxBridge()
-    if VOX_ENGINE_ENABLED:
-        log(f"vox-engine: ligado (pipe={VOX_PIPE}, profile={VOX_PROFILE}); "
-            f"STT local é fallback")
-        threading.Thread(target=vox.ensure, daemon=True).start()  # conecta em bg
-
-    def decode_seg(seg):
+    def decode_seg(seg, raise_on_motor_fail=False):
         """Decode one <=28s segment to text. Serialized so the recorder's
         background streaming thread and its final-tail pass never overlap.
         Also defers (bounded) while a TTS synth is running so decode + synth
         never saturate every core and starve the Node event loop.
 
-        Roteia para o MOTOR único (vox-engine) quando disponível; cai para o
-        recognizer LOCAL em qualquer falha (reversível via VOICE_USE_VOX_ENGINE=0).
+        MOTOR-ONLY quando VOX_ENGINE_ENABLED: sem fallback local, sem erro mudo.
+        Falha do motor → erro ALTO na UI e o segmento é descartado (o worker
+        segue vivo e reconecta no próximo). Modo LOCAL só quando
+        VOICE_USE_VOX_ENGINE=0 (opt-out deliberado, não fallback automático).
+
+        ``raise_on_motor_fail`` (usado por transcribe_file) propaga a
+        :class:`VoxEngineError` p/ o chamador reportar ``ok:false`` — em vez de
+        um "" indistinguível de silêncio (falha muda na fronteira da API).
         """
         TTS_IDLE.wait(timeout=6.0)
-        text = vox.transcribe(seg, state["language"])
-        if text is not None:
-            return text
+        if VOX_ENGINE_ENABLED:
+            try:
+                text = vox.transcribe(seg, state["language"])
+                _vox_recovered()   # motor respondeu: limpa estado de erro se havia
+                return text
+            except VoxEngineError as exc:
+                _emit_vox_error(str(exc))
+                if raise_on_motor_fail:
+                    raise
+                return ""
         with rec_lock:
             stream = recognizer.create_stream()
             stream.accept_waveform(SAMPLE_RATE, seg)
@@ -1866,15 +2061,24 @@ def main():
                 new_lang = (msg.get("language") or state["language"]).strip()
                 new_model = (msg.get("model") or state["model"]).strip()
                 if new_lang != state["language"] or new_model != state["model"]:
-                    emit({"event": "loading", "stage": "init",
-                          "msg": "Reconfigurando..."})
-                    new_recognizer = build_recognizer(new_model, new_lang)
-                    with rec_lock:
-                        recognizer = new_recognizer
-                    state["language"] = new_lang
-                    state["model"] = new_model
-                    emit({"event": "ready", "model": new_model,
-                          "language": new_lang, "device": EFFECTIVE_PROVIDER})
+                    if VOX_ENGINE_ENABLED:
+                        # MODO MOTOR: nada de recognizer local. A língua é passada
+                        # ao motor por transcrição; o modelo é decidido pelo perfil
+                        # do motor. Só registra e reconfirma prontidão.
+                        state["language"] = new_lang
+                        state["model"] = new_model
+                        emit({"event": "ready", "model": new_model, "source": "vox-engine",
+                              "language": new_lang, "device": state.get("device", "?")})
+                    else:
+                        emit({"event": "loading", "stage": "init",
+                              "msg": "Reconfigurando..."})
+                        new_recognizer = build_recognizer(new_model, new_lang)
+                        with rec_lock:
+                            recognizer = new_recognizer
+                        state["language"] = new_lang
+                        state["model"] = new_model
+                        emit({"event": "ready", "model": new_model,
+                              "language": new_lang, "device": EFFECTIVE_PROVIDER})
             elif cmd == "tts":
                 synthesize_tts(msg)
             elif cmd == "tts_voice":
@@ -1920,9 +2124,16 @@ def main():
                             xp = np.linspace(0.0, 1.0, arr.size, dtype=np.float64)
                             xq = np.linspace(0.0, 1.0, n_out, dtype=np.float64)
                             arr = np.interp(xq, xp, arr).astype(np.float32)
-                    parts = [decode_seg(seg) for seg in segment_audio(arr, SAMPLE_RATE)]
+                    parts = [decode_seg(seg, raise_on_motor_fail=True)
+                             for seg in segment_audio(arr, SAMPLE_RATE)]
                     text = " ".join(p for p in parts if p).strip()
                     emit({"event": "transcribed", "id": rid, "ok": True, "text": text})
+                except VoxEngineError as exc:
+                    # Motor caiu no meio: NÃO reporta sucesso vazio (que seria
+                    # indistinguível de silêncio). ok:false + erro já emitido alto.
+                    log(f"transcribe_file: motor indisponível: {exc}")
+                    emit({"event": "transcribed", "id": rid, "ok": False,
+                          "msg": f"motor de voz indisponível: {exc}"})
                 except Exception as exc:
                     log("transcribe_file error:\n" + traceback.format_exc())
                     emit({"event": "transcribed", "id": rid, "ok": False, "msg": str(exc)})

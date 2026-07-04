@@ -1,6 +1,6 @@
 {
   "name": "voice-chat",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Converse por voz com o Copilot: fale e ouça um resumo falado da resposta. Usa o motor único vox-engine quando disponível (STT compartilhado, melhor qualidade), com Whisper local como fallback.",
   "author": {
     "name": "Allan Santos",
