@@ -73,7 +73,11 @@
       "name": "voice-chat",
       "description": "Converse por voz com o Copilot: fale e ouça um resumo falado da resposta (Whisper local para transcrição + voz local pt-BR).",
       "version": "1.2.1",
-      "source": { "source": "github", "repo": "AllanSantos-DV/copilot-voice", "path": "plugin" },
+      "source": {
+        "source": "github",
+        "repo": "AllanSantos-DV/copilot-voice",
+        "path": "plugin"
+      },
       "author": {
         "name": "Allan Santos"
       },
@@ -109,6 +113,27 @@
         "mcp",
         "memory",
         "whisper",
+        "pt-BR"
+      ],
+      "category": "productivity"
+    },
+    {
+      "name": "mcp-bridge",
+      "description": "Restaura o MCP no GitHub Copilot onde ele é bloqueado por política mas as extensões são permitidas: conecta a servidores MCP (stdio/http/sse, com login OAuth) e expõe tools, prompts e resources nativamente ao agente, com resiliência, auditoria e um painel de saúde. Devolve os braços e as pernas da IA.",
+      "version": "0.1.0",
+      "source": "./plugins/mcp-bridge",
+      "author": {
+        "name": "Allan Santos"
+      },
+      "homepage": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "license": "MIT",
+      "keywords": [
+        "mcp",
+        "bridge",
+        "model-context-protocol",
+        "tools",
+        "enterprise",
         "pt-BR"
       ],
       "category": "productivity"
