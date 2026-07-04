@@ -35,7 +35,8 @@ copilot plugin update --all
 ```
 .
 ├─ .github/plugin/marketplace.json   # manifesto central (o CLI lê; a vitrine também)
-├─ .github/agents/vitrine.agent.md    # agente de publicação (página + design obrigatórios)
+├─ .github/agents/publisher.agent.md  # coordena a publicação; DELEGA o design ao vitrine
+├─ .github/agents/vitrine.agent.md     # especialista de design da página (frontend-design)
 ├─ plugins/<nome>/                    # runtime vendado de cada plugin (NÃO editar à mão)
 │  ├─ plugin.json                     # metadados + marcadores (extensions / hooks)
 │  ├─ hooks.json                      # (opcional) hooks de ciclo de vida
@@ -194,7 +195,8 @@ Você cuida do resto. Esquema:
 1. **Vender:** copie o runtime já empacotado para `plugins/<nome>/` (da origem; não edite à mão).
 2. **Versão:** suba `version` em `plugins/<nome>/plugin.json` (semver).
 3. **Página (obrigatório):** escreva/atualize `docs/content/<nome>.json` aplicando a skill
-   `frontend-design` — é a página dedicada do plugin, parte da publicação (ver §6.1).
+   `frontend-design` — é a página dedicada do plugin, parte da publicação (ver §6.1). Com o
+   agente `publisher`, este passo é **delegado ao agente `vitrine`** automaticamente (ver §7.4).
 4. **Manifesto:** reflita `name/version/description` em `.github/plugin/marketplace.json`.
 5. **Gerar:** `node docs/build.mjs` (atualiza `index.html`, `docs/p/<nome>/` + tabela do README).
 6. **Commit** em `main` — a publicação. Ex.: `chore(<nome>): sync v<versão>`.
@@ -220,18 +222,38 @@ Você cuida do resto. Esquema:
 - Vende em `plugins/<nome>/`, registre no manifesto, gere a vitrine, commit. O `canvas-sync`
   cuida de espelhar para `~/.copilot/extensions/` na máquina do usuário.
 
-### 7.4 O agente `vitrine` (recomendado)
+### 7.4 Os agentes `publisher` e `vitrine` (dois papéis, um handoff)
 
-Para nunca esquecer a etapa de página/design, use o agente **`vitrine`**
-(`.github/agents/vitrine.agent.md`). Ele encapsula o fluxo de §7.1 com a página dedicada como
-passo **obrigatório** (escrever `docs/content/<nome>.json` + aplicar a skill `frontend-design`),
-roda o build e segue as convenções de commit.
+A publicação é dividida em **dois papéis**, cada um com seu agente — assim o design nunca é
+esquecido e nunca se mistura com a mecânica de release:
 
-- Invoque-o ao publicar/atualizar/criar um plugin nesta vitrine.
-- Se o seu Copilot CLI carrega agentes só de `~/.copilot/agents/`, copie o arquivo para lá
-  (`cp .github/agents/vitrine.agent.md ~/.copilot/agents/`); a versão do repo continua sendo a
-  fonte de verdade.
-- Ele depende da skill `frontend-design` (`~/.copilot/skills/frontend-design`) — se faltar,
+- **`publisher`** (`.github/agents/publisher.agent.md`) — o **coordenador**. Faz vender, versão,
+  manifesto, `node docs/build.mjs` e commit. No **passo do design (3)**, ele **delega ao
+  `vitrine`** em vez de escrever a página sozinho.
+- **`vitrine`** (`.github/agents/vitrine.agent.md`) — o **especialista de design**. Escreve/
+  atualiza `docs/content/<nome>.json` aplicando a skill `frontend-design`. Não vende, não sobe
+  versão, não commita. Pode ser usado **solo** (só (re)desenhar uma página) ou **delegado** pelo
+  `publisher`.
+
+Fluxo do handoff (é o que você escolheu: **sub-agente, uma sessão**):
+
+```
+você → publisher : "publica o voice-chat"
+publisher        : vender + versão
+publisher → vitrine (sub-agente) : "desenhe docs/content/voice-chat.json (frontend-design)"
+vitrine → publisher              : content file pronto e válido
+publisher        : manifesto + build + verificar + commit
+```
+
+O `publisher` delega pelo mecanismo que existir no runtime (ferramenta de sub-agente como
+`delegate_child`/`runSubagent`; senão o `handoff` do frontmatter; e, em último caso, cumpre o
+papel inline seguindo o `vitrine`). Detalhes na seção "Como delegar" do `publisher.agent.md`.
+
+- Para publicar/atualizar um plugin, invoque o **`publisher`** — ele chama o `vitrine` sozinho.
+- Para só redesenhar uma página, invoque o **`vitrine`** direto.
+- Se o seu Copilot CLI carrega agentes só de `~/.copilot/agents/`, copie os dois para lá
+  (`cp .github/agents/*.agent.md ~/.copilot/agents/`); a versão do repo é a fonte de verdade.
+- Ambos dependem da skill `frontend-design` (`~/.copilot/skills/frontend-design`) — se faltar,
   instale-a antes.
 
 ## 8. Convenções de commit
