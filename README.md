@@ -2,6 +2,8 @@
 
 Marketplace de plugins do [Allan Santos](https://github.com/AllanSantos-DV) para o **GitHub Copilot CLI**.
 
+🔎 **Vitrine:** <https://allansantos-dv.github.io/copilot-marketplace/>
+
 ## Como usar
 
 Registre o marketplace uma vez:
@@ -10,31 +12,41 @@ Registre o marketplace uma vez:
 copilot plugin marketplace add AllanSantos-DV/copilot-marketplace
 ```
 
-Veja os plugins disponíveis e instale:
+Veja os plugins e instale (lista completa na [vitrine](https://allansantos-dv.github.io/copilot-marketplace/) ou na tabela abaixo):
 
 ```sh
 copilot plugin marketplace browse copilot-marketplace
-copilot plugin install voice-chat@copilot-marketplace
-copilot plugin install action-bridge@copilot-marketplace
-copilot plugin install copilot-mobile@copilot-marketplace
+copilot plugin install <plugin>@copilot-marketplace
 ```
 
 Atualize quando quiser (ou todos de uma vez):
 
 ```sh
-copilot plugin update voice-chat
-copilot plugin update action-bridge
-copilot plugin update copilot-mobile
+copilot plugin update <plugin>
 copilot plugin update --all
 ```
 
 ## Plugins
 
+<!-- plugins:start -->
 | Plugin | Descrição | Versão |
 | ------ | --------- | ------ |
-| [`voice-chat`](./plugins/voice-chat) | Converse por voz com o Copilot: fale e ouça um resumo falado da resposta (Whisper local para transcrição + voz local pt-BR). | 1.1.12 |
-| [`action-bridge`](./plugins/action-bridge) | Controla o app **Action** (captura e memória de reuniões, 100% local no Windows) pelo agente: reuniões, transcrição, memória semântica cruzada, curadoria e grafo — e instala o Action automaticamente quando ele ainda não existe. | 1.1.0 |
-| [`copilot-mobile`](./plugins/copilot-mobile) | Controle o agente pelo **celular**: chat em tempo real (SSE), perguntas (`ask_user`) e permissões respondidas no celular, envio de mídia e **resumo falado em áudio** (pt-BR). Exposição off/LAN/Tailscale/público decidida na máquina; o app Android se auto-atualiza pelos Releases. | 0.1.4 |
+| [`voice-chat`](./plugins/voice-chat) | Converse por voz com o Copilot: fale e ouça um resumo falado da resposta (Whisper local para transcrição + voz local pt-BR). | 1.2.1 |
+| [`action-bridge`](./plugins/action-bridge) | Controla o app Action (captura e memória de reuniões, 100% local no Windows) pelo agente: reuniões, transcrição, memória semântica cruzada, curadoria e grafo — e instala o Action automaticamente quando ele ainda não existe. | 1.1.0 |
+| [`copilot-mobile`](./plugins/copilot-mobile) | Bridge do copilot-mobile: provisiona o daemon apartado na 1ª execução (baixa a release buildada, sem build), injeta o resumo falado e detecta drift celular→PC. Pareamento, transporte e configuração ficam no daemon (ícone da bandeja). | 0.3.1 |
+| [`copilot-remote`](./plugins/copilot-remote) | Controle remoto de sessões do Copilot em outras máquinas via o daemon do copilot-mobile: escolha a máquina, liste sessões, converse, mande áudio (reusa o motor de voz local) e arquivos — direto do desktop. | 0.1.0 |
+| [`canvas-sync`](./plugins/canvas-sync) | Infra da vitrine: espelha canvas extensions (installed-plugins) para ~/.copilot/extensions via hook de SessionStart. Instale junto ou deixe um plugin baixar sozinho. | 0.3.0 |
+<!-- plugins:end -->
+
+> A tabela acima é **gerada** a partir de `.github/plugin/marketplace.json` por `node docs/build.mjs`
+> — não edite à mão entre os marcadores.
+
+## Vitrine (GitHub Pages)
+
+A vitrine em [`docs/`](./docs) é **estática e gerada** a partir de `.github/plugin/marketplace.json`
+por `node docs/build.mjs` (Node, sem dependências, **sem GitHub Actions**). Publicada por GitHub
+Pages a partir do branch `main`, pasta `/docs`. Cada plugin "publica seu conteúdo": ao subir a
+versão no manifesto e reassar, o card e a tabela se atualizam sozinhos.
 
 ## Manutenção
 
@@ -54,3 +66,12 @@ nesta vitrine **é** a publicação — não há GitHub Actions nem dependência
   junto do `plugin.json` — a extensão só usa `node:` builtins + `@github/copilot-sdk` (external), sem bundle. O
   **app Android** (APK) é distribuído por GitHub Releases (tag `copilot-mobile-v*`) e o próprio app se
   auto-atualiza a partir daí.
+- **`copilot-remote`** vem do repositório de código **privado** [`copilot-remote`](https://github.com/AllanSantos-DV/copilot-remote):
+  os arquivos de runtime (`extension.mjs`, `client.mjs`, `daemon.mjs`, `panel.html`, `hooks.json`) são
+  vendados aqui. Reusa o daemon do `copilot-mobile` e o motor de voz local.
+- **`canvas-sync`** é **infra da própria vitrine**: um hook de `SessionStart` que espelha as canvas
+  extensions instaladas (`installed-plugins`) para `~/.copilot/extensions` — a única pasta que o app GUI
+  carrega. Sem passos manuais.
+
+> **Guia completo para agentes:** veja [`AGENTS.md`](./AGENTS.md) — como publicar, migrar ou criar
+> um plugin/extensão do Copilot neste repositório.

@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>copilot-marketplace — plugins do Copilot CLI, do jeito Allan</title>
+  <meta name="description" content="Vitrine dos 5 plugins do Allan para o GitHub Copilot CLI: voz, controle remoto, memória de reuniões, ponte mobile e infra de canvas. 100% local, pt-BR." />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#14121C" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="copilot-marketplace" />
+  <meta property="og:description" content="Vitrine dos 5 plugins do Allan para o GitHub Copilot CLI: voz, controle remoto, memória de reuniões, ponte mobile e infra de canvas. 100% local, pt-BR." />
+  <meta property="og:url" content="https://allansantos-dv.github.io/copilot-marketplace/" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <a class="skip" href="#registry">Pular para os plugins</a>
+  <header class="topbar">
+    <a class="brand" href="#top"><span class="brand__glyph" aria-hidden="true">⌁</span> copilot-marketplace</a>
+    <nav class="topnav" aria-label="Seções">
+      <a href="#registry">registry</a>
+      <a href="#publicar">publicar</a>
+      <a href="https://github.com/AllanSantos-DV/copilot-marketplace" rel="noopener">github<span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <p class="eyebrow">marketplace · github copilot cli</p>
+      <h1 class="hero__title">Plugins de terminal,<br /><em>do jeito Allan.</em></h1>
+      <p class="hero__lede">5 extensões que vivem onde você já trabalha: no prompt. Voz, controle remoto, memória de reuniões e mais — <strong>100% local</strong>, pt-BR, MIT. Registre a vitrine uma vez e instale o que quiser.</p>
+      <div class="prompt prompt--hero" data-cmd="copilot plugin marketplace add AllanSantos-DV/copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd" id="hero-cmd">copilot plugin marketplace add AllanSantos-DV/copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin marketplace add AllanSantos-DV/copilot-marketplace" aria-label="Copiar comando de registro do marketplace">copiar</button>
+      </div>
+      <ul class="stats" aria-label="Resumo">
+        <li><b>5</b><span>plugins</span></li>
+        <li><b>pt-BR</b><span>de origem</span></li>
+        <li><b>MIT</b><span>licença</span></li>
+        <li><b>100%</b><span>local</span></li>
+      </ul>
+    </section>
+
+    <section id="registry" class="registry" aria-labelledby="registry-h">
+      <div class="section-head">
+        <h2 id="registry-h" class="section-head__title"><span class="section-head__mark" aria-hidden="true">//</span> registry</h2>
+        <p class="section-head__note">Cada card sai direto do manifesto — versão sempre atual.</p>
+      </div>
+      <div class="grid">
+      <article class="card" id="p-voice-chat">
+        <header class="card__head">
+          <h3 class="card__name">voice-chat</h3>
+          <span class="chip" title="versão publicada">v1.2.1</span>
+        </header>
+        <p class="card__cat">productivity</p>
+        <p class="card__desc">Converse por voz com o Copilot: fale e ouça um resumo falado da resposta (Whisper local para transcrição + voz local pt-BR).</p>
+        <ul class="tags" aria-label="palavras-chave"><li>voice</li><li>voz</li><li>tts</li><li>stt</li><li>whisper</li><li>pt-BR</li></ul>
+        <div class="prompt prompt--sm" data-cmd="copilot plugin install voice-chat@copilot-marketplace">
+          <span class="prompt__glyph" aria-hidden="true">⌁</span>
+          <code class="prompt__cmd">copilot plugin install voice-chat@copilot-marketplace</code>
+          <button class="copy" type="button" data-copy="copilot plugin install voice-chat@copilot-marketplace" aria-label="Copiar comando de instalação do voice-chat">copiar</button>
+        </div>
+        <footer class="card__links">
+          <a class="lnk" href="https://github.com/AllanSantos-DV/copilot-voice" rel="noopener">código<span aria-hidden="true">↗</span></a>
+        </footer>
+      </article>
+      <article class="card" id="p-action-bridge">
+        <header class="card__head">
+          <h3 class="card__name">action-bridge</h3>
+          <span class="chip" title="versão publicada">v1.1.0</span>
+        </header>
+        <p class="card__cat">productivity</p>
+        <p class="card__desc">Controla o app Action (captura e memória de reuniões, 100% local no Windows) pelo agente: reuniões, transcrição, memória semântica cruzada, curadoria e grafo — e instala o Action automaticamente quando ele ainda não existe.</p>
+        <ul class="tags" aria-label="palavras-chave"><li>action</li><li>meetings</li><li>reunioes</li><li>transcription</li><li>mcp</li><li>memory</li></ul>
+        <div class="prompt prompt--sm" data-cmd="copilot plugin install action-bridge@copilot-marketplace">
+          <span class="prompt__glyph" aria-hidden="true">⌁</span>
+          <code class="prompt__cmd">copilot plugin install action-bridge@copilot-marketplace</code>
+          <button class="copy" type="button" data-copy="copilot plugin install action-bridge@copilot-marketplace" aria-label="Copiar comando de instalação do action-bridge">copiar</button>
+        </div>
+        <footer class="card__links">
+          <a class="lnk" href="https://github.com/AllanSantos-DV/action-releases" rel="noopener">código<span aria-hidden="true">↗</span></a>
+        </footer>
+      </article>
+      <article class="card" id="p-copilot-mobile">
+        <header class="card__head">
+          <h3 class="card__name">copilot-mobile</h3>
+          <span class="chip" title="versão publicada">v0.3.1</span>
+        </header>
+        <p class="card__cat">productivity</p>
+        <p class="card__desc">Bridge do copilot-mobile: provisiona o daemon apartado na 1ª execução (baixa a release buildada, sem build), injeta o resumo falado e detecta drift celular→PC. Pareamento, transporte e configuração ficam no daemon (ícone da bandeja).</p>
+        <ul class="tags" aria-label="palavras-chave"><li>copilot-mobile</li><li>daemon</li><li>mobile</li><li>bridge</li><li>remote</li><li>pt-BR</li></ul>
+        <div class="prompt prompt--sm" data-cmd="copilot plugin install copilot-mobile@copilot-marketplace">
+          <span class="prompt__glyph" aria-hidden="true">⌁</span>
+          <code class="prompt__cmd">copilot plugin install copilot-mobile@copilot-marketplace</code>
+          <button class="copy" type="button" data-copy="copilot plugin install copilot-mobile@copilot-marketplace" aria-label="Copiar comando de instalação do copilot-mobile">copiar</button>
+        </div>
+        <footer class="card__links">
+          <a class="lnk" href="https://github.com/AllanSantos-DV/copilot-mobile" rel="noopener">código<span aria-hidden="true">↗</span></a>
+        </footer>
+      </article>
+      <article class="card" id="p-copilot-remote">
+        <header class="card__head">
+          <h3 class="card__name">copilot-remote</h3>
+          <span class="chip" title="versão publicada">v0.1.0</span>
+        </header>
+        <p class="card__cat">productivity</p>
+        <p class="card__desc">Controle remoto de sessões do Copilot em outras máquinas via o daemon do copilot-mobile: escolha a máquina, liste sessões, converse, mande áudio (reusa o motor de voz local) e arquivos — direto do desktop.</p>
+        <ul class="tags" aria-label="palavras-chave"><li>remote</li><li>daemon</li><li>copilot-mobile</li><li>sessions</li><li>voice</li><li>pt-BR</li></ul>
+        <div class="prompt prompt--sm" data-cmd="copilot plugin install copilot-remote@copilot-marketplace">
+          <span class="prompt__glyph" aria-hidden="true">⌁</span>
+          <code class="prompt__cmd">copilot plugin install copilot-remote@copilot-marketplace</code>
+          <button class="copy" type="button" data-copy="copilot plugin install copilot-remote@copilot-marketplace" aria-label="Copiar comando de instalação do copilot-remote">copiar</button>
+        </div>
+        <footer class="card__links">
+          <a class="lnk" href="https://github.com/AllanSantos-DV/copilot-remote" rel="noopener">código<span aria-hidden="true">↗</span></a>
+        </footer>
+      </article>
+      <article class="card" id="p-canvas-sync">
+        <header class="card__head">
+          <h3 class="card__name">canvas-sync</h3>
+          <span class="chip" title="versão publicada">v0.3.0</span>
+        </header>
+        <p class="card__cat">productivity</p>
+        <p class="card__desc">Infra da vitrine: espelha canvas extensions (installed-plugins) para ~/.copilot/extensions via hook de SessionStart. Instale junto ou deixe um plugin baixar sozinho.</p>
+        <ul class="tags" aria-label="palavras-chave"><li>canvas</li><li>sync</li><li>infra</li><li>hooks</li></ul>
+        <div class="prompt prompt--sm" data-cmd="copilot plugin install canvas-sync@copilot-marketplace">
+          <span class="prompt__glyph" aria-hidden="true">⌁</span>
+          <code class="prompt__cmd">copilot plugin install canvas-sync@copilot-marketplace</code>
+          <button class="copy" type="button" data-copy="copilot plugin install canvas-sync@copilot-marketplace" aria-label="Copiar comando de instalação do canvas-sync">copiar</button>
+        </div>
+        <footer class="card__links">
+          <a class="lnk" href="https://github.com/AllanSantos-DV/copilot-marketplace" rel="noopener">código<span aria-hidden="true">↗</span></a>
+        </footer>
+      </article>
+      </div>
+    </section>
+
+    <section id="publicar" class="publish" aria-labelledby="publish-h">
+      <div class="section-head">
+        <h2 id="publish-h" class="section-head__title"><span class="section-head__mark" aria-hidden="true">//</span> como publicar</h2>
+        <p class="section-head__note">Cinco passos, em ordem. O último é o único que "publica".</p>
+      </div>
+      <ol class="pipeline">
+        <li class="step">
+          <span class="step__n">01</span>
+          <div class="step__body">
+            <h3 class="step__label">vender</h3>
+            <p>Coloque o runtime já empacotado em <code>plugins/&lt;nome&gt;/</code> (nunca edite esses arquivos à mão).</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step__n">02</span>
+          <div class="step__body">
+            <h3 class="step__label">versão</h3>
+            <p>Suba o <code>version</code> no <code>plugins/&lt;nome&gt;/plugin.json</code> — é ele que o <code>copilot plugin update</code> compara.</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step__n">03</span>
+          <div class="step__body">
+            <h3 class="step__label">manifesto</h3>
+            <p>Reflita nome, versão e descrição em <code>.github/plugin/marketplace.json</code> (a fonte de verdade da vitrine).</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step__n">04</span>
+          <div class="step__body">
+            <h3 class="step__label">gerar</h3>
+            <p>Rode <code>node docs/build.mjs</code> para reassar a vitrine a partir do manifesto.</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step__n">05</span>
+          <div class="step__body">
+            <h3 class="step__label">commit</h3>
+            <p>Faça o commit em <code>main</code> — <strong>o commit é a publicação</strong>. Sem Actions, sem release.</p>
+          </div>
+        </li>
+      </ol>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p class="foot__made">Feito por <a href="https://github.com/AllanSantos-DV" rel="noopener">Allan Santos</a> · MIT · vitrine gerada de <code>marketplace.json</code></p>
+    <p class="foot__cmd"><span aria-hidden="true">⌁</span> <code>copilot plugin update --all</code></p>
+  </footer>
+
+  <script src="assets/app.js" defer></script>
+</body>
+</html>
