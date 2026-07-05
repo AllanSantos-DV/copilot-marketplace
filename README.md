@@ -31,7 +31,7 @@ copilot plugin update --all
 <!-- plugins:start -->
 | Plugin | Descrição | Versão |
 | ------ | --------- | ------ |
-| [`voice-chat`](./plugins/voice-chat) · [página](https://allansantos-dv.github.io/copilot-marketplace/p/voice-chat/) | Converse por voz com o Copilot: fale e ouça um resumo falado da resposta (Whisper local para transcrição + voz local pt-BR). | 1.2.1 |
+| [`voice-chat`](./plugins/voice-chat) · [página](https://allansantos-dv.github.io/copilot-marketplace/p/voice-chat/) | Converse por voz com o Copilot: fale e ouça um resumo falado da resposta (Whisper local para transcrição + voz local pt-BR). | 1.2.2 |
 | [`action-bridge`](./plugins/action-bridge) · [página](https://allansantos-dv.github.io/copilot-marketplace/p/action-bridge/) | Controla o app Action (captura e memória de reuniões, 100% local no Windows) pelo agente: reuniões, transcrição, memória semântica cruzada, curadoria e grafo — e instala o Action automaticamente quando ele ainda não existe. | 1.1.0 |
 | [`copilot-mobile`](./plugins/copilot-mobile) · [página](https://allansantos-dv.github.io/copilot-marketplace/p/copilot-mobile/) | Bridge do copilot-mobile: provisiona o daemon apartado na 1ª execução (baixa a release buildada, sem build), injeta o resumo falado e detecta drift celular→PC. Pareamento, transporte e configuração ficam no daemon (ícone da bandeja). | 0.3.2 |
 | [`copilot-remote`](./plugins/copilot-remote) · [página](https://allansantos-dv.github.io/copilot-marketplace/p/copilot-remote/) | Controle remoto de sessões do Copilot em outras máquinas via o daemon do copilot-mobile: escolha a máquina, liste sessões, converse, mande áudio (reusa o motor de voz local) e arquivos — direto do desktop. | 0.1.0 |
