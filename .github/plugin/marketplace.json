@@ -71,8 +71,8 @@
     },
     {
       "name": "voice-chat",
-      "description": "Converse por voz com o Copilot: fale e ouça um resumo falado da resposta (Whisper local para transcrição + voz local pt-BR).",
-      "version": "1.2.2",
+      "description": "Converse por voz com o Copilot (pt-BR): fale e ouça um resumo falado. STT e TTS pelo motor único local vox-engine — a extensão instala e atualiza o motor sozinha, sem fallback local.",
+      "version": "1.3.0",
       "source": {
         "source": "github",
         "repo": "AllanSantos-DV/copilot-voice",
@@ -90,6 +90,7 @@
         "tts",
         "stt",
         "whisper",
+        "canvas",
         "pt-BR"
       ],
       "category": "productivity"

@@ -43,7 +43,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.1.23";
+const CURRENT_VERSION = "1.3.0";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -56,6 +56,10 @@ const UPDATE_DISABLED = process.env.VOICE_UPDATE_DISABLED === "1" || RUNNING_AS_
 const UPDATE_THROTTLE_MS = Number(process.env.VOICE_UPDATE_THROTTLE_MS) || 0;
 const UPDATE_STATE_FILE = join(ARTIFACTS, "update-state.json");
 const UPDATABLE_FILES = new Set(["extension.mjs", "voice_worker.py", "iframe.html", "tts.ps1", "requirements.txt"]);
+
+// Espelha VOX_ENGINE_ENABLED do worker: STT e TTS vêm do motor único (vox-engine),
+// SEM fallback local. VOICE_USE_VOX_ENGINE=0 (opt-out) reativa o Piper/SAPI local.
+const USE_VOX_ENGINE = !["0", "false", ""].includes(String(process.env.VOICE_USE_VOX_ENGINE ?? "1").trim());
 
 // Python interpreters are discovered dynamically (see buildPythonCandidates).
 
@@ -1339,7 +1343,14 @@ async function synthesize(text) {
     try {
         await synthViaWorker(id, speakText, wavFile);
     } catch (e) {
-        log("worker tts failed, falling back to SAPI: " + e.message);
+        // MODO MOTOR (padrão): o TTS vem SÓ do motor único — SEM fallback SAPI/local.
+        // O erro sobe ALTO para o chamador surfaçar (a UI mostra "Falha na síntese").
+        if (USE_VOX_ENGINE) {
+            log("tts do motor falhou (modo motor, sem fallback): " + e.message);
+            throw e;
+        }
+        // MODO LOCAL EXPLÍCITO (VOICE_USE_VOX_ENGINE=0): fallback SAPI (Windows).
+        log("worker tts failed, falling back to SAPI (opt-out): " + e.message);
         const txtFile = join(TTS_DIR, `say-${id}.txt`);
         await writeFile(txtFile, speakText, "utf8");
         try {
