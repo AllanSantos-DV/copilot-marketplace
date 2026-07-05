@@ -63,11 +63,15 @@ function versionOf(pluginJsonText) {
 }
 
 // Hash curto e estável do estado "publicável" de um plugin: plugin.json + a página.
+// Normaliza CRLF->LF para que o hash bata entre o disco (working tree, pode ser CRLF no
+// Windows) e o blob do git (guardado como LF por autocrlf/.gitattributes) — senão `mark`
+// (disco) e `prepush` (git show) discordariam e o push seria bloqueado por engano.
 function reviewHash(pluginJsonText, contentJsonText) {
+  const norm = (s) => String(s ?? "").replace(/\r\n/g, "\n");
   return createHash("sha256")
-    .update(pluginJsonText ?? "")
+    .update(norm(pluginJsonText))
     .update("\0")
-    .update(contentJsonText ?? "")
+    .update(norm(contentJsonText))
     .digest("hex")
     .slice(0, 16);
 }
