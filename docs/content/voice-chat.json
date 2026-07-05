@@ -1,19 +1,20 @@
 {
-  "tagline": "Fale com o Copilot e ouça a resposta — transcrição e voz 100% locais, em português.",
-  "lede": "O **voice-chat** transforma o terminal numa conversa: você fala, o Whisper (ou o motor único `vox-engine`) transcreve, o agente responde e uma voz local em pt-BR lê o resumo de volta. Nada sai da sua máquina.",
+  "tagline": "Fale com o Copilot e ouça a resposta — um motor de voz local que a extensão instala e atualiza sozinha.",
+  "lede": "O **voice-chat** transforma o terminal numa conversa: você fala, o motor único local **`vox-engine`** transcreve, o agente responde e uma voz neural em pt-BR lê o resumo de volta. Fala e voz — **STT e TTS** — passam pelo mesmo motor, na sua máquina, e a extensão **cuida dele sozinha**: instala se faltar, atualiza se estiver velho e usa quando está em dia. Nenhum áudio sai do computador.",
   "highlights": [
-    { "title": "Fala → texto, local", "body": "Grava o microfone e transcreve com Whisper on-device — sem nuvem, sem chave de API." },
-    { "title": "Resposta falada", "body": "A cada turno injeta a instrução do resumo 🔊 e sintetiza áudio em português no Windows." },
-    { "title": "vox-engine ou fallback", "body": "Usa o motor único `vox-engine` quando existe (STT compartilhado, melhor qualidade) e cai para o Whisper local quando não." }
+    { "title": "Um motor, STT + TTS", "body": "Transcrição e voz passam pelo mesmo `vox-engine` local — um daemon compartilhado por named pipe. Sem nuvem, sem chave de API." },
+    { "title": "Se instala e se atualiza sozinho", "body": "No arranque a extensão baixa o motor se faltar, atualiza para a última versão se estiver velho e só conecta quando já está em dia. Você não roda nada à mão." },
+    { "title": "Sem fallback mudo", "body": "No modo motor (padrão) não há Whisper/Piper local por baixo: se o motor não sobe, o erro aparece **alto** na tela — nunca falha em silêncio." },
+    { "title": "Opt-out multiplataforma", "body": "`VOICE_USE_VOX_ENGINE=0` desliga o motor e volta ao STT/TTS local (Whisper + Piper/SAPI), o modo antigo — fora do Windows, é o caminho." }
   ],
   "sections": [
     {
       "id": "o-que-e",
       "title": "O que é",
       "blocks": [
-        { "type": "p", "text": "O voice-chat é uma **canvas extension** do GitHub Copilot CLI: abre um painel de voz no app e liga o ciclo fala → agente → fala. Você segura para falar, ele transcreve localmente, manda o texto ao agente e devolve um resumo em áudio na sua língua." },
-        { "type": "p", "text": "É pensado para acompanhar sessões longas sem tirar os olhos do que importa: o áudio de saída é um **resumo falado**, curto e natural, não a leitura crua da resposta inteira." },
-        { "type": "note", "tone": "info", "text": "Como registra um canvas, depois de instalar é preciso **reiniciar o app uma vez** para o painel aparecer (o `canvas-sync` cuida do espelhamento)." }
+        { "type": "p", "text": "O voice-chat é uma **canvas extension** do GitHub Copilot: abre o painel **Voz** no app e liga o ciclo fala → agente → fala. Você segura para falar, o motor transcreve localmente, o texto vira um turno normal do Copilot e a resposta volta como um **resumo falado**, curto e natural, na sua língua." },
+        { "type": "p", "text": "A mudança desta versão é o **motor único**: STT (fala→texto) e TTS (texto→voz) agora rodam no mesmo `vox-engine` local, um daemon compartilhado com outros plugins da vitrine (como o `copilot-mobile`). Antes a voz de saída usava Piper local; agora é o motor que cuida de tudo — e a extensão cuida do motor." },
+        { "type": "note", "tone": "info", "text": "Como registra um **canvas**, depois de instalar é preciso **reiniciar o app uma vez** para o painel aparecer (o `canvas-sync` cuida do espelhamento)." }
       ]
     },
     {
@@ -25,11 +26,29 @@
           "items": [
             { "title": "Instale o plugin", "text": "Pelo marketplace, com o comando da seção Instalar abaixo." },
             { "title": "Reinicie o app", "text": "Uma vez, para o canvas de voz ser descoberto." },
-            { "title": "Abra o painel Voz", "text": "O canvas mostra o microfone e o estado (ouvindo, transcrevendo, falando)." },
-            { "title": "Segure para falar", "text": "Fale sua pergunta; ao soltar, o Whisper transcreve e o agente responde com um resumo em áudio." }
+            { "title": "Abra o painel Voz", "text": "Na primeira vez, a extensão instala o motor e baixa os modelos — pode levar alguns minutos; a tela mostra o progresso." },
+            { "title": "Segure para falar", "text": "Clique no microfone para gravar, clique de novo para enviar. O motor transcreve e o agente responde com áudio." },
+            { "title": "Mãos livres (opcional)", "text": "Ligue a wake word nas configurações e diga a frase de ativação (\"escuta jarvis\") para começar sem clicar." }
           ]
         },
-        { "type": "note", "tone": "info", "text": "Na primeira fala o modelo de voz pode levar alguns segundos para aquecer; depois fica instantâneo." }
+        { "type": "note", "tone": "info", "text": "Depois da 1ª vez o painel abre em segundos — o motor reusa os modelos e a voz já baixados." }
+      ]
+    },
+    {
+      "id": "o-motor",
+      "title": "O motor único (vox-engine)",
+      "blocks": [
+        { "type": "p", "text": "Toda a fala passa pelo **`vox-engine`**: um motor local de STT + TTS que roda como daemon e é compartilhado entre apps por um **named pipe**. A extensão cuida do ciclo de vida dele no arranque, sem você configurar nada:" },
+        {
+          "type": "list",
+          "items": [
+            "**Não instalado** → baixa o instalador da release pública, instala em `%LOCALAPPDATA%\\vox-engine` e sobe o daemon.",
+            "**Desatualizado** → atualiza para a última versão antes de subir (best-effort: se falhar, segue no que já funciona).",
+            "**Em dia** → só conecta e usa. Se o daemon já está no ar (por exemplo, subiu para o `copilot-mobile`), ela não interrompe — apenas se liga."
+          ]
+        },
+        { "type": "note", "tone": "info", "text": "Instalações concorrentes são serializadas por um **lock entre processos** — dois apps subindo o motor ao mesmo tempo não corrompem o venv." },
+        { "type": "note", "tone": "warn", "text": "**Sem fallback local.** No modo motor (padrão) não há Whisper/Piper/SAPI por baixo: se o motor não estiver disponível, o erro aparece **alto** na interface, nunca mudo." }
       ]
     },
     {
@@ -39,24 +58,43 @@
         {
           "type": "list",
           "items": [
-            "**Captura** — grava o microfone enquanto você segura o botão do painel.",
-            "**STT** — transcreve com o `vox-engine` (se presente) ou com o Whisper local como fallback.",
-            "**Agente** — envia o texto transcrito como um turno normal do Copilot.",
-            "**TTS** — sintetiza um resumo falado em pt-BR pela voz do Windows (`tts.ps1`)."
+            "**Captura** — grava o microfone no painel (push-to-talk ou wake word).",
+            "**STT** — o `voice_worker.py` manda o áudio ao motor pelo named pipe e recebe o texto.",
+            "**Agente** — o texto transcrito entra como um turno normal do Copilot.",
+            "**TTS** — o mesmo motor sintetiza um resumo falado em pt-BR, que toca no canvas."
           ]
         },
-        { "type": "p", "text": "O worker de voz (`voice_worker.py`) roda apartado e é reusado por outros plugins da vitrine que precisam de voz — por isso o STT é compartilhado quando o `vox-engine` está disponível." }
+        { "type": "p", "text": "Por ser um daemon compartilhado, o motor sobe uma vez e é reusado — o STT e o TTS ficam consistentes entre o voice-chat e outros plugins que também falam." }
+      ]
+    },
+    {
+      "id": "opt-out",
+      "title": "Voltar ao modo local",
+      "blocks": [
+        { "type": "p", "text": "O motor único é **Windows-only** (usa named pipe e instalador `.ps1`). Fora do Windows — ou se você prefere não compartilhar o motor — dá para voltar ao comportamento antigo, **multiplataforma**, com STT/TTS local (Whisper + Piper/SAPI). Basta um opt-out por variável de ambiente, definido antes de abrir o app:" },
+        { "type": "code", "lang": "powershell", "code": "# volta ao STT/TTS local (Whisper + Piper/SAPI), multiplataforma\n$env:VOICE_USE_VOX_ENGINE = \"0\"", "copy": true },
+        { "type": "note", "tone": "info", "text": "No opt-out entram em cena o `tts.ps1` (voz do Windows via SAPI) e as dependências do `requirements.txt`. No modo motor eles ficam de fora — o motor traz as próprias dependências e vozes." }
       ]
     }
   ],
   "requirements": [
-    "Windows 10/11 (voz de saída via PowerShell)",
-    "Python 3.10+ (worker Whisper)",
-    "Node 18+ (runtime da extensão)",
-    "Microfone"
+    "Copilot App (desktop) com o GitHub Copilot SDK",
+    "Windows 10/11 para o motor único (named pipe); outros sistemas via opt-out local",
+    "Python 3.11+ no PATH (o motor cria o próprio venv)",
+    "Node 18.2+ (runtime da extensão)",
+    "Microfone e saída de áudio"
   ],
   "faq": [
-    { "q": "Precisa de internet?", "a": "Não para a voz: transcrição (Whisper) e síntese rodam localmente. Só o agente do Copilot usa a rede, como de costume." },
-    { "q": "Funciona no Linux ou macOS?", "a": "O núcleo de STT é portável, mas a fala de saída usa a voz do Windows (`tts.ps1`). Hoje o foco é Windows." }
-  ]
+    { "q": "Precisa de internet?", "a": "Só na primeira vez, para baixar o motor e os modelos. Depois STT e TTS rodam 100% local — nenhum áudio sai da máquina. O agente do Copilot usa a rede como de costume." },
+    { "q": "Preciso instalar o vox-engine na mão?", "a": "Não. A extensão instala, atualiza e sobe o motor sozinha no arranque; você só abre o painel Voz." },
+    { "q": "E se o motor não subir?", "a": "No modo padrão o erro aparece alto na interface (sem fallback mudo). Confira o Python 3.11+ no PATH e os logs em %LOCALAPPDATA%\\vox-engine\\logs. Se preferir, use o opt-out local." },
+    { "q": "Funciona no Linux ou macOS?", "a": "O motor único é Windows-only. Nesses sistemas use VOICE_USE_VOX_ENGINE=0 para o modo local (Whisper + Piper), que é multiplataforma." }
+  ],
+  "files": {
+    "extension.mjs": "Servidor Node do canvas: roteia a voz, orquestra STT/TTS pelo motor, SSE e o auto-update da extensão.",
+    "voice_worker.py": "Worker Python: ponte para o motor único (STT+TTS) + VAD/wake; STT/TTS local só no opt-out.",
+    "iframe.html": "Interface do canvas de voz (push-to-talk e estado do motor).",
+    "tts.ps1": "Voz via SAPI do Windows — usada só no opt-out (VOICE_USE_VOX_ENGINE=0).",
+    "requirements.txt": "Dependências Python do modo opt-out (o motor traz as suas)."
+  }
 }
