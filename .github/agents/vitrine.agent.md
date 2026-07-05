@@ -29,7 +29,9 @@ página, sem publicar.
 - Criar/atualizar `docs/content/<nome>.json` (o conteúdo rico da página).
 - Aplicar a skill `frontend-design` ao visual; ajustar `docs/assets/{styles.css,app.js}` quando
   um componente novo ou refino for preciso.
-- Quando **invocado solo**: rodar `node docs/build.mjs` e conferir a página gerada.
+- Quando **invocado solo**: rodar `node docs/build.mjs`, conferir a página gerada e rodar
+  `node docs/gate.mjs mark <nome>` (grava o marcador de revisado em `docs/.reviewed.json`, que
+  o gate de push exige). Verifique com `node docs/gate.mjs check`.
 
 **NÃO é seu (é do `publisher`):**
 - ❌ Vender runtime em `plugins/<nome>/` (nem editar nada lá — é vendado, vem da origem).

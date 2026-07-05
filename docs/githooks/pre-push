@@ -1,0 +1,8 @@
+#!/bin/sh
+# copilot-marketplace · pre-push gate (global)
+#
+# Este shim é instalado em ~/.copilot/githooks/ e ligado via `core.hooksPath` global.
+# Roda em TODOS os repositórios, mas só age no copilot-marketplace: delega ao
+# dispatcher Node, que detecta o repo alvo e, fora dele, é transparente (fail-open e
+# preserva o hook local). O Git no Windows executa este arquivo com o `sh` embutido.
+exec node "$(dirname "$0")/dispatch.mjs" "$@"
