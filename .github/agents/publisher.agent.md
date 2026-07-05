@@ -60,13 +60,13 @@ Você nunca pula esse passo — mas também não o faz sozinho: você **chama o 
    prev/next) e rode `node docs/gate.mjs check` (deve dizer "ok"). Sirva `docs/` e abra no
    navegador se puder.
 8. **Commit** — Conventional Commits, uma linha, com o trailer. Ex.:
-   `chore(<nome>): sync v<versão> + página`. Inclua o `docs/content/.reviewed.json` no commit.
+   `chore(<nome>): sync v<versão> + página`. Inclua o `docs/.reviewed.json` no commit.
 
 ## O gate de publicação (por que o marcador importa)
 
 Existe um **hook global de `pre-push`** (instalado por `node docs/install-gate.mjs`) que, ao
 detectar um push para **este** repositório, **bloqueia** se algum plugin foi alterado sem a
-página revisada — isto é, sem o marcador correspondente em `docs/content/.reviewed.json`. O
+página revisada — isto é, sem o marcador correspondente em `docs/.reviewed.json`. O
 marcador casa a `version` do `plugin.json` com um hash de `plugin.json + docs/content/<nome>.json`.
 
 Fluxo: você desenha/atualiza a página (passo 3, via `vitrine`) → gera (passo 5) → **marca**
