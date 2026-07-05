@@ -46,6 +46,10 @@ copilot plugin update --all
 │  ├─ index.html                      # GERADO (não editar à mão)
 │  ├─ p/<nome>/index.html             # GERADO: a PÁGINA DEDICADA de cada plugin
 │  ├─ content/<nome>.json             # conteúdo rico da página (você escreve; ver §6.1)
+│  ├─ gate.mjs                        # gate de publicação (check / mark / prepush) — ver §6.2
+│  ├─ .reviewed.json                  # marcador "revisado" por plugin (versão+hash) — GERADO por mark
+│  ├─ githooks/{pre-push,dispatch.mjs} # fonte do hook global (instalado por install-gate.mjs)
+│  ├─ install-gate.mjs                # instala o hook global e liga core.hooksPath (1x por máquina)
 │  └─ assets/{styles.css,app.js}      # design escrito à mão (edite estes ao afinar visual)
 ├─ README.md                          # tabela entre <!-- plugins:start/end --> é GERADA
 └─ AGENTS.md                          # este guia
@@ -188,6 +192,35 @@ Você cuida do resto. Esquema:
 > Plex como voz de terminal). A **assinatura** da página dedicada é a árvore de arquivos
 > (`.tree`). Novos componentes/refinos vão em `docs/assets/`, nunca no HTML gerado.
 
+### 6.2 O gate de publicação (`docs/gate.mjs` + hook global)
+
+Uma **trava técnica** garante que nenhum plugin seja publicado sem a página dedicada revisada.
+Não é só regra de agente: é um **hook global de `pre-push`** que recusa o `git push` para este
+repo quando um plugin mudou sem revisão.
+
+- **Marcador de revisado:** `docs/.reviewed.json` mapeia cada plugin para `{ version, hash }`,
+  onde `hash` cobre `plugins/<nome>/plugin.json` + `docs/content/<nome>.json`. Quem grava é o
+  agente, via `node docs/gate.mjs mark <nome>` (ou `--all`). Se a página ou a versão mudam, o
+  hash muda e o marcador precisa ser refeito.
+- **Gate (`docs/gate.mjs`):** três modos —
+  - `node docs/gate.mjs check` → valida a working tree (todo plugin com página + marcador em dia).
+  - `node docs/gate.mjs mark <nome|--all>` → grava/atualiza o marcador.
+  - `node docs/gate.mjs prepush <remoteUrl>` → usado pelo hook; lê a stdin do `pre-push`, e se o
+    remote é este repo, verifica os plugins tocados no push contra o marcador (via `git show` no
+    commit que está subindo). Bloqueia (exit≠0) se faltar revisão.
+- **Hook global (uma vez por máquina):** `node docs/install-gate.mjs` copia
+  `docs/githooks/{pre-push,dispatch.mjs}` para `~/.copilot/githooks/` e aponta
+  `git config --global core.hooksPath` para lá. O `dispatch.mjs` roda em todos os repos, mas só
+  age onde existe `docs/gate.mjs` (este repo/forks); em qualquer outro é **transparente**
+  (fail-open e preserva o hook local). Status: `node docs/install-gate.mjs --status`;
+  remover: `--uninstall`.
+- **Quando o push é bloqueado:** a mensagem pede para acionar o `publisher` (publica e delega o
+  design) ou o `vitrine` (só desenha). Depois de desenhar + `gate.mjs mark <nome>` + commit, o
+  push libera. O commit deve incluir o `docs/.reviewed.json`.
+
+> É global de propósito: o repo vive em worktrees/clones, então a trava mora na máquina e
+> reconhece o repo pelo **remote**, não pela pasta.
+
 ## 7. Fluxos
 
 ### 7.1 Publicar/atualizar um plugin existente (sequência — nesta ordem)
@@ -199,7 +232,9 @@ Você cuida do resto. Esquema:
    agente `publisher`, este passo é **delegado ao agente `vitrine`** automaticamente (ver §7.4).
 4. **Manifesto:** reflita `name/version/description` em `.github/plugin/marketplace.json`.
 5. **Gerar:** `node docs/build.mjs` (atualiza `index.html`, `docs/p/<nome>/` + tabela do README).
-6. **Commit** em `main` — a publicação. Ex.: `chore(<nome>): sync v<versão>`.
+6. **Marcar revisado:** `node docs/gate.mjs mark <nome>` (grava `docs/.reviewed.json`; é o que o
+   gate exige para liberar o push — ver §6.2). Confira com `node docs/gate.mjs check`.
+7. **Commit** em `main` — a publicação. Ex.: `chore(<nome>): sync v<versão>` (inclua o marcador).
 
 > Alguns plugins têm um `publish.ps1` **local** na origem que faz 1–4 e dá push. Ex.: `voice-chat`
 > é publicado do repo `copilot-voice`; `action-bridge` é empacotado com esbuild do repo privado do
@@ -269,5 +304,7 @@ papel inline seguindo o `vitrine`). Detalhes na seção "Como delegar" do `publi
 - [ ] `docs/content/<nome>.json` criado/atualizado e desenhado com `frontend-design` (§6.1).
 - [ ] Entrada correspondente em `.github/plugin/marketplace.json` (mesma versão/descrição).
 - [ ] `node docs/build.mjs` rodado (index.html + `docs/p/<nome>/` + tabela do README atualizados).
+- [ ] `node docs/gate.mjs mark <nome>` rodado e `docs/.reviewed.json` incluído no commit (§6.2).
+- [ ] `node docs/gate.mjs check` diz "ok" (senão o push é bloqueado pelo gate).
 - [ ] Nada editado à mão em `plugins/<nome>/` nem nos `.html` gerados (`index.html`, `p/<nome>/`).
 - [ ] Commit em Conventional Commits, uma linha, com o trailer.

@@ -1,0 +1,32 @@
+{
+  "action-bridge": {
+    "version": "1.1.0",
+    "hash": "ff58453f92067cef",
+    "at": "2026-07-05T14:16:38.117Z"
+  },
+  "canvas-sync": {
+    "version": "0.3.0",
+    "hash": "8d3835edc2635ba6",
+    "at": "2026-07-05T14:16:38.111Z"
+  },
+  "copilot-mobile": {
+    "version": "0.3.2",
+    "hash": "dc906807979627f5",
+    "at": "2026-07-05T14:16:38.115Z"
+  },
+  "copilot-remote": {
+    "version": "0.1.0",
+    "hash": "383146bfe1771c25",
+    "at": "2026-07-05T14:16:38.114Z"
+  },
+  "mcp-bridge": {
+    "version": "0.1.0",
+    "hash": "95ee2c625990ca95",
+    "at": "2026-07-05T14:16:38.118Z"
+  },
+  "voice-chat": {
+    "version": "1.2.2",
+    "hash": "460cbce8f64f6c3c",
+    "at": "2026-07-05T14:16:38.116Z"
+  }
+}

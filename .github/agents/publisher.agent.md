@@ -53,10 +53,26 @@ Você nunca pula esse passo — mas também não o faz sozinho: você **chama o 
    "Como delegar" abaixo.
 4. **Manifesto** — reflita `name`, `version` e `description` em `.github/plugin/marketplace.json`.
 5. **Gerar** — rode `node docs/build.mjs` (reassa index + `docs/p/<nome>/` + tabela do README).
-6. **Verificar** — confira o HTML gerado da página (hero, seções, instalar, estrutura, TOC,
-   prev/next). Sirva `docs/` e abra no navegador se puder.
-7. **Commit** — Conventional Commits, uma linha, com o trailer. Ex.:
-   `chore(<nome>): sync v<versão> + página`.
+6. **Marcar revisado** — rode `node docs/gate.mjs mark <nome>` para gravar o marcador em
+   `docs/.reviewed.json` (versão + hash da página). **É esse marcador que libera o push**:
+   o gate global recusa o push de um plugin alterado sem ele (ver "O gate de publicação").
+7. **Verificar** — confira o HTML gerado da página (hero, seções, instalar, estrutura, TOC,
+   prev/next) e rode `node docs/gate.mjs check` (deve dizer "ok"). Sirva `docs/` e abra no
+   navegador se puder.
+8. **Commit** — Conventional Commits, uma linha, com o trailer. Ex.:
+   `chore(<nome>): sync v<versão> + página`. Inclua o `docs/content/.reviewed.json` no commit.
+
+## O gate de publicação (por que o marcador importa)
+
+Existe um **hook global de `pre-push`** (instalado por `node docs/install-gate.mjs`) que, ao
+detectar um push para **este** repositório, **bloqueia** se algum plugin foi alterado sem a
+página revisada — isto é, sem o marcador correspondente em `docs/content/.reviewed.json`. O
+marcador casa a `version` do `plugin.json` com um hash de `plugin.json + docs/content/<nome>.json`.
+
+Fluxo: você desenha/atualiza a página (passo 3, via `vitrine`) → gera (passo 5) → **marca**
+(passo 6, `gate.mjs mark <nome>`) → commita o marcador `docs/.reviewed.json` → o push é liberado.
+Se você (ou alguém) tentar publicar pulando a página, o `git push` falha com um recado pedindo
+para acionar você (o `publisher`) ou o `vitrine`. Fora deste repo, o hook é transparente.
 
 ## Como delegar o design ao `vitrine`
 
