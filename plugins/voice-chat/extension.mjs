@@ -38,12 +38,11 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 const PENDING_REPLIES_FILE = join(ARTIFACTS, "pending-replies.json");
 const IFRAME_FILE = join(EXT_DIR, "iframe.html");
 const WORKER_FILE = join(EXT_DIR, "voice_worker.py");
-const TTS_SCRIPT = join(EXT_DIR, "tts.ps1");
 const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.3.0";
+const CURRENT_VERSION = "1.3.1";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -55,11 +54,7 @@ const RUNNING_AS_PLUGIN = /[\\/]installed-plugins[\\/]/.test(EXT_DIR);
 const UPDATE_DISABLED = process.env.VOICE_UPDATE_DISABLED === "1" || RUNNING_AS_PLUGIN;
 const UPDATE_THROTTLE_MS = Number(process.env.VOICE_UPDATE_THROTTLE_MS) || 0;
 const UPDATE_STATE_FILE = join(ARTIFACTS, "update-state.json");
-const UPDATABLE_FILES = new Set(["extension.mjs", "voice_worker.py", "iframe.html", "tts.ps1", "requirements.txt"]);
-
-// Espelha VOX_ENGINE_ENABLED do worker: STT e TTS vêm do motor único (vox-engine),
-// SEM fallback local. VOICE_USE_VOX_ENGINE=0 (opt-out) reativa o Piper/SAPI local.
-const USE_VOX_ENGINE = !["0", "false", ""].includes(String(process.env.VOICE_USE_VOX_ENGINE ?? "1").trim());
+const UPDATABLE_FILES = new Set(["extension.mjs", "voice_worker.py", "iframe.html", "requirements.txt"]);
 
 // Python interpreters are discovered dynamically (see buildPythonCandidates).
 
@@ -1343,21 +1338,10 @@ async function synthesize(text) {
     try {
         await synthViaWorker(id, speakText, wavFile);
     } catch (e) {
-        // MODO MOTOR (padrão): o TTS vem SÓ do motor único — SEM fallback SAPI/local.
-        // O erro sobe ALTO para o chamador surfaçar (a UI mostra "Falha na síntese").
-        if (USE_VOX_ENGINE) {
-            log("tts do motor falhou (modo motor, sem fallback): " + e.message);
-            throw e;
-        }
-        // MODO LOCAL EXPLÍCITO (VOICE_USE_VOX_ENGINE=0): fallback SAPI (Windows).
-        log("worker tts failed, falling back to SAPI (opt-out): " + e.message);
-        const txtFile = join(TTS_DIR, `say-${id}.txt`);
-        await writeFile(txtFile, speakText, "utf8");
-        try {
-            await runTts(txtFile, wavFile);
-        } finally {
-            unlink(txtFile).catch(() => {});
-        }
+        // O TTS vem SÓ do motor único — SEM fallback SAPI/local. O erro sobe ALTO
+        // para o chamador surfaçar (a UI mostra "Falha na síntese de voz").
+        log("tts do motor falhou (motor único, sem fallback): " + e.message);
+        throw e;
     }
     cleanupOldWavs().catch(() => {});
     return basename(wavFile);
@@ -1421,39 +1405,6 @@ function transcribeViaWorker(path) {
         pendingTranscribe.set(id, { resolve, reject, timer });
         const ok = workerSend({ cmd: "transcribe_file", id, path });
         if (!ok) { clearTimeout(timer); pendingTranscribe.delete(id); reject(new Error("falha ao enviar áudio ao motor de voz")); }
-    });
-}
-
-function runTts(txtFile, wavFile) {
-    return new Promise((resolve, reject) => {
-        if (process.platform !== "win32") {
-            reject(new Error("SAPI fallback is Windows-only"));
-            return;
-        }
-        const args = [
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            TTS_SCRIPT,
-            "-TextFile",
-            txtFile,
-            "-Out",
-            wavFile,
-            "-Voice",
-            settings.voice,
-            "-Rate",
-            String(settings.rate),
-        ];
-        const ps = spawn("powershell.exe", args, { windowsHide: true });
-        let err = "";
-        ps.stderr.on("data", (d) => (err += d.toString()));
-        ps.on("error", reject);
-        ps.on("exit", (code) => {
-            if (code === 0 && existsSync(wavFile)) resolve();
-            else reject(new Error(`tts exit ${code}: ${err.slice(0, 240)}`));
-        });
     });
 }
 

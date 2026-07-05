@@ -169,7 +169,6 @@ def _physical_cores():
 
 
 SHERPA_CUDA_INDEX = "https://k2-fsa.github.io/sherpa/onnx/cuda.html"
-EFFECTIVE_PROVIDER = "cpu"
 
 
 def _nvidia_info():
@@ -287,10 +286,9 @@ WHISPER_MAX_S = 28.0
 CHUNK_TARGET_S = 8.0
 
 # --- Ponte para o motor único (vox-engine) via named pipe --------------------
-# Reversível: VOICE_USE_VOX_ENGINE=0 desliga (STT 100% local, comportamento antigo).
-# Cliente em STDLIB PURA (o named pipe do Windows abre como arquivo) — não precisa
-# de pywin32, então funciona no python do worker (3.14) mesmo o motor sendo 3.13.
-VOX_ENGINE_ENABLED = os.environ.get("VOICE_USE_VOX_ENGINE", "1").strip() not in ("0", "false", "")
+# O motor é o ÚNICO caminho de STT+TTS: NÃO há opt-out nem fallback local. Cliente
+# em STDLIB PURA (o named pipe do Windows abre como arquivo) — não precisa de
+# pywin32, então funciona no python do worker (3.14) mesmo o motor sendo 3.13.
 VOX_PIPE = os.environ.get("VOX_PIPE", r"\\.\pipe\vox")
 VOX_PROFILE = os.environ.get("VOICE_VOX_PROFILE", "dictation").strip() or "dictation"
 # Teto de sanidade p/ o tamanho de um frame vindo do motor: um header gigante
@@ -301,7 +299,6 @@ VOX_REQ_TIMEOUT = float(os.environ.get("VOX_REQ_TIMEOUT", "30").strip() or "30")
 GH_BASE = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
 TTS_MODEL = (os.environ.get("VOICE_TTS_MODEL", "vits-piper-pt_BR-miro-high").strip()
              or "vits-piper-pt_BR-miro-high")
-TTS_GH_BASE = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models"
 
 # Push-to-talk energy gate: discard an utterance whose max peak stays below this
 # (suppresses Whisper hallucinations on silence, e.g. "E aí Obrigado"). Tuned to
@@ -416,187 +413,17 @@ def _download_file(url, dst, timeout=180, on_pct=None, attempts=3):
     raise last_exc
 
 
-def model_dir_for(name):
-    return os.path.join(MODEL_ROOT, f"sherpa-onnx-whisper-{name}")
-
-
-def ensure_model(name):
-    """Return the model directory, downloading + extracting it if missing."""
-    mdir = model_dir_for(name)
-    enc = os.path.join(mdir, f"{name}-encoder.int8.onnx")
-    dec = os.path.join(mdir, f"{name}-decoder.int8.onnx")
-    tok = os.path.join(mdir, f"{name}-tokens.txt")
-    if os.path.isfile(enc) and os.path.isfile(dec) and os.path.isfile(tok):
-        return mdir
-
-    os.makedirs(MODEL_ROOT, exist_ok=True)
-    url = f"{GH_BASE}/sherpa-onnx-whisper-{name}.tar.bz2"
-    tar_path = os.path.join(MODEL_ROOT, f"sherpa-onnx-whisper-{name}.tar.bz2")
-    emit({"event": "loading", "stage": "download", "model": name,
-          "msg": f"Baixando modelo Whisper '{name}'..."})
-    log(f"downloading model from {url}")
-
-    def _pct(p):
-        emit({"event": "loading", "stage": "download", "model": name,
-              "pct": p, "msg": f"Baixando modelo... {round(p)}%"})
-    t0 = time.time()
-    got = _download_file(url, tar_path, timeout=180, on_pct=_pct)
-    log(f"downloaded {got/1e6:.1f} MB in {time.time()-t0:.1f}s")
-
-    emit({"event": "loading", "stage": "extract", "model": name,
-          "msg": "Extraindo modelo..."})
-    with tarfile.open(tar_path, "r:bz2") as t:
-        t.extractall(MODEL_ROOT, filter="data")  
-    try:
-        os.remove(tar_path)
-    except OSError:
-        pass
-    return mdir
-
-
-def build_recognizer(name, language):
-    import sherpa_onnx
-    name = resolve_model(name)          
-    mdir = ensure_model(name)
-
-    def pick(suffix):
-        for f in os.listdir(mdir):
-            if f.endswith(suffix):
-                return os.path.join(mdir, f)
-        return None
-
-    enc = pick("encoder.int8.onnx") or pick("encoder.onnx")
-    dec = pick("decoder.int8.onnx") or pick("decoder.onnx")
-    tok = pick("tokens.txt")
-    if not (enc and dec and tok):
-        raise RuntimeError(f"model files not found in {mdir}")
-
-    emit({"event": "loading", "stage": "init", "model": name,
-          "msg": "Carregando modelo..."})
-    n_threads = max(2, min(6, (os.cpu_count() or 4) - 4))
-    global EFFECTIVE_PROVIDER
-    providers = ("cuda", "cpu") if _gpu_usable() else ("cpu",)
-    last_exc = None
-    for provider in providers:
-        try:
-            log(f"build_recognizer model={name} provider={provider} threads={n_threads}")
-            rec = sherpa_onnx.OfflineRecognizer.from_whisper(
-                encoder=enc,
-                decoder=dec,
-                tokens=tok,
-                language="" if language == "auto" else language,
-                task="transcribe",
-                num_threads=n_threads,
-                decoding_method="greedy_search",
-                provider=provider,
-            )
-            EFFECTIVE_PROVIDER = provider
-            return rec
-        except Exception as exc:
-            last_exc = exc
-            log(f"recognizer provider={provider} failed:\n" + traceback.format_exc())
-    raise last_exc if last_exc else RuntimeError("recognizer build failed")
-
-
-_tts_engine = None
-
-
-def _first_with_suffix(dirpath, suffix):
-    if not os.path.isdir(dirpath):
-        return None
-    for f in sorted(os.listdir(dirpath)):
-        if f.endswith(suffix):
-            return os.path.join(dirpath, f)
-    return None
-
-
-def ensure_tts_model(name):
-    """Return the TTS voice directory, downloading + extracting it if missing."""
-    d = os.path.join(MODEL_ROOT, name)
-    if _first_with_suffix(d, ".onnx") and os.path.isfile(os.path.join(d, "tokens.txt")):
-        return d
-
-    os.makedirs(MODEL_ROOT, exist_ok=True)
-    url = f"{TTS_GH_BASE}/{name}.tar.bz2"
-    tar_path = os.path.join(MODEL_ROOT, f"{name}.tar.bz2")
-    emit({"event": "loading", "stage": "download", "model": name,
-          "msg": f"Baixando voz neural '{name}'..."})
-    log(f"downloading tts model from {url}")
-
-    def _pct(p):
-        emit({"event": "loading", "stage": "download", "model": name,
-              "pct": p, "msg": f"Baixando voz... {round(p)}%"})
-    _download_file(url, tar_path, timeout=180, on_pct=_pct)
-
-    emit({"event": "loading", "stage": "extract", "model": name,
-          "msg": "Extraindo voz..."})
-    with tarfile.open(tar_path, "r:bz2") as t:
-        t.extractall(MODEL_ROOT, filter="data")  
-    try:
-        os.remove(tar_path)
-    except OSError:
-        pass
-    return d
-
-
-def build_tts(name):
-    import sherpa_onnx
-    d = ensure_tts_model(name)
-    onnx = _first_with_suffix(d, ".onnx")
-    tokens = os.path.join(d, "tokens.txt")
-    data_dir = os.path.join(d, "espeak-ng-data")
-    if not (onnx and os.path.isfile(tokens)):
-        raise RuntimeError(f"tts model files not found in {d}")
-
-    emit({"event": "loading", "stage": "init", "model": name,
-          "msg": "Carregando voz neural..."})
-    n_threads = max(1, min(2, (os.cpu_count() or 2) - 2))
-    vits = sherpa_onnx.OfflineTtsVitsModelConfig(
-        model=onnx, tokens=tokens, data_dir=data_dir,
-    )
-    cfg = sherpa_onnx.OfflineTtsConfig(
-        model=sherpa_onnx.OfflineTtsModelConfig(
-            vits=vits, provider="cpu", num_threads=n_threads,
-        ),
-        max_num_sentences=2,
-    )
-    return sherpa_onnx.OfflineTts(cfg)
-
-
-def ensure_tts():
-    global _tts_engine
-    if _tts_engine is None:
-        _tts_engine = build_tts(TTS_MODEL)
-    return _tts_engine
-
-
 def set_tts_voice(name):
-    """Troca a voz do TTS em runtime.
-
-    - MODO MOTOR (VOX_ENGINE_ENABLED, padrão): só registra o NOME (TTS_MODEL); o motor
-      único carrega/baixa a voz sozinho no próximo tts. Sem Piper local, sem download
-      aqui.
-    - MODO LOCAL (opt-out VOICE_USE_VOX_ENGINE=0): reconstrói o engine Piper e mantém
-      a voz atual em falha.
-    """
-    global TTS_MODEL, _tts_engine
+    """Troca a voz do TTS em runtime. O motor é o único caminho: só registra o NOME
+    (TTS_MODEL); o vox-engine carrega/baixa a voz sozinho no próximo tts. Sem Piper
+    local, sem download aqui."""
+    global TTS_MODEL
     name = (name or "").strip()
     if not name or name == TTS_MODEL:
         return
-    if VOX_ENGINE_ENABLED:
-        TTS_MODEL = name
-        emit({"event": "tts_voice", "ok": True, "voice": name})
-        log(f"tts voice set to {name} (motor)")
-        return
-    try:
-        engine = build_tts(name)
-        _tts_engine = engine
-        TTS_MODEL = name
-        emit({"event": "tts_voice", "ok": True, "voice": name})
-        log(f"tts voice switched to {name}")
-    except Exception:
-        log("set_tts_voice failed:\n" + traceback.format_exc())
-        emit({"event": "tts_voice", "ok": False, "voice": name})
+    TTS_MODEL = name
+    emit({"event": "tts_voice", "ok": True, "voice": name})
+    log(f"tts voice set to {name} (motor)")
 
 
 def install_sherpa_gpu():
@@ -751,44 +578,28 @@ def write_wav(path, samples, sample_rate):
         w.writeframes(pcm16.tobytes())
 
 
-def synthesize_tts(msg, synth=None):
+def synthesize_tts(msg, synth):
     _id = msg.get("id")
     try:
-        # Coerções DENTRO do try: um speed/sid/text inválido (p.ex. campo vindo de
-        # outra extensão pelo pipe) vira {tts, ok:false} id-correlacionado — nunca
-        # escapa mudo (o outer loop só emitiria um erro genérico sem id).
+        # Coerções DENTRO do try: um speed/text inválido (p.ex. campo vindo de outra
+        # extensão pelo pipe) vira {tts, ok:false} id-correlacionado — nunca escapa mudo.
         text = (msg.get("text") or "").strip() or "Sem conteúdo para ler."
         out = msg.get("out")
         speed = float(msg.get("speed") or 1.0)
-        sid = int(msg.get("sid") or 0)
-        if VOX_ENGINE_ENABLED:
-            # MODO MOTOR: o TTS vem SÓ do vox-engine (mesma voz, por NOME). Sem Piper,
-            # sem fallback silencioso — se o motor não está no ar, erro ALTO (ok:false).
-            if synth is None:
-                raise VoxEngineError("motor de voz (vox-engine) indisponível para TTS")
-            TTS_IDLE.clear()
-            try:
-                samples, sr = synth(text, TTS_MODEL, speed)
-            finally:
-                TTS_IDLE.set()
-            cleaned = clean_tts(samples, sr)
-            if out:
-                write_wav(out, cleaned, sr)
-            emit({"event": "tts", "id": _id, "ok": True, "out": out,
-                  "sample_rate": int(sr), "source": "vox-engine"})
-            return
-        # MODO LOCAL EXPLÍCITO (VOICE_USE_VOX_ENGINE=0): Piper local (opt-out).
-        engine = ensure_tts()
+        # O TTS vem SÓ do vox-engine (voz por NOME). SEM Piper, SEM fallback: se o
+        # motor não está no ar, erro ALTO e VISÍVEL (ok:false), nunca mudo.
+        if synth is None:
+            raise VoxEngineError("motor de voz (vox-engine) indisponível para TTS")
         TTS_IDLE.clear()
         try:
-            audio = engine.generate(text, sid=sid, speed=speed)
+            samples, sr = synth(text, TTS_MODEL, speed)
         finally:
             TTS_IDLE.set()
-        cleaned = clean_tts(audio.samples, audio.sample_rate)
+        cleaned = clean_tts(samples, sr)
         if out:
-            write_wav(out, cleaned, audio.sample_rate)
+            write_wav(out, cleaned, sr)
         emit({"event": "tts", "id": _id, "ok": True, "out": out,
-              "sample_rate": int(audio.sample_rate)})
+              "sample_rate": int(sr), "source": "vox-engine"})
     except Exception as exc:
         log("tts error:\n" + traceback.format_exc())
         emit({"event": "tts", "id": _id, "ok": False, "msg": str(exc)})
@@ -2487,8 +2298,6 @@ def main():
              "model": MODEL}
     recorder = Recorder()
 
-    rec_lock = threading.Lock()
-
     def _vox_status(msg):
         """Progresso VISÍVEL do motor (ex.: instalação de 1ª vez, que leva minutos):
         evento 'loading' (NÃO 'error') — a UI mostra estado de carregamento com a
@@ -2497,7 +2306,6 @@ def main():
         emit({"event": "loading", "source": "vox-engine", "msg": msg})
 
     vox = _VoxBridge(status_cb=_vox_status)
-    recognizer = None
 
     _last_vox_err = [0.0]
     _vox_fail = [0]            # falhas consecutivas do motor (reset ao recuperar)
@@ -2553,54 +2361,39 @@ def main():
         log("vox-engine recuperado")
         emit(ev)
 
-    if VOX_ENGINE_ENABLED:
-        # MODO MOTOR (padrão): o STT vem SÓ do vox-engine. Sem recognizer local,
-        # sem fallback silencioso — se o motor falhar, erro ALTO na UI. O boot
-        # roda em background (não trava o loop de comandos) e retenta; o 1º erro
-        # é fatal p/ a UI mostrar "motor indisponível", e um 'ready' posterior
-        # recupera sozinho quando o motor sobe.
-        log(f"vox-engine: modo motor (pipe={VOX_PIPE}, profile={VOX_PROFILE}); sem fallback local")
+    # O STT vem SÓ do vox-engine — sem recognizer local, sem fallback. Se o motor
+    # falhar, erro ALTO na UI. O boot roda em background (não trava o loop de
+    # comandos) e retenta; o 1º erro é fatal p/ a UI mostrar "motor indisponível",
+    # e um 'ready' posterior recupera sozinho quando o motor sobe.
+    log(f"vox-engine: motor único (pipe={VOX_PIPE}, profile={VOX_PROFILE}); sem fallback local")
 
-        def _motor_boot():
-            attempt = 0
-            while True:
-                try:
-                    nfo = vox.info()
-                    dev = nfo.get("provider") or "?"
-                    mdl = nfo.get("model") or VOX_PROFILE
-                    ver = nfo.get("version") or "?"
-                    state["device"] = dev
-                    state["model"] = mdl
-                    state["engine_version"] = ver
-                    log(f"vox-engine pronto (v{ver}, model={mdl}, device={dev})")
-                    with _vox_state_lock:
-                        _vox_fail[0] = 0
-                        _vox_fatal_shown[0] = False
-                    emit({"event": "ready", "model": mdl, "source": "vox-engine",
-                          "language": state["language"], "device": dev,
-                          "engine_version": ver})
+    def _motor_boot():
+        attempt = 0
+        while True:
+            try:
+                nfo = vox.info()
+                dev = nfo.get("provider") or "?"
+                mdl = nfo.get("model") or VOX_PROFILE
+                ver = nfo.get("version") or "?"
+                state["device"] = dev
+                state["model"] = mdl
+                state["engine_version"] = ver
+                log(f"vox-engine pronto (v{ver}, model={mdl}, device={dev})")
+                with _vox_state_lock:
+                    _vox_fail[0] = 0
+                    _vox_fatal_shown[0] = False
+                emit({"event": "ready", "model": mdl, "source": "vox-engine",
+                      "language": state["language"], "device": dev,
+                      "engine_version": ver})
+                return
+            except VoxEngineError as exc:
+                attempt += 1
+                _emit_vox_error(f"{exc} (tentativa {attempt})", force_fatal=True)
+                if attempt >= 12:
+                    log("vox-engine: boot desistiu após várias tentativas; segue em erro")
                     return
-                except VoxEngineError as exc:
-                    attempt += 1
-                    _emit_vox_error(f"{exc} (tentativa {attempt})", force_fatal=True)
-                    if attempt >= 12:
-                        log("vox-engine: boot desistiu após várias tentativas; segue em erro")
-                        return
-                    time.sleep(min(5.0, float(attempt)))
-        threading.Thread(target=_motor_boot, daemon=True).start()
-    else:
-        # MODO LOCAL EXPLÍCITO (VOICE_USE_VOX_ENGINE=0): escolha deliberada do
-        # usuário, NÃO um fallback automático.
-        try:
-            recognizer = build_recognizer(state["model"], state["language"])
-        except Exception as exc:
-            log("model load failed:\n" + traceback.format_exc())
-            emit({"event": "error", "fatal": True,
-                  "msg": f"Falha ao carregar modelo: {exc}"})
-            return
-        emit({"event": "ready", "model": state["model"],
-              "language": state["language"], "device": EFFECTIVE_PROVIDER})
-        log(f"ready LOCAL (model={state['model']}, language={state['language']}, device={EFFECTIVE_PROVIDER})")
+                time.sleep(min(5.0, float(attempt)))
+    threading.Thread(target=_motor_boot, daemon=True).start()
 
     try:
         emit({"event": "gpu_status", **gpu_status()})
@@ -2624,31 +2417,24 @@ def main():
         Also defers (bounded) while a TTS synth is running so decode + synth
         never saturate every core and starve the Node event loop.
 
-        MOTOR-ONLY quando VOX_ENGINE_ENABLED: sem fallback local, sem erro mudo.
-        Falha do motor → erro ALTO na UI e o segmento é descartado (o worker
-        segue vivo e reconecta no próximo). Modo LOCAL só quando
-        VOICE_USE_VOX_ENGINE=0 (opt-out deliberado, não fallback automático).
+        MOTOR-ONLY: o STT vem SÓ do vox-engine — sem fallback local, sem erro mudo.
+        Falha do motor → erro ALTO na UI e o segmento é descartado (o worker segue
+        vivo e reconecta no próximo).
 
         ``raise_on_motor_fail`` (usado por transcribe_file) propaga a
         :class:`VoxEngineError` p/ o chamador reportar ``ok:false`` — em vez de
         um "" indistinguível de silêncio (falha muda na fronteira da API).
         """
         TTS_IDLE.wait(timeout=6.0)
-        if VOX_ENGINE_ENABLED:
-            try:
-                text = vox.transcribe(seg, state["language"])
-                _vox_recovered()   # motor respondeu: limpa estado de erro se havia
-                return text
-            except VoxEngineError as exc:
-                _emit_vox_error(str(exc))
-                if raise_on_motor_fail:
-                    raise
-                return ""
-        with rec_lock:
-            stream = recognizer.create_stream()
-            stream.accept_waveform(SAMPLE_RATE, seg)
-            recognizer.decode_stream(stream)
-            return (stream.result.text or "").strip()
+        try:
+            text = vox.transcribe(seg, state["language"])
+            _vox_recovered()   # motor respondeu: limpa estado de erro se havia
+            return text
+        except VoxEngineError as exc:
+            _emit_vox_error(str(exc))
+            if raise_on_motor_fail:
+                raise
+            return ""
 
     recorder.set_decoder(decode_seg)
 
@@ -2694,26 +2480,14 @@ def main():
                 new_lang = (msg.get("language") or state["language"]).strip()
                 new_model = (msg.get("model") or state["model"]).strip()
                 if new_lang != state["language"] or new_model != state["model"]:
-                    if VOX_ENGINE_ENABLED:
-                        # MODO MOTOR: nada de recognizer local. A língua é passada
-                        # ao motor por transcrição; o modelo é decidido pelo perfil
-                        # do motor. Só registra e reconfirma prontidão.
-                        state["language"] = new_lang
-                        state["model"] = new_model
-                        emit({"event": "ready", "model": new_model, "source": "vox-engine",
-                              "language": new_lang, "device": state.get("device", "?")})
-                    else:
-                        emit({"event": "loading", "stage": "init",
-                              "msg": "Reconfigurando..."})
-                        new_recognizer = build_recognizer(new_model, new_lang)
-                        with rec_lock:
-                            recognizer = new_recognizer
-                        state["language"] = new_lang
-                        state["model"] = new_model
-                        emit({"event": "ready", "model": new_model,
-                              "language": new_lang, "device": EFFECTIVE_PROVIDER})
+                    # Motor único: nada de recognizer local. A língua vai ao motor por
+                    # transcrição; o modelo é decidido pelo perfil do motor. Só registra.
+                    state["language"] = new_lang
+                    state["model"] = new_model
+                    emit({"event": "ready", "model": new_model, "source": "vox-engine",
+                          "language": new_lang, "device": state.get("device", "?")})
             elif cmd == "tts":
-                synthesize_tts(msg, vox.synthesize if VOX_ENGINE_ENABLED else None)
+                synthesize_tts(msg, vox.synthesize)
             elif cmd == "tts_voice":
                 set_tts_voice(msg.get("voice"))
             elif cmd == "gpu_status":
