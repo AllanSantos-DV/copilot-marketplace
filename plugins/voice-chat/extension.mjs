@@ -42,7 +42,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.3.1";
+const CURRENT_VERSION = "1.3.2";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -405,14 +405,14 @@ function caBundle() {
     _caBundle = [...(tls.rootCertificates || []), ...sys];
     return _caBundle;
 }
-function fetchBuf(url, redirects = 0) {
+function fetchViaNode(url, redirects = 0) {
     return new Promise((resolve, reject) => {
         const getter = new URL(url).protocol === "http:" ? httpGet : httpsGet;
         const req = getter(url, { headers: { "User-Agent": "voice-chat-updater", Accept: "*/*" }, ca: caBundle() }, (res) => {
             const sc = res.statusCode || 0;
             if (sc >= 300 && sc < 400 && res.headers.location && redirects < 5) {
                 res.resume();
-                resolve(fetchBuf(new URL(res.headers.location, url).toString(), redirects + 1));
+                resolve(fetchViaNode(new URL(res.headers.location, url).toString(), redirects + 1));
                 return;
             }
             if (sc !== 200) {
@@ -428,6 +428,71 @@ function fetchBuf(url, redirects = 0) {
         req.on("error", reject);
         req.setTimeout(15000, () => req.destroy(new Error("timeout")));
     });
+}
+// Fallback para redes que reassinam o HTTPS com uma CA própria ("SSL assinado" /
+// TLS interception corporativo): o CA bundle do Node não conhece essa CA, então o
+// fetch nativo falha na verificação. O curl.exe do System32 usa o Schannel (o stack
+// TLS do Windows), que confia no MESMO trust store da máquina onde a CA corporativa
+// está instalada — e respeita HTTP(S)_PROXY. Só Windows; sem dep nova. Caminho
+// ABSOLUTO de System32 de propósito: garante o curl Schannel (não um curl OpenSSL
+// que estiver no PATH, ex.: git/msys). Retorna Buffer (o sha256 do update é checado
+// depois, então o conteúdo continua verificado).
+function fetchViaCurl(url) {
+    if (process.platform !== "win32") return Promise.resolve(null);
+    const curl = join(process.env.SystemRoot || "C:\\Windows", "System32", "curl.exe");
+    if (!existsSync(curl)) return Promise.resolve(null);
+    return new Promise((resolve, reject) => {
+        // spawn ASSÍNCRONO (não spawnSync): baixar por curl NÃO pode congelar o
+        // event loop single-thread da extensão (áudio/turnos ficariam parados). Teto
+        // de 64MB na resposta + timeout backstop de 35s (além do --max-time do curl).
+        const child = spawn(curl, [
+            "--fail", "--location", "--silent", "--show-error",
+            "--max-time", "30", "-A", "voice-chat-updater", "--", url,
+        ], { windowsHide: true });
+        const out = [], err = [];
+        let outLen = 0, done = false;
+        const MAX = 64 * 1024 * 1024;
+        const to = setTimeout(() => end(reject, new Error("curl: timeout")), 35000);
+        function end(fn, arg) {
+            if (done) return;
+            done = true;
+            clearTimeout(to);
+            try { child.kill(); } catch { /* já saiu */ }
+            fn(arg);
+        }
+        child.on("error", (e) => end(reject, new Error("curl: " + e.message)));
+        child.stdout.on("data", (c) => {
+            outLen += c.length;
+            if (outLen > MAX) return end(reject, new Error("curl: resposta excedeu 64MB"));
+            out.push(c);
+        });
+        child.stderr.on("data", (c) => err.push(c));
+        child.on("close", (code) => {
+            if (done) return;
+            done = true;
+            clearTimeout(to);
+            if (code !== 0) {
+                reject(new Error("curl: " + (Buffer.concat(err).toString().trim() || ("exit " + code))));
+                return;
+            }
+            resolve(Buffer.concat(out));
+        });
+    });
+}
+async function fetchBuf(url) {
+    try {
+        return await fetchViaNode(url);
+    } catch (e) {
+        let buf = null;
+        try {
+            buf = await fetchViaCurl(url);
+        } catch (ce) {
+            throw new Error("download falhou (node: " + (e && e.message || e) + "; curl: " + (ce && ce.message || ce) + ")");
+        }
+        if (buf == null) throw e;   // sem curl (não-Windows / ausente): erro original
+        dbg("update: fetch nativo falhou (" + (e && e.message) + "); usei curl.exe do Windows (Schannel/trust store)");
+        return buf;
+    }
 }
 function pickPluginVersion(mp, name) {
     const arr = mp && Array.isArray(mp.plugins) ? mp.plugins : [];
