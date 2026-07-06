@@ -79,6 +79,7 @@
     { "q": "Precisa de internet?", "a": "Só na primeira vez, para baixar o motor e os modelos. Depois STT e TTS rodam 100% local — nenhum áudio sai da máquina. O agente do Copilot usa a rede como de costume." },
     { "q": "Preciso instalar o vox-engine na mão?", "a": "Não. A extensão instala, atualiza e sobe o motor sozinha no arranque; você só abre o painel Voz." },
     { "q": "E se o motor não subir?", "a": "O erro aparece **alto** na interface, nunca em silêncio. Confira o Python 3.11+ no PATH e os logs em `%LOCALAPPDATA%\\vox-engine\\logs`, feche o app e abra de novo para a extensão tentar provisionar o motor outra vez." },
+    { "q": "Atualizar não funciona na rede da empresa?", "a": "Em redes que reassinam o HTTPS (\"SSL assinado\", proxy corporativo com CA própria), o download nativo do Node falha porque o pacote de CAs dele não conhece a CA da empresa. Quando isso acontece, a extensão baixa a atualização sozinha pelo `curl.exe` do Windows (Schannel), que confia no **trust store da máquina** — onde o TI já instalou a CA corporativa. É automático, **sem configurar nada** e **sem desligar a verificação TLS** (nada de `--insecure`); o `sha256` de cada arquivo continua conferido." },
     { "q": "Funciona no Linux ou macOS?", "a": "Não. O voice-chat é **Windows-only**: o motor conversa por named pipe e é provisionado por um instalador `.ps1`, específicos do Windows. Não há versão para outros sistemas." }
   ],
   "files": {
