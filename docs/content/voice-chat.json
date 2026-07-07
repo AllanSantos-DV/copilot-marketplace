@@ -1,10 +1,10 @@
 {
-  "tagline": "Fale com o Copilot e ouça a resposta — um único motor de voz (vox-engine) que a extensão instala, atualiza e usa sozinha no Windows, agora com update de manifesto assinado (Ed25519).",
+  "tagline": "Fale com o Copilot e ouça a resposta — um único motor de voz (vox-engine) que a extensão instala, atualiza e usa sozinha no Windows, agora conferindo a assinatura Ed25519 do instalador antes de executá-lo.",
   "lede": "O **voice-chat** transforma o terminal numa conversa: você fala, o motor **`vox-engine`** transcreve, o agente responde e uma voz neural em pt-BR lê o resumo de volta. Fala e voz — **STT e TTS** — passam pelo **mesmo e único** motor, na sua máquina, e a extensão **cuida dele sozinha**: instala se faltar, atualiza se estiver velho e usa quando está em dia. Nenhum áudio sai do seu computador.",
   "highlights": [
     { "title": "Um motor, STT + TTS", "body": "Transcrição e voz passam pelo mesmo `vox-engine` — um daemon compartilhado por named pipe, na sua máquina. Sem nuvem, sem chave de API." },
     { "title": "Se instala e se atualiza sozinho", "body": "No arranque a extensão baixa o motor se faltar, atualiza para a última versão se estiver velho e só conecta quando já está em dia. Você não roda nada à mão." },
-    { "title": "Update assinado (Ed25519)", "body": "**Novo na v1.3.3:** cada atualização vem de um manifesto **assinado**, verificado contra uma chave pública **pinada**, com **sha256** por arquivo e **anti-rollback**. Ninguém empurra um update forjado — nem numa rede que reassina o TLS." },
+    { "title": "Instalador verificado antes de rodar", "body": "**Novo na v1.3.4:** antes de instalar ou atualizar o motor, a extensão confere a **assinatura Ed25519** do instalador e **recusa** rodar o que não bate (fail-closed). Fecha um risco de execução remota de código." },
     { "title": "Windows, ponta a ponta", "body": "O motor conversa por named pipe e é provisionado por um instalador `.ps1` — por isso o voice-chat é **Windows-only** (10/11)." }
   ],
   "sections": [
@@ -42,8 +42,8 @@
         {
           "type": "list",
           "items": [
-            "**Não instalado** → baixa o instalador da release pública, instala numa pasta de dados do seu perfil e sobe o daemon.",
-            "**Desatualizado** → atualiza para a última versão antes de subir, com a verificação de assinatura descrita abaixo (best-effort: se a atualização falhar, segue no que já funciona).",
+            "**Não instalado** → baixa o instalador da release pública, **confere a assinatura dele antes de executar** (veja abaixo), instala numa pasta de dados do seu perfil e sobe o daemon.",
+            "**Desatualizado** → atualiza para a última versão antes de subir, com a **mesma verificação de assinatura** (best-effort: se a atualização falhar, segue no que já funciona).",
             "**Em dia** → só conecta e usa. Se o daemon já está no ar (por exemplo, subiu para o `copilot-mobile`), ela não interrompe — apenas se liga."
           ]
         },
@@ -52,10 +52,28 @@
       ]
     },
     {
-      "id": "update-assinado",
-      "title": "Update assinado (novo na v1.3.3)",
+      "id": "instalador-verificado",
+      "title": "Instalador verificado (novo na v1.3.4)",
       "blocks": [
-        { "type": "p", "text": "A partir da **v1.3.3**, toda atualização do motor e da extensão passa por uma verificação de **supply-chain** antes de tocar em qualquer arquivo. O update não confia só no transporte (HTTPS) — ele confia na **assinatura**." },
+        { "type": "p", "text": "Provisionar o motor significa **baixar e executar um instalador** na sua máquina — e executar um instalador é executar código. Até a v1.3.3 esse instalador rodava sem checagem. A partir da **v1.3.4**, a extensão **verifica a assinatura do instalador antes de rodá-lo**; se algo não bate, **não roda nada**." },
+        {
+          "type": "list",
+          "items": [
+            "**Assinatura Ed25519 no instalador** — cada instalador do `vox-engine` vem assinado com a chave **privada** do projeto, que nunca sai da máquina do autor.",
+            "**Verifica antes de executar** — a extensão traz a chave **pública pinada** e confere a assinatura **antes** de dar o primeiro passo do instalador. A ordem importa: primeiro a prova, depois a execução.",
+            "**Fail-closed** — instalador **sem assinatura** ou **adulterado** é **recusado** e a instalação para. Não há modo permissivo nem chave para desligar a checagem.",
+            "**Verificador embutido (vox-SDK)** — a conferência roda num verificador **Ed25519** próprio, escrito só com a biblioteca padrão e **empacotado junto** com a extensão. Sem dependência externa: a checagem de segurança não adiciona nada novo para você confiar."
+          ]
+        },
+        { "type": "note", "tone": "warn", "text": "Fail-closed de verdade: um instalador não assinado ou mexido **nunca** é executado, e o motivo aparece **alto** na interface — nunca em silêncio." },
+        { "type": "note", "tone": "info", "text": "É isto que a v1.3.4 fecha: como rodar o instalador é **executar código na sua máquina**, conferir a assinatura antes elimina um risco de **execução remota de código (RCE)** — inclusive numa rede que reassina o TLS, porque a prova é a **assinatura**, não o transporte." }
+      ]
+    },
+    {
+      "id": "update-assinado",
+      "title": "Update assinado (Ed25519)",
+      "blocks": [
+        { "type": "p", "text": "A verificação do instalador cuida do **código que roda**; o update assinado cuida dos **arquivos que ficam**. Desde a **v1.3.3**, toda atualização do motor e da extensão passa por uma verificação de **supply-chain** antes de tocar em qualquer arquivo — ela não confia só no transporte (HTTPS), confia na **assinatura**." },
         {
           "type": "list",
           "items": [
@@ -65,7 +83,7 @@
             "**Anti-rollback** — a versão assinada precisa ser exatamente a anunciada no marketplace **e** maior que a instalada, então ninguém força um downgrade para uma release antiga e vulnerável — mesmo que ela tenha sido genuinamente assinada um dia."
           ]
         },
-        { "type": "note", "tone": "info", "text": "Resultado: mesmo numa rede que **reassina o TLS** (proxy corporativo com CA própria), um update forjado é rejeitado — a assinatura é verificada **antes** de qualquer byte ser aplicado, e ela não depende da confiança do TLS." }
+        { "type": "note", "tone": "info", "text": "As duas camadas se somam: verificação do instalador **antes de executar** + manifesto assinado e `sha256` **antes de aplicar**. Mesmo numa rede que **reassina o TLS** (proxy corporativo com CA própria), nada forjado roda nem é gravado — a assinatura é conferida **antes** de qualquer byte, e ela não depende da confiança do TLS." }
       ]
     },
     {
@@ -95,9 +113,10 @@
   "faq": [
     { "q": "Precisa de internet?", "a": "Só na primeira vez, para baixar o motor e os modelos, e depois quando há atualização. Fora isso, STT e TTS rodam na sua máquina — nenhum áudio sai do computador. O agente do Copilot usa a rede como de costume." },
     { "q": "Preciso instalar o vox-engine na mão?", "a": "Não. A extensão instala, atualiza e sobe o motor sozinha no arranque; você só abre o painel Voz." },
-    { "q": "Como sei que um update é legítimo?", "a": "Cada release traz um `manifest.json` assinado (Ed25519). A extensão verifica a assinatura contra uma chave pública **pinada** e o `sha256` de cada arquivo **antes** de aplicar qualquer byte, e recusa versões menores que a instalada (**anti-rollback**). Sem a chave privada do projeto, um manifesto forjado não passa." },
-    { "q": "Atualizar não funciona na rede da empresa?", "a": "Em redes que reassinam o HTTPS (\"SSL assinado\", proxy corporativo com CA própria), o download nativo do Node pode falhar porque o pacote de CAs dele não conhece a CA da empresa. Quando isso acontece, a extensão baixa a atualização pelo `curl.exe` do `System32` (stack **Schannel** do Windows), que confia no **trust store da máquina** — onde o TI já instalou a CA corporativa — e respeita o proxy. É automático, **sem configurar nada** e **sem desligar a verificação TLS**; e, mesmo assim, a **assinatura Ed25519** e o **sha256** de cada arquivo continuam conferidos, então uma rede que reassina o TLS ainda não consegue forjar um update." },
-    { "q": "E se o motor não subir?", "a": "O erro aparece **alto** na interface, nunca em silêncio. Confira o Python 3.11+ no PATH e os logs do motor (na pasta de dados dele), feche o app e abra de novo para a extensão tentar provisionar o motor outra vez." },
+    { "q": "O que muda na v1.3.4?", "a": "A extensão passou a **verificar a assinatura do instalador do motor antes de executá-lo**. Antes, o instalador era baixado e rodado sem checagem; agora, um instalador não assinado ou adulterado é **recusado** (fail-closed), fechando um risco de **execução remota de código (RCE)**. A conferência usa um verificador Ed25519 próprio (o **vox-SDK**), empacotado com a extensão, sem biblioteca externa." },
+    { "q": "Como sei que uma instalação ou update é legítimo?", "a": "São duas camadas, ambas **fail-closed**. Antes de **executar** o instalador do motor, a extensão confere a **assinatura Ed25519** dele contra uma chave pública **pinada** e recusa o que não bate (novo na v1.3.4). E, ao **aplicar** arquivos de uma atualização, ela exige um `manifest.json` **assinado**, o `sha256` de cada arquivo e uma versão **maior** que a instalada (**anti-rollback**, desde a v1.3.3). Sem a chave privada do projeto, nada forjado passa." },
+    { "q": "Atualizar não funciona na rede da empresa?", "a": "Em redes que reassinam o HTTPS (\"SSL assinado\", proxy corporativo com CA própria), o download nativo do Node pode falhar porque o pacote de CAs dele não conhece a CA da empresa. Quando isso acontece, a extensão baixa pelo `curl.exe` do `System32` (stack **Schannel** do Windows), que confia no **trust store da máquina** — onde o TI já instalou a CA corporativa — e respeita o proxy. É automático, **sem configurar nada** e **sem desligar a verificação TLS**; e, mesmo assim, as **assinaturas Ed25519** (do instalador e do manifesto) e o **sha256** de cada arquivo continuam conferidos, então uma rede que reassina o TLS não consegue nem forjar um update nem fazer você rodar um instalador adulterado." },
+    { "q": "E se o motor não subir?", "a": "O erro aparece **alto** na interface, nunca em silêncio. Confira o Python 3.11+ no PATH e os logs do motor (na pasta de dados dele), feche o app e abra de novo para a extensão tentar provisionar o motor outra vez. Se um instalador for **recusado** por assinatura inválida (v1.3.4), a instalação para de propósito e o motivo aparece — é o comportamento fail-closed, não uma falha do motor." },
     { "q": "Onde mora o código do plugin?", "a": "O runtime (a extensão e o worker de voz) vive no repositório `copilot-voice` e é entregue pelo `copilot plugin install`/`update`. Esta vitrine guarda só os metadados — por isso a **Estrutura** abaixo lista apenas o `plugin.json`." },
     { "q": "Funciona em outros sistemas?", "a": "Não. O voice-chat é **Windows-only**: o named pipe e o instalador `.ps1` são específicos do Windows. Não há versão para outros sistemas." }
   ],
