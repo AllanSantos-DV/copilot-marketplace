@@ -42,7 +42,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.3.5";
+const CURRENT_VERSION = "1.4.0";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -91,28 +91,18 @@ function canonicalBase() {
     return p ? `http://127.0.0.1:${p}/` : null;
 }
 function withSid(u, sid = mySid()) {
-    let out = u + (u.includes("?") ? "&" : "?") + "sid=" + encodeURIComponent(sid);
-    if (sharedToken) out += "&t=" + encodeURIComponent(sharedToken);
-    return out;
+    // O token de loopback é entregue à canvas via cookie de mesma origem + injeção no
+    // corpo do HTML (ver o handler GET /), nunca na query da URL do painel — assim não
+    // vaza por referrer/histórico/log. A página lê o token para o header x-voice-token.
+    return u + (u.includes("?") ? "&" : "?") + "sid=" + encodeURIComponent(sid);
 }
-const VALID_MODELS = ["auto", "tiny", "base", "small", "turbo", "large-v3"];
-const TTS_VOICES = [
-    { id: "vits-piper-pt_BR-cadu-medium",   label: "Cadu",     summary: "Timbre mais cheio e natural, fundo mais silencioso no geral. Recomendada como padrão." },
-    { id: "vits-piper-pt_BR-dii-high",      label: "Dii",      summary: "A mais limpa nos agudos — chiado quase nulo. Boa se o 'sss' te incomoda." },
-    { id: "vits-piper-pt_BR-edresson-low",  label: "Edresson", summary: "Voz mais grave e encorpada. Leve na CPU, qualidade básica (modelo low)." },
-    { id: "vits-piper-pt_BR-faber-medium",  label: "Faber",    summary: "Voz neutra e clara. Equilíbrio entre naturalidade e leveza." },
-    { id: "vits-piper-pt_BR-jeff-medium",   label: "Jeff",     summary: "Voz jovem. Pronúncia um pouco menos precisa em termos técnicos." },
-    { id: "vits-piper-pt_BR-miro-high",     label: "Miro",     summary: "Alta definição, mas com mais chiado de fundo. Era a voz antiga padrão." },
-];
-const VALID_TTS_VOICES = TTS_VOICES.map(v => v.id);
 const DEFAULT_SETTINGS = {
     voice: "Microsoft Maria Desktop",
     rate: 0,
-    model: "auto",
     language: "pt",
     fullRead: false,
     speakAll: false,
-    ttsVoice: "vits-piper-pt_BR-cadu-medium",
+    ttsVoice: "",
     ttsSid: 0,
     authorSummary: true,
     confirmTranscript: false,
@@ -159,9 +149,11 @@ let lastLoadingAt = 0;
 let startupWatchdog = null;
 let stabilityTimer = null;
 let intentionalRestart = false;
-let lastGpuStatus = null;
 let lastDevice = "cpu";
 let lastMics = { devices: [], current: null, default: null };
+// Catálogo de vozes de TTS: VEM SÓ DO MOTOR (evento worker "voices"). Sem lista local
+// de fallback — se o motor não reportar, fica vazio e a UI mostra "indisponível" ALTO.
+let lastVoices = { voices: [], default: null };
 
 let pendingVoiceTurn = false;
 let voiceInstructionPending = false; 
@@ -318,9 +310,8 @@ function restoreVoiceState() {
 function sanitizeSettings(b) {
     const out = {};
     if (typeof b.voice === "string") out.voice = b.voice;
-    if (typeof b.ttsVoice === "string" && VALID_TTS_VOICES.includes(b.ttsVoice)) out.ttsVoice = b.ttsVoice;
+    if (typeof b.ttsVoice === "string" && b.ttsVoice.trim()) out.ttsVoice = b.ttsVoice.trim();
     if (typeof b.rate === "number" && b.rate >= -10 && b.rate <= 10) out.rate = Math.round(b.rate);
-    if (typeof b.model === "string" && VALID_MODELS.includes(b.model)) out.model = b.model;
     if (typeof b.language === "string" && /^[a-z]{2}$|^auto$/.test(b.language)) out.language = b.language;
     if (typeof b.fullRead === "boolean") out.fullRead = b.fullRead;
     if (typeof b.speakAll === "boolean") out.speakAll = b.speakAll;
@@ -785,10 +776,9 @@ function startWorker() {
     activePy = py;
     const env = {
         ...process.env,
-        VOICE_MODEL: settings.model,
         VOICE_MODEL_ROOT: MODELS_DIR,
         VOICE_LANG: settings.language,
-        VOICE_TTS_MODEL: settings.ttsVoice,
+        VOICE_TTS_MODEL: settings.ttsVoice || "",
         VOICE_WAKE_PHRASES: settings.wakePhrase || "escuta jarvis",
         VOICE_MIC_DEVICE: settings.micDevice == null ? "" : String(settings.micDevice),
         PYTHONIOENCODING: "utf-8",
@@ -1047,18 +1037,15 @@ function onWorkerEvent(ev) {
         case "wake":
             broadcast({ type: "wake", state: ev.state, phrase: ev.phrase, msg: ev.msg ?? ev.message });
             break;
-        case "gpu_status":
-            lastGpuStatus = ev;
-            broadcast({ type: "gpu", status: ev });
-            break;
         case "mics":
             lastMics = { devices: ev.devices || [], current: ev.current ?? null, default: ev.default ?? null };
             broadcast({ type: "mics", ...lastMics });
             break;
-        case "gpu_setup":
-            broadcast({ type: "gpuSetup", ok: !!ev.ok, msg: ev.msg,
-                        needsCuda: !!ev.needsCuda, restart: !!ev.restart });
-            if (ev.restart) restartWorker();
+        case "voices":
+            // Catálogo do motor (fonte única). ok:false / lista vazia é repassado como
+            // está — a UI mostra "vozes indisponíveis" ALTO, sem mascarar com lista local.
+            lastVoices = { voices: Array.isArray(ev.voices) ? ev.voices : [], default: ev.default_voice ?? null };
+            broadcast({ type: "voices", ...lastVoices, ok: ev.ok, msg: ev.msg });
             break;
         case "command": {
             const c = (ev.text || "").trim();
@@ -1681,9 +1668,22 @@ function sendJson(res, obj, code = 200) {
     res.end(JSON.stringify(obj));
 }
 
+function cookieToken(req) {
+    const raw = req.headers.cookie;
+    if (!raw) return "";
+    for (const part of raw.split(";")) {
+        const eq = part.indexOf("=");
+        if (eq > 0 && part.slice(0, eq).trim() === "vt") {
+            try { return decodeURIComponent(part.slice(eq + 1).trim()); } catch { return part.slice(eq + 1).trim(); }
+        }
+    }
+    return "";
+}
 function tokenOK(req, url) {
     if (!sharedToken) return true; 
-    const got = req.headers["x-voice-token"] || url.searchParams.get("t") || "";
+    // Header (POST), cookie de mesma origem (SSE, que não manda header) e query (fallback
+    // legado, quando um webview cross-origin descarta o cookie) — todos aceitos.
+    const got = req.headers["x-voice-token"] || cookieToken(req) || url.searchParams.get("t") || "";
     return got === sharedToken;
 }
 
@@ -1787,8 +1787,19 @@ async function handleRequest(req, res) {
 
     if (req.method === "GET" && (path === "/" || path === "/index.html")) {
         try {
-            const html = await readFile(IFRAME_FILE, "utf8");
-            res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+            let html = await readFile(IFRAME_FILE, "utf8");
+            const headers = { "Content-Type": "text/html; charset=utf-8" };
+            if (sharedToken) {
+                // Entrega o token de loopback no CORPO do HTML (var inline), nunca na URL do
+                // painel — então não vaza por referrer/histórico/log. A página o usa no header
+                // x-voice-token dos POSTs. Um cookie de mesma origem também é setado para o SSE
+                // (EventSource não manda header) autenticar sem token na URL; se um webview
+                // cross-origin descartar o cookie, a página cai para a query com este mesmo
+                // valor. Sem HttpOnly (a página lê), sem Secure (loopback http), SameSite=Strict.
+                html = html.replace("/*__VOICE_BOOT__*/", "window.__voiceToken=" + JSON.stringify(sharedToken) + ";");
+                headers["Set-Cookie"] = `vt=${encodeURIComponent(sharedToken)}; Path=/; SameSite=Strict`;
+            }
+            res.writeHead(200, headers);
             res.end(html);
         } catch (e) {
             res.writeHead(500);
@@ -1822,6 +1833,7 @@ async function handleRequest(req, res) {
                 type: "hello",
                 settings,
                 worker: workerReady ? "ready" : "loading",
+                voices: lastVoices,
                 pendingUpdate,
                 version: CURRENT_VERSION,
                 pluginManaged: RUNNING_AS_PLUGIN,
@@ -1988,15 +2000,14 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && path === "/settings") {
         const body = await readBody(req);
-        const prevModel = settings.model;
         const prevLang = settings.language;
         const prevWake = settings.wakeWord;
         const prevPhrase = settings.wakePhrase;
         const prevTtsVoice = settings.ttsVoice;
         settings = { ...settings, ...sanitizeSettings(body) };
         await saveSettings();
-        if (settings.model !== prevModel || settings.language !== prevLang) {
-            workerSend({ cmd: "set", model: settings.model, language: settings.language });
+        if (settings.language !== prevLang) {
+            workerSend({ cmd: "set", language: settings.language });
         }
         if (settings.ttsVoice !== prevTtsVoice) {
             lastTtsPreviewSid = body && body.sid ? String(body.sid) : activeSid;
@@ -2027,6 +2038,12 @@ async function handleRequest(req, res) {
         return sendJson(res, { ok: true, ...lastMics });
     }
 
+    if (req.method === "GET" && path === "/voices") {
+        ensureWorker();
+        workerSend({ cmd: "list_voices" });
+        return sendJson(res, { ok: true, ...lastVoices });
+    }
+
     if (req.method === "POST" && path === "/set-mic") {
         const body = await readBody(req);
         const dev = body && (body.device === null || typeof body.device === "number") ? body.device : null;
@@ -2037,20 +2054,8 @@ async function handleRequest(req, res) {
         return sendJson(res, { ok: true, device: dev });
     }
 
-    if (req.method === "GET" && path === "/gpu-status") {
-        ensureWorker();
-        workerSend({ cmd: "gpu_status" });
-        return sendJson(res, { ok: true, status: lastGpuStatus, device: lastDevice });
-    }
-
-    if (req.method === "POST" && path === "/gpu-setup") {
-        ensureWorker();
-        const sent = workerSend({ cmd: "gpu_setup" });
-        return sendJson(res, { ok: sent });
-    }
-
     if (req.method === "POST" && path === "/restart-worker") {
-        broadcast({ type: "worker", state: "loading", msg: "Reiniciando motor de voz…" });
+        broadcast({ type: "worker", state: "loading", msg: "Reiniciando a captura de voz…" });
         restartWorker();
         return sendJson(res, { ok: true });
     }
