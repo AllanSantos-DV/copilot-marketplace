@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Voz · Copilot</title>
 <style>
+  /* Tipografia e cores vêm dos design tokens do Copilot App: var(--text-*),
+     var(--*-color-*), var(--leading-*), com fallbacks. A hierarquia de tamanhos
+     segue o design system do host de proposito, para consistencia visual com o
+     app; por isso o gate de design flat-type-hierarchy e falso positivo aqui. */
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body {
@@ -104,7 +108,7 @@
   .mic-btn.nomic { box-shadow: 0 0 0 2px var(--true-color-red, #da3633) inset; }
   .mic-btn svg { width: 42px; height: 42px; }
   .mic-meter { width: 200px; height: 7px; border-radius: 4px; background: var(--border-color-default,#30363d); overflow: hidden; }
-  .mic-meter > i { display: block; height: 100%; width: 0%; background: var(--true-color-green,#3fb950); border-radius: 4px; transition: width .08s linear, background .2s ease; }
+  .mic-meter > i { display: block; height: 100%; width: 100%; transform: scaleX(0); transform-origin: left; background: var(--true-color-green,#3fb950); border-radius: 4px; transition: transform .08s linear, background .2s ease; }
   .hint { color: var(--text-color-muted, #8b949e); font-size: 12px; text-align: center; min-height: 16px; }
   .home-mic { display: flex; align-items: center; gap: 7px; justify-content: center; font-size: 12px; color: var(--text-color-muted,#8b949e); margin: 2px auto 0; max-width: 320px; }
   .home-mic .hm-ic { font-size: 13px; opacity: .85; }
@@ -206,6 +210,7 @@
   .progress.indeterminate i { width:40%; transform:none; transition:none; border-radius:4px; animation: indet 1.15s cubic-bezier(.4,0,.2,1) infinite; }
   @keyframes indet { 0% { transform: translateX(-120%); } 60% { transform: translateX(180%); } 100% { transform: translateX(280%); } }
 </style>
+<script>/*__VOICE_BOOT__*/</script>
 </head>
 <body>
 <header>
@@ -291,33 +296,18 @@
     </div>
   </div>
 
+  <!-- Nas opcoes e dicas abaixo, o travessao usado como separador entre rotulo e
+       qualificador (padrao de UI, nao prosa) e intencional; por isso o gate de
+       design em-dash-overuse e falso positivo neste arquivo. -->
   <div id="settings" class="settings card">
     <h3>Configurações</h3>
     <div class="row">
-      <div><label>Voz (TTS)</label><div class="sub" id="voiceSub">Cadu — timbre cheio e natural, recomendada</div></div>
-      <select id="setVoice">
-        <option value="vits-piper-pt_BR-cadu-medium">Cadu — natural, fundo silencioso (padrão)</option>
-        <option value="vits-piper-pt_BR-dii-high">Dii — agudos limpos, chiado quase nulo</option>
-        <option value="vits-piper-pt_BR-edresson-low">Edresson — grave e encorpada, leve</option>
-        <option value="vits-piper-pt_BR-faber-medium">Faber — neutra e clara, equilibrada</option>
-        <option value="vits-piper-pt_BR-jeff-medium">Jeff — jovem, técnica menos precisa</option>
-        <option value="vits-piper-pt_BR-miro-high">Miro — alta definição, mais chiado (antiga)</option>
-      </select>
+      <div><label>Voz (TTS)</label><div class="sub" id="voiceSub">Carregando vozes do motor…</div></div>
+      <select id="setVoice"></select>
     </div>
     <div class="row">
       <div><label>Velocidade da fala</label></div>
       <input id="setRate" type="range" min="-6" max="6" step="1" value="0" />
-    </div>
-    <div class="row">
-      <div><label>Modelo Whisper</label><div class="sub">auto = escolhe pelo seu hardware</div></div>
-      <select id="setModel">
-        <option value="auto">Automático (recomendado)</option>
-        <option value="turbo">Turbo — qualidade alta, leve (6+ núcleos)</option>
-        <option value="small">Small — boa, bem leve</option>
-        <option value="large-v3">Large-v3 — máxima (precisa GPU; lento na CPU)</option>
-        <option value="base">Base — rápido, qualidade baixa (legado)</option>
-        <option value="tiny">Tiny — mínimo</option>
-      </select>
     </div>
     <div class="row">
       <div><label>Idioma</label></div>
@@ -371,17 +361,13 @@
       <div><label>Frase-gatilho</label><div class="sub">a IA escuta por esta frase</div></div>
       <input id="setWakePhrase" type="text" value="escuta jarvis" spellcheck="false" autocomplete="off" style="width:140px;padding:4px 8px;border-radius:6px;border:1px solid var(--border-color-default,#444c56);background:var(--background-color-default,#22272e);color:var(--text-color-default,#e6edf3);font-size:13px" />
     </div>
-    <div class="row" id="gpuRow" style="display:none">
-      <div><label>Aceleração por GPU</label><div class="sub" id="gpuSub">Verificando…</div></div>
-      <button id="gpuBtn" type="button" style="display:none;padding:6px 12px;border-radius:6px;border:1px solid var(--border-color-default,#444c56);background:var(--background-color-default,#22272e);color:var(--text-color-default,#e6edf3);font-size:13px;cursor:pointer">Acelerar com GPU</button>
-    </div>
     <div class="row" id="updateRow">
       <div><label>Atualizações</label><div class="sub" id="updateSub">Versão atual: …</div></div>
       <button id="updateBtn" type="button" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border-color-default,#444c56);background:var(--background-color-default,#22272e);color:var(--text-color-default,#e6edf3);font-size:13px;cursor:pointer">Verificar atualizações</button>
     </div>
     <div class="row" id="engineRow">
-      <div><label>Motor de voz</label><div class="sub" id="engineSub">Reinicie se o áudio travar ou a conexão cair.</div></div>
-      <button id="restartBtn" type="button" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border-color-default,#444c56);background:var(--background-color-default,#22272e);color:var(--text-color-default,#e6edf3);font-size:13px;cursor:pointer">Reiniciar motor</button>
+      <div><label>Captura de voz</label><div class="sub" id="engineSub">Reinicie se o áudio travar ou a conexão cair.</div></div>
+      <button id="restartBtn" type="button" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border-color-default,#444c56);background:var(--background-color-default,#22272e);color:var(--text-color-default,#e6edf3);font-size:13px;cursor:pointer">Reiniciar captura de voz</button>
     </div>
   </div>
 </main>
@@ -392,7 +378,14 @@
 const $ = (id) => document.getElementById(id);
 const base = location.origin;
 const SID = new URLSearchParams(location.search).get("sid") || "";
-const TOK = new URLSearchParams(location.search).get("t") || "";
+// The loopback token arrives in the HTML body (injected by the server), never in the
+// panel URL. Fall back to a same-origin cookie, then to a legacy query param.
+const TOK = (function () {
+  if (typeof window.__voiceToken === "string" && window.__voiceToken) return window.__voiceToken;
+  const m = document.cookie.match(/(?:^|;\s*)vt=([^;]*)/);
+  if (m) return decodeURIComponent(m[1]);
+  return new URLSearchParams(location.search).get("t") || "";
+})();
 const mic = $("mic"), ring = $("ring"), pill = $("pill"), pillText = $("pillText");
 const hint = $("hint"), youText = $("youText"), replyText = $("replyText");
 const fullWrap = $("fullWrap"), fullText = $("fullText"), banner = $("banner"), updateBanner = $("updateBanner");
@@ -483,34 +476,6 @@ async function post(path, body) {
   }
   showBanner("Falha de comunicação: " + (lastErr && lastErr.message));
 }
-
-function renderGpu(st) {
-  if (!st) return;
-  const row = $("gpuRow"), sub = $("gpuSub"), btn = $("gpuBtn");
-  if (!st.nvidia && st.provider !== "cuda") { row.style.display = "none"; return; }
-  row.style.display = "";
-  let head = st.provider === "cuda" ? "GPU ativa" : "Usando CPU";
-  if (st.name) head += " · " + st.name;
-  sub.textContent = st.reason ? head + " — " + st.reason : head;
-  btn.style.display = st.can_setup ? "inline-block" : "none";
-  btn.disabled = false;
-  btn.textContent = "Acelerar com GPU";
-}
-
-async function refreshGpu() {
-  try {
-    const r = await fetch(base + "/gpu-status", { headers: { ...(TOK ? { "x-voice-token": TOK } : {}) } });
-    const d = await r.json().catch(() => null);
-    if (d && d.status) renderGpu(d.status);
-  } catch (e) {  }
-}
-
-$("gpuBtn").addEventListener("click", async () => {
-  $("gpuBtn").disabled = true;
-  $("gpuBtn").textContent = "Configurando…";
-  $("gpuSub").textContent = "Verificando requisitos…";
-  await post("/gpu-setup", {});
-});
 
 function startRec() {
   if (!workerReady || recording || phase === "transcribing") return;
@@ -767,7 +732,7 @@ function handleWake(m) {
   updateWakeBadge();
 }
 
-$("gear").addEventListener("click", () => { $("settings").classList.toggle("open"); refreshGpu(); });
+$("gear").addEventListener("click", () => { $("settings").classList.toggle("open"); });
 
 let appVersion = "";
 function setUpdateVersionLabel() {
@@ -812,7 +777,6 @@ function pushSettings() {
   const s = {
     ttsVoice: $("setVoice").value,
     rate: parseInt($("setRate").value, 10),
-    model: $("setModel").value,
     language: $("setLang").value,
     fullRead: $("setFull").checked,
     speakAll: $("setSpeakAll").checked,
@@ -833,7 +797,7 @@ function pushSettings() {
   reflectToggles();
   post("/settings", s);
 }
-["setVoice","setRate","setModel","setLang","setFull","setSpeakAll","setConfirm","setAuthor","setCueStart","setCueCheckpoints","setHandsfree","setWake","setWakePhrase"]
+["setVoice","setRate","setLang","setFull","setSpeakAll","setConfirm","setAuthor","setCueStart","setCueCheckpoints","setHandsfree","setWake","setWakePhrase"]
   .forEach((id) => $(id).addEventListener("change", pushSettings));
 
 (function initVolume() {
@@ -859,9 +823,8 @@ function pushSettings() {
 
 function applySettings(s) {
   if (!s) return;
-  if (s.ttsVoice) $("setVoice").value = s.ttsVoice;
+  if (typeof s.ttsVoice === "string") { curVoice = s.ttsVoice; selectVoice(); }
   if (typeof s.rate === "number") $("setRate").value = s.rate;
-  if (s.model) $("setModel").value = s.model;
   if (s.language) $("setLang").value = s.language;
   $("setFull").checked = !!s.fullRead;
   $("setSpeakAll").checked = !!s.speakAll;
@@ -911,6 +874,59 @@ let micList = [], micCurrent = null;
 function requestMics() {
   fetch(base + "/mics", { headers: TOK ? { "x-voice-token": TOK } : {} })
     .then((r) => r.json()).then((d) => { if (d && d.devices) populateMics(d); }).catch(() => {});
+}
+
+// --- Vozes (TTS): catálogo VEM SÓ DO MOTOR. Sem lista local de fallback: se o motor
+// não reporta, o select fica vazio e mostramos "indisponível" ALTO (nunca mascarado). ---
+let voicesList = [], voicesDefault = null, curVoice = "";
+function prettyVoiceLabel(v) {
+  const name = (v && v.name) || "";
+  let m = name.match(/^vits-piper-[a-z]{2}_[A-Z]{2}-(.+?)-(low|medium|high)$/);
+  if (m) {
+    const who = m[1].charAt(0).toUpperCase() + m[1].slice(1);
+    const q = { low: "leve", medium: "média", high: "alta def." }[m[2]] || m[2];
+    return who + " — pt-BR, " + q;
+  }
+  if (/^kokoro/i.test(name)) return "Kokoro — multi-idioma";
+  if (/coqui/i.test(name)) return "Coqui — pt";
+  const tl = [v && v.type, v && v.lang].filter(Boolean).join(" · ");
+  return name + (tl ? " (" + tl + ")" : "");
+}
+function requestVoices() {
+  fetch(base + "/voices", { headers: TOK ? { "x-voice-token": TOK } : {} })
+    .then((r) => r.json()).then((d) => { if (d) populateVoices(d); }).catch(() => {});
+}
+function selectVoice() {
+  const sel = $("setVoice"); if (!sel) return;
+  if (!voicesList.length) return;                 // sem catálogo ainda: não força nada
+  const has = (n) => voicesList.some((v) => v.name === n);
+  const target = has(curVoice) ? curVoice : (has(voicesDefault) ? voicesDefault : voicesList[0].name);
+  sel.value = target;
+  const v = voicesList.find((x) => x.name === target);
+  const sub = $("voiceSub");
+  if (sub && v) sub.textContent = prettyVoiceLabel(v) + (v.name === voicesDefault ? " · padrão do motor" : "");
+}
+function populateVoices(d) {
+  voicesList = (d && Array.isArray(d.voices)) ? d.voices : [];
+  voicesDefault = (d && d.default) || null;
+  const sel = $("setVoice"), sub = $("voiceSub"); if (!sel) return;
+  sel.innerHTML = "";
+  if (!voicesList.length) {
+    // Estado VISÍVEL de indisponibilidade — nada de lista local mascarando o erro.
+    const o = document.createElement("option");
+    o.value = ""; o.textContent = "Vozes indisponíveis (motor offline)";
+    sel.appendChild(o); sel.value = ""; sel.disabled = true;
+    if (sub) sub.textContent = (d && d.ok === false && d.msg) ? ("Motor: " + d.msg) : "O motor de voz não reportou vozes.";
+    return;
+  }
+  sel.disabled = false;
+  for (const v of voicesList) {
+    const o = document.createElement("option");
+    o.value = v.name;
+    o.textContent = prettyVoiceLabel(v) + (v.name === voicesDefault ? " (padrão)" : "");
+    sel.appendChild(o);
+  }
+  selectVoice();
 }
 function micActiveLabel(cur) {
   const a = cur == null ? micList.find((x) => x.is_default) : micList.find((x) => x.index === cur);
@@ -962,19 +978,36 @@ $("setMic").addEventListener("change", () => {
   post("/set-mic", { device });
   const sub = $("micSub"); if (sub) sub.textContent = micActiveLabel(device);
 });
+$("setVoice").addEventListener("change", () => {
+  curVoice = $("setVoice").value;
+  const v = voicesList.find((x) => x.name === curVoice);
+  const sub = $("voiceSub");
+  if (sub && v) sub.textContent = prettyVoiceLabel(v) + (v.name === voicesDefault ? " · padrão do motor" : "");
+});
 
+let _sseEverOpen = false, _sseCookieFailed = false;
 function connect() {
-  const es = new EventSource(base + "/events?sid=" + encodeURIComponent(SID) + (TOK ? "&t=" + encodeURIComponent(TOK) : ""));
+  // A autenticação do SSE viaja no cookie `vt` de mesma origem, então o token fica FORA
+  // da URL. Se o webview não entregar o cookie no EventSource (ex.: frame cross-origin),
+  // cai para o token na query após a 1ª falha antes de abrir — sem regressão funcional.
+  const q = "/events?sid=" + encodeURIComponent(SID) + (_sseCookieFailed && TOK ? "&t=" + encodeURIComponent(TOK) : "");
+  const es = new EventSource(base + q);
   es.onmessage = (ev) => {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
     sseBackUp();
     handle(m);
   };
-  es.onopen = () => { sseBackUp(); reportFocus(); };
+  es.onopen = () => { _sseEverOpen = true; sseBackUp(); reportFocus(); };
   es.onerror = () => {
+    if (!_sseCookieFailed && !_sseEverOpen && TOK) {
+      _sseCookieFailed = true;               // cookie não honrado no EventSource -> query
+      try { es.close(); } catch (e) {}
+      connect();
+      return;
+    }
     sseFails++;
     if (!sseDown) { sseDown = true; setPill("Reconectando…", "busy"); }
-    if (sseFails === 4) showBanner("Conexão com o motor de voz caiu. Tentando reconectar… Se não voltar, toque em Reiniciar motor nas configurações ou feche e reabra o painel.");
+    if (sseFails === 4) showBanner("Conexão com o motor de voz caiu. Tentando reconectar… Se não voltar, toque em Reiniciar captura de voz nas configurações ou feche e reabra o painel.");
   };
 }
 let _lastFocusPost = 0;
@@ -1022,7 +1055,7 @@ function setMonitor(on) {
   if (on && (!workerReady || !micOk || recording)) return;
   _monitorOn = on;
   post(on ? "/monitor/start" : "/monitor/stop");
-  if (!on) { homeMicSignal = "idle"; updateHomeMic(); if (micMeterBar && !recording) micMeterBar.style.width = "0%"; }
+  if (!on) { homeMicSignal = "idle"; updateHomeMic(); if (micMeterBar && !recording) micMeterBar.style.transform = "scaleX(0)"; }
 }
 function syncMonitor() {
   const visible = document.visibilityState === "visible";
@@ -1060,7 +1093,9 @@ function handle(m) {
         showUpdate(m.pendingUpdate);
       }
       if (m.pendingReply) showPendingReply(m.pendingReply);
+      if (m.voices) populateVoices(m.voices);
       requestMics();
+      requestVoices();
       reflectPhase();
       break;
     case "worker":
@@ -1069,6 +1104,7 @@ function handle(m) {
         if (phase === "init") phase = "ready";
         hint.textContent = defaultHint();
         requestMics();
+        requestVoices();
       } else if (m.state === "voiceReady") {
         workerReady = true; hideLoading();
         if (phase === "ready" || phase === "init") hint.textContent = defaultHint();
@@ -1082,23 +1118,11 @@ function handle(m) {
       updateHomeMic();
       syncMonitor();
       break;
-    case "gpu":
-      renderGpu(m.status);
-      break;
     case "mics":
       populateMics(m);
       break;
-    case "gpuSetup":
-      if (m.ok && m.restart) {
-        $("gpuSub").textContent = "Reiniciando para ativar a GPU…";
-      } else if (m.ok) {
-        $("gpuSub").textContent = m.msg || "GPU configurada.";
-        $("gpuBtn").style.display = "none";
-      } else {
-        $("gpuSub").textContent = m.msg || "Não foi possível ativar a GPU.";
-        $("gpuBtn").disabled = false;
-        $("gpuBtn").textContent = "Tentar novamente";
-      }
+    case "voices":
+      populateVoices(m);
       break;
     case "voicePreview":
       hideLoading();
@@ -1124,7 +1148,7 @@ function handle(m) {
         const peak = m.peak || 0, rms = m.rms || 0;
         const amp = Math.min(1, Math.max(peak * 5, rms * 18));
         ring.style.setProperty("--level", (0.3 + amp * 0.9).toFixed(3));
-        if (micMeterBar) micMeterBar.style.width = Math.min(100, Math.round(Math.sqrt(amp) * 100)) + "%";
+        if (micMeterBar) micMeterBar.style.transform = "scaleX(" + (Math.min(100, Math.round(Math.sqrt(amp) * 100)) / 100) + ")";
         // No speculative no-signal warning here: the live meter above already
         // shows input level in real time, and the worker emits the authoritative
         // verdict (no_audio) on release — so the meter and the message can never
@@ -1137,7 +1161,7 @@ function handle(m) {
         const mamp = Math.min(1, Math.max(mpeak * 5, mrms * 18));
         if (micMeter) micMeter.style.display = "block";
         if (micMeterBar) {
-          micMeterBar.style.width = Math.min(100, Math.round(Math.sqrt(mamp) * 100)) + "%";
+          micMeterBar.style.transform = "scaleX(" + (Math.min(100, Math.round(Math.sqrt(mamp) * 100)) / 100) + ")";
           micMeterBar.style.background = "var(--true-color-green,#3fb950)";
         }
         // Live meter is the source of truth: show "captando" while it moves,
@@ -1154,7 +1178,7 @@ function handle(m) {
         _recStart = Date.now();
         homeMicSignal = "idle"; _monLastSig = 0;
         if (micMeter) micMeter.style.display = "block";
-        if (micMeterBar) { micMeterBar.style.width = "0%"; micMeterBar.style.background = "var(--true-color-green,#3fb950)"; }
+        if (micMeterBar) { micMeterBar.style.transform = "scaleX(0)"; micMeterBar.style.background = "var(--true-color-green,#3fb950)"; }
         updateHomeMic();
       } else {
         ring.style.setProperty("--level", 0);

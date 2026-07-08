@@ -3,9 +3,11 @@
 
 Responsibilities:
   - Capture microphone audio on demand (sounddevice, server-side).
-  - Transcribe with a local Whisper model via sherpa-onnx (CPU by default; opt-in NVIDIA GPU).
-  - Bootstrap-download the model from GitHub releases (HuggingFace is blocked by
-    the corporate proxy; GitHub + truststore works).
+  - Bridge STT + TTS to the single shared engine (vox-engine) over a named pipe:
+    there is NO local recognizer and no fallback (the engine picks the model by
+    hardware; the extension never runs Whisper/TTS locally).
+  - Gate wake-word / command capture with the sherpa-onnx Silero VAD (the only
+    local model; bootstrap-downloaded from a GitHub release via truststore).
 
 Protocol: newline-delimited JSON.
   stdin  (Node -> worker): {"cmd": "start"|"stop"|"cancel"|"ping"|"set", ...}
@@ -120,165 +122,11 @@ def _ensure_deps():
 _ensure_deps()
 
 
-def _ensure_soft_deps():
-    """Best-effort install of NON-critical deps. Unlike _ensure_deps, a failure
-    here NEVER kills the worker — these only sharpen optional features. psutil
-    gives accurate PHYSICAL core counts for hardware-based model auto-selection;
-    without it we degrade to logical cores (may over-estimate on hyperthreaded
-    CPUs, but auto-selection still works safely)."""
-    import importlib.util
-    if importlib.util.find_spec("psutil") is not None:
-        return
-    import subprocess
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install",
-                               "--disable-pip-version-check", "psutil"],
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                              timeout=300)
-        print("[worker] installed soft dep: psutil", file=sys.stderr, flush=True)
-    except Exception as exc:  
-        print(f"[worker] psutil unavailable (using logical-core fallback): {exc}",
-              file=sys.stderr, flush=True)
-
-
-_ensure_soft_deps()
-
 import numpy as np
 
-MODEL = os.environ.get("VOICE_MODEL", "base").strip() or "base"
 MODEL_ROOT = os.environ.get("VOICE_MODEL_ROOT") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "artifacts", "models"
 )
-
-VALID_MODELS = ("auto", "tiny", "base", "small", "turbo", "large-v3")
-PHYS_CORE_TURBO_THRESHOLD = 6
-
-
-def _physical_cores():
-    """Physical core count. Prefers psutil (accurate); degrades to logical cores
-    if psutil is absent. psutil is a SOFT dependency — it must never crash the
-    worker, so a missing/broken psutil silently falls back to os.cpu_count()."""
-    try:
-        import psutil
-        n = psutil.cpu_count(logical=False)
-        if n:
-            return int(n)
-    except Exception:
-        pass
-    return int(os.cpu_count() or 4)
-
-
-SHERPA_CUDA_INDEX = "https://k2-fsa.github.io/sherpa/onnx/cuda.html"
-
-
-def _nvidia_info():
-    """NVIDIA GPU name + compute capability via nvidia-smi, or None when absent."""
-    if not shutil.which("nvidia-smi"):
-        return None
-    try:
-        import subprocess
-        out = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name,compute_cap", "--format=csv,noheader"],
-            capture_output=True, text=True, timeout=10)
-        if out.returncode != 0:
-            return None
-        line = (out.stdout or "").strip().splitlines()
-        if not line or not line[0].strip():
-            return None
-        parts = [p.strip() for p in line[0].split(",")]
-        return {"name": parts[0], "compute_cap": parts[1] if len(parts) > 1 else ""}
-    except Exception:
-        return None
-
-
-def _sherpa_is_gpu_build():
-    """True only when the installed sherpa-onnx wheel is a CUDA build. GPU wheels carry
-    a local version like '1.13.3+cuda12.cudnn9'; PyPI CPU wheels have no local part.
-    This is what actually matters — sherpa-onnx ships its OWN bundled onnxruntime, so
-    the pip 'onnxruntime'/'onnxruntime-gpu' package is irrelevant to its CUDA support."""
-    try:
-        import sherpa_onnx
-        return "+cuda" in (getattr(sherpa_onnx, "__version__", "") or "")
-    except Exception:
-        return False
-
-
-def _cuda_runtime_loadable():
-    """Probe whether the CUDA 12 + cuDNN 9 runtime DLLs sherpa's bundled onnxruntime
-    needs are discoverable. On Windows they must be on PATH (the wheel doesn't bundle
-    them). Loading the two anchor libs is a cheap, reliable proxy."""
-    import ctypes
-    names = (["cudart64_12.dll", "cudnn64_9.dll"] if os.name == "nt"
-             else ["libcudart.so.12", "libcudnn.so.9"])
-    loader = ctypes.WinDLL if os.name == "nt" else ctypes.CDLL
-    for n in names:
-        try:
-            loader(n)
-        except OSError:
-            return False
-    return True
-
-
-def gpu_status():
-    """Honest, layered GPU readiness for sherpa-onnx. Reports each independent layer
-    plus the single 'provider' the worker will really use and a human 'reason'. Never
-    fakes acceleration (zero-fallback): every layer must hold for provider='cuda'."""
-    nv = _nvidia_info()
-    gpu_build = _sherpa_is_gpu_build()
-    dlls = _cuda_runtime_loadable() if nv else False
-    if not nv:
-        provider, reason = "cpu", "Nenhuma GPU NVIDIA detectada (nvidia-smi ausente)."
-    elif not dlls and not gpu_build:
-        provider, reason = "cpu", ("GPU NVIDIA detectada, mas o sherpa-onnx instalado é CPU e faltam "
-                                   "CUDA 12.8 + cuDNN 9 no PATH.")
-    elif not dlls:
-        provider, reason = "cpu", "GPU NVIDIA detectada, mas CUDA 12.8 + cuDNN 9 não estão no PATH."
-    elif not gpu_build:
-        provider, reason = "cpu", "CUDA presente, mas o sherpa-onnx instalado é o build de CPU."
-    else:
-        provider, reason = "cuda", "GPU NVIDIA + sherpa-onnx CUDA + CUDA/cuDNN no PATH."
-    return {
-        "nvidia": bool(nv),
-        "name": (nv or {}).get("name", ""),
-        "compute_cap": (nv or {}).get("compute_cap", ""),
-        "sherpa_gpu_build": gpu_build,
-        "cuda_dlls": dlls,
-        "provider": provider,
-        "reason": reason,
-        "can_setup": bool(nv) and not (gpu_build and dlls),
-    }
-
-
-def _gpu_usable():
-    """Backward-compatible boolean gate: usable only when the whole chain holds."""
-    return gpu_status()["provider"] == "cuda"
-
-
-def detect_hardware():
-    """Report cores + usable GPU. Pure read of the machine; safe to call anytime."""
-    return {
-        "logical_cores": int(os.cpu_count() or 4),
-        "physical_cores": _physical_cores(),
-        "gpu_usable": _gpu_usable(),
-    }
-
-
-def resolve_model(name):
-    """Resolve the effective model. 'auto' maps hardware -> model (the rule):
-        GPU usable .............. large-v3  (max quality; Phase B, needs CUDA build)
-        physical cores >= 6 ..... turbo     (recommended, all target machines)
-        otherwise ............... small      (safe, light)
-    Any explicit name passes straight through — the user's choice is sovereign
-    (they may force large-v3 on a weak CPU; the UI warns but never blocks). 'base'
-    is legacy/worst and is NEVER auto-selected."""
-    if name != "auto":
-        return name
-    hw = detect_hardware()
-    if hw["gpu_usable"]:
-        return "large-v3"
-    if hw["physical_cores"] >= PHYS_CORE_TURBO_THRESHOLD:
-        return "turbo"
-    return "small"
 
 
 SAMPLE_RATE = 16000
@@ -297,8 +145,9 @@ VOX_PROFILE = os.environ.get("VOICE_VOX_PROFILE", "dictation").strip() or "dicta
 VOX_MAX_FRAME = 64 * 1024 * 1024
 VOX_REQ_TIMEOUT = float(os.environ.get("VOX_REQ_TIMEOUT", "30").strip() or "30")
 GH_BASE = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
-TTS_MODEL = (os.environ.get("VOICE_TTS_MODEL", "vits-piper-pt_BR-miro-high").strip()
-             or "vits-piper-pt_BR-miro-high")
+# Voz de TTS: vazio = usa a voz PADRÃO do motor (default_voice). Não cravamos um nome
+# aqui — o catálogo e o padrão são do vox-engine (fonte única, sem lista local).
+TTS_MODEL = os.environ.get("VOICE_TTS_MODEL", "").strip()
 
 # Push-to-talk energy gate: discard an utterance whose max peak stays below this
 # (suppresses Whisper hallucinations on silence, e.g. "E aí Obrigado"). Tuned to
@@ -413,6 +262,17 @@ def _download_file(url, dst, timeout=180, on_pct=None, attempts=3):
     raise last_exc
 
 
+def voices_event(nfo):
+    """Monta o evento 'voices' a partir do ``info()`` do motor. O catálogo de vozes
+    e a voz padrão são do vox-engine (fonte única) — se o motor não reporta, vai lista
+    VAZIA (a UI mostra 'indisponível' ALTO; nunca uma lista local mascarando o erro)."""
+    nfo = nfo or {}
+    voices = nfo.get("tts_voices")
+    return {"event": "voices",
+            "voices": voices if isinstance(voices, list) else [],
+            "default_voice": nfo.get("default_voice")}
+
+
 def set_tts_voice(name):
     """Troca a voz do TTS em runtime. O motor é o único caminho: só registra o NOME
     (TTS_MODEL); o vox-engine carrega/baixa a voz sozinho no próximo tts. Sem Piper
@@ -424,60 +284,6 @@ def set_tts_voice(name):
     TTS_MODEL = name
     emit({"event": "tts_voice", "ok": True, "voice": name})
     log(f"tts voice set to {name} (motor)")
-
-
-def install_sherpa_gpu():
-    """Swap the CPU sherpa-onnx wheel for the CUDA 12.8/cuDNN9 GPU build (the ONLY way
-    to enable CUDA for sherpa-onnx — pip onnxruntime-gpu does nothing here). Rolls back
-    to the CPU wheel on failure. Does NOT install the CUDA toolkit/cuDNN themselves."""
-    import subprocess
-    try:
-        import sherpa_onnx
-        base = (getattr(sherpa_onnx, "__version__", "") or "").split("+")[0]
-    except Exception:
-        base = ""
-    if not base:
-        return False, "Versão do sherpa-onnx desconhecida."
-    spec = f"sherpa-onnx=={base}+cuda12.cudnn9"
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "sherpa-onnx",
-                               "--disable-pip-version-check"], timeout=300)
-        subprocess.check_call([sys.executable, "-m", "pip", "install", spec,
-                               "--find-links", SHERPA_CUDA_INDEX,
-                               "--disable-pip-version-check"], timeout=1800)
-        return True, f"Instalado {spec}. Reinicie a voz para ativar a GPU."
-    except Exception as exc:
-        log("install_sherpa_gpu failed:\n" + traceback.format_exc())
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", f"sherpa-onnx=={base}",
-                                   "--disable-pip-version-check"], timeout=900)
-        except Exception:
-            log("rollback to CPU wheel failed:\n" + traceback.format_exc())
-        return False, f"Falha ao instalar o wheel GPU: {exc}"
-
-
-def handle_gpu_setup():
-    """Opt-in GPU enablement. Reports the diagnosis, and only swaps the wheel when the
-    NVIDIA GPU plus the system CUDA 12.8/cuDNN9 DLLs are present; otherwise it instructs
-    the user about what to install. Signals 'restart' so Node can respawn the worker."""
-    st = gpu_status()
-    emit({"event": "gpu_status", **st})
-    if not st["nvidia"]:
-        emit({"event": "gpu_setup", "ok": False, "msg": st["reason"]})
-        return
-    if st["provider"] == "cuda":
-        emit({"event": "gpu_setup", "ok": True, "restart": False,
-              "msg": "GPU já está ativa."})
-        return
-    if not st["cuda_dlls"]:
-        emit({"event": "gpu_setup", "ok": False, "needsCuda": True,
-              "msg": ("Faltam CUDA 12.8 + cuDNN 9 no PATH. Instale o CUDA Toolkit 12.8 e o "
-                      "cuDNN 9, adicione as pastas bin ao PATH e tente novamente.")})
-        return
-    emit({"event": "loading", "stage": "deps",
-          "msg": "Instalando sherpa-onnx GPU (pode demorar)..."})
-    ok, msg = install_sherpa_gpu()
-    emit({"event": "gpu_setup", "ok": ok, "restart": ok, "msg": msg})
 
 
 def _hann_highpass(x, sr, fc=60.0):
@@ -2276,8 +2082,9 @@ class _VoxBridge:
         motor único (o mesmo daemon que faz o STT). LEVANTA :class:`VoxEngineError` em
         qualquer falha — sem fallback silencioso, sem erro mudo. Fast-fail
         (boot_timeout=0): não instala/espera o daemon subir aqui (o boot do STT já
-        cuida disso). A voz é passada por NOME (ex.: ``vits-piper-pt_BR-cadu-medium``);
-        o motor carrega/baixa a voz sozinho e reusa as vozes já baixadas."""
+        cuida disso). A voz é passada por NOME quando definida; se ``voice`` for vazio,
+        o motor usa a sua voz padrão (``default_voice``). O motor carrega/baixa a voz
+        sozinho e reusa as vozes já baixadas."""
         if not self.ensure(boot_timeout=0.0):
             raise VoxEngineError("motor de voz (vox-engine) indisponível")
         with self._lock:
@@ -2316,7 +2123,7 @@ class _VoxBridge:
 
 def main():
     state = {"language": (os.environ.get("VOICE_LANG", "pt").strip() or "pt"),
-             "model": MODEL}
+             "model": VOX_PROFILE}
     recorder = Recorder()
 
     def _vox_status(msg):
@@ -2406,6 +2213,7 @@ def main():
                 emit({"event": "ready", "model": mdl, "source": "vox-engine",
                       "language": state["language"], "device": dev,
                       "engine_version": ver})
+                emit(voices_event(nfo))
                 return
             except VoxEngineError as exc:
                 attempt += 1
@@ -2416,10 +2224,6 @@ def main():
                 time.sleep(min(5.0, float(attempt)))
     threading.Thread(target=_motor_boot, daemon=True).start()
 
-    try:
-        emit({"event": "gpu_status", **gpu_status()})
-    except Exception as exc:
-        log(f"gpu_status failed: {exc}")
     _mok, _mname, _mreason = detect_mic()
     emit({"event": "mic", "ok": _mok, "name": _mname, "reason": _mreason})
     emit({"event": "mics", **list_mics()})
@@ -2499,22 +2303,26 @@ def main():
                 emit({"event": "mics", **list_mics()})
             elif cmd == "set":
                 new_lang = (msg.get("language") or state["language"]).strip()
-                new_model = (msg.get("model") or state["model"]).strip()
-                if new_lang != state["language"] or new_model != state["model"]:
-                    # Motor único: nada de recognizer local. A língua vai ao motor por
-                    # transcrição; o modelo é decidido pelo perfil do motor. Só registra.
+                if new_lang != state["language"]:
+                    # Motor único: nada de recognizer local. A língua vai ao motor na
+                    # transcrição; o modelo é decidido pelo perfil do motor.
                     state["language"] = new_lang
-                    state["model"] = new_model
-                    emit({"event": "ready", "model": new_model, "source": "vox-engine",
+                    emit({"event": "ready", "model": state["model"], "source": "vox-engine",
                           "language": new_lang, "device": state.get("device", "?")})
             elif cmd == "tts":
                 synthesize_tts(msg, vox.synthesize)
             elif cmd == "tts_voice":
                 set_tts_voice(msg.get("voice"))
-            elif cmd == "gpu_status":
-                emit({"event": "gpu_status", **gpu_status()})
-            elif cmd == "gpu_setup":
-                handle_gpu_setup()
+            elif cmd == "list_voices":
+                # Catálogo de vozes SÓ do motor (fonte única). Fast-fail: não bloqueia o
+                # loop esperando o daemon subir; se falhar, vai lista vazia + ok:false
+                # (a UI mostra 'indisponível' ALTO, sem lista local mascarando o erro).
+                try:
+                    ev = voices_event(vox.info(boot_timeout=0.0))
+                except VoxEngineError as exc:
+                    ev = {"event": "voices", "voices": [], "default_voice": None,
+                          "ok": False, "msg": str(exc)}
+                emit(ev)
             elif cmd == "wake":
                 phrases = ([str(p) for p in msg["phrases"] if str(p).strip()]
                            if msg.get("phrases") else None)
