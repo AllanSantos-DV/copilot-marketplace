@@ -35,14 +35,13 @@ try {
 const MODELS_DIR = join(ARTIFACTS, "models");
 const TTS_DIR = join(ARTIFACTS, "tts");
 const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
-const PENDING_REPLIES_FILE = join(ARTIFACTS, "pending-replies.json");
 const IFRAME_FILE = join(EXT_DIR, "iframe.html");
 const WORKER_FILE = join(EXT_DIR, "voice_worker.py");
 const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.4.0";
+const CURRENT_VERSION = "1.5.0";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -80,7 +79,6 @@ let turnOwnerSid = null;
 let recordingActiveSid = null; 
 let recordingActiveTimer = null; 
 let monitorSid = null; 
-const audioQueueBySid = new Map(); // sid -> FIFO array of ready audio SSE items held until that session is active
 let myBaseUrl = null; 
 let registered = false; 
 function mySid() {
@@ -1212,58 +1210,118 @@ async function flushSpeech() {
     _phase = "flushSpeech:done";
 }
 
-// Per-session audio gating: a session only "speaks" when it is the active
-// (foreground) one. Audio produced for a non-active session is held in its FIFO
-// queue and drained, in arrival order, when the user returns to that session.
-function playOrQueueAudio(sid, item) {
-    if (!sid) return;
-    if (sid === activeSid && sessionHasClient(sid)) {
-        broadcastTo(sid, item);
-        return;
-    }
-    const q = audioQueueBySid.get(sid) || [];
-    q.push(item);
-    audioQueueBySid.set(sid, q);
-    persistAudioQueue(sid);
-    dbg(`audio queued for sid=${sid} (not active); queue size=${q.length}`);
-}
-function drainAudioQueue(sid) {
-    if (!sid || sid !== activeSid || !sessionHasClient(sid)) return;
-    const q = audioQueueBySid.get(sid);
-    if (!q || !q.length) return;
-    // Clear + persist BEFORE broadcasting so the items can never be delivered
-    // twice (a second drain, a reconnect, or a restart finds an empty queue).
-    audioQueueBySid.set(sid, []);
-    persistAudioQueue(sid);
-    dbg(`draining ${q.length} queued audio item(s) for sid=${sid}`);
-    for (const item of q) broadcastTo(sid, item);
-}
-function hasQueuedAudio(sid) {
-    const q = sid && audioQueueBySid.get(sid);
-    return !!(q && q.length);
-}
-// The per-session queue is persisted so held audio survives a primary failover or
-// extension restart (the in-memory Map would otherwise be lost, silently dropping
-// audio the user has not heard yet). This is the SINGLE source of truth for held
-// audio — there is no separate "last reply" slot to race with it.
+// ---- Per-session audio HISTORY (navigable + re-playable) --------------------
+// Replaces the old consumable FIFO. Every spoken audio (start cue, checkpoints,
+// final reply) is APPENDED to a per-session history that is NEVER discarded on
+// play, so the user can scroll back and re-hear earlier summaries. Item shape:
+//   { seq, id, turn, type:"reply"|"cue", kind, spoken, full, audio, ts }
+// A reply (🔊) closes a turn, so the next item starts turn+1 (UI turn separators).
+// `deliveredSeq` = highest seq already handed to the active client, so a reopened
+// session autoplays only the tail it hasn't heard yet. Persisted so it survives a
+// primary failover / extension restart.
+const AUDIO_HISTORY_MAX = 30;
 const AUDIO_QUEUE_FILE = join(ARTIFACTS, "audio-queue.json");
-function readAudioQueueMap() {
+const audioHistoryBySid = new Map();   // sid -> item[]
+const audioSeqBySid = new Map();       // sid -> last seq issued
+const audioTurnBySid = new Map();      // sid -> current turn number
+const audioDeliveredBySid = new Map(); // sid -> highest seq delivered to active client
+
+function appendAudioItem(sid, partial) {
+    if (!sid) return null;
+    const seq = (audioSeqBySid.get(sid) || 0) + 1;
+    audioSeqBySid.set(sid, seq);
+    const turn = audioTurnBySid.get(sid) || 1;
+    const item = {
+        seq, id: `${sid}:${seq}`, turn,
+        type: partial.type, kind: partial.kind || null,
+        spoken: partial.spoken || "", full: partial.full || "",
+        audio: partial.audio || null, ts: Date.now(),
+    };
+    const hist = audioHistoryBySid.get(sid) || [];
+    hist.push(item);
+    // Cap to the newest N; keep deliveredSeq coherent if the cursor item is pruned.
+    while (hist.length > AUDIO_HISTORY_MAX) hist.shift();
+    audioHistoryBySid.set(sid, hist);
+    // A final reply closes the turn -> the next audio belongs to the next turn.
+    if (partial.type === "reply") audioTurnBySid.set(sid, turn + 1);
+    persistAudioState();
+    return item;
+}
+
+// Deliver to the active+connected client every history item it hasn't seen yet
+// (seq > deliveredSeq), in order, and advance the cursor. Idempotent: a second
+// call finds nothing new. Used on live append, on /focus and on reconnect.
+function pushAudio(sid) {
+    if (!sid || sid !== activeSid || !sessionHasClient(sid)) return;
+    const hist = audioHistoryBySid.get(sid) || [];
+    if (!hist.length) return;
+    const delivered = audioDeliveredBySid.get(sid) || 0;
+    const fresh = hist.filter((it) => it.seq > delivered);
+    if (!fresh.length) return;
+    audioDeliveredBySid.set(sid, hist[hist.length - 1].seq);
+    persistAudioState();
+    for (const item of fresh) broadcastTo(sid, { type: "audio", item });
+    dbg(`pushAudio: delivered ${fresh.length} audio item(s) to sid=${sid}`);
+}
+
+// Public entry used by speakToCanvas: record the audio in history, then deliver
+// it live if this session is active (else it waits in history for the reopen).
+function playOrQueueAudio(sid, partial) {
+    if (appendAudioItem(sid, partial)) pushAudio(sid);
+}
+
+// The audio state the hello hands a (re)connecting client: the FULL per-session
+// history (for the navigable player) + playFromSeq = the first seq it hasn't
+// heard, so the client autoplays only the accumulated tail. Marks it delivered.
+function audioHistoryForHello(sid) {
+    const hist = audioHistoryBySid.get(sid) || [];
+    const playFromSeq = (audioDeliveredBySid.get(sid) || 0) + 1;
+    if (hist.length) {
+        // Advancing the delivered cursor MUST be persisted, else a restart/failover
+        // after a reopen-only delivery resets it to 0 and the whole history
+        // re-autoplays on the next reopen (the very bug this feature removes).
+        audioDeliveredBySid.set(sid, hist[hist.length - 1].seq);
+        persistAudioState();
+    }
+    return { items: hist, playFromSeq, max: AUDIO_HISTORY_MAX };
+}
+
+function readAudioStateMap() {
     try { return JSON.parse(readFileSync(AUDIO_QUEUE_FILE, "utf8")) || {}; } catch { return {}; }
 }
-function persistAudioQueue(sid) {
-    if (!sid) return;
+function persistAudioState() {
     try {
-        const map = readAudioQueueMap();
-        const q = audioQueueBySid.get(String(sid)) || [];
-        if (q.length) map[String(sid)] = q; else delete map[String(sid)];
+        const map = {};
+        for (const [sid, hist] of audioHistoryBySid) {
+            if (!hist || !hist.length) continue;
+            map[sid] = {
+                items: hist, seq: audioSeqBySid.get(sid) || 0,
+                turn: audioTurnBySid.get(sid) || 1, delivered: audioDeliveredBySid.get(sid) || 0,
+            };
+        }
         writeFileSync(AUDIO_QUEUE_FILE, JSON.stringify(map));
     } catch { }
 }
-function restoreAudioQueues() {
+function restoreAudioHistory() {
     try {
-        const map = readAudioQueueMap();
-        for (const [sid, items] of Object.entries(map)) {
-            if (Array.isArray(items) && items.length) audioQueueBySid.set(String(sid), items.slice());
+        const map = readAudioStateMap();
+        for (const [sid, v] of Object.entries(map)) {
+            // New format: { items, seq, turn, delivered }. Legacy: a bare item[].
+            const items = Array.isArray(v) ? v : (v && Array.isArray(v.items) ? v.items : []);
+            if (!items.length) continue;
+            let maxSeq = 0;
+            items.forEach((it, i) => {                 // backfill legacy items
+                if (typeof it.seq !== "number") it.seq = i + 1;
+                if (typeof it.turn !== "number") it.turn = 1;
+                if (!it.id) it.id = `${sid}:${it.seq}`;
+                if (it.seq > maxSeq) maxSeq = it.seq;
+            });
+            audioHistoryBySid.set(sid, items);
+            audioSeqBySid.set(sid, Array.isArray(v) ? maxSeq : (v.seq || maxSeq));
+            audioTurnBySid.set(sid, Array.isArray(v) ? 1 : (v.turn || 1));
+            // On restart nothing counts as delivered -> the reopened session
+            // re-offers the tail (better than silently dropping unheard audio).
+            audioDeliveredBySid.set(sid, Array.isArray(v) ? 0 : (v.delivered || 0));
         }
     } catch { }
 }
@@ -1563,35 +1621,16 @@ function transcribeViaWorker(path) {
     });
 }
 
-function readPendingMap() {
-    try { return JSON.parse(readFileSync(PENDING_REPLIES_FILE, "utf8")) || {}; } catch { return {}; }
-}
-function writePendingMap(map) {
-    try { writeFileSync(PENDING_REPLIES_FILE, JSON.stringify(map)); } catch {  }
-}
-function writePendingReply(sid, obj) {
-    if (!sid) return;
-    const map = readPendingMap();
-    map[String(sid)] = obj;
-    writePendingMap(map);
-}
-function readPendingReply(sid) {
-    if (!sid) return null;
-    const map = readPendingMap();
-    return map[String(sid)] || null;
-}
-function clearPendingReply(sid) {
-    if (!sid) return;
-    const map = readPendingMap();
-    if (map[String(sid)]) { delete map[String(sid)]; writePendingMap(map); }
-}
-
 async function cleanupOldWavs() {
     try {
         const files = (await readdir(TTS_DIR)).filter((f) => f.endsWith(".wav"));
         if (files.length <= 8) return;
-        const pendingMap = readPendingMap();
-        const kept = new Set(Object.values(pendingMap).map((v) => v && v.wav).filter(Boolean));
+        // Never prune a wav still referenced by any session's audio HISTORY — those
+        // must stay re-playable. basename() maps the "/tts/<file>.wav" url to a file.
+        const kept = new Set();
+        for (const hist of audioHistoryBySid.values()) {
+            for (const it of hist) if (it && it.audio) kept.add(basename(it.audio));
+        }
         const prunable = files.filter((f) => !kept.has(f));
         if (prunable.length <= 8) return;
         const withTime = await Promise.all(
@@ -1834,6 +1873,7 @@ async function handleRequest(req, res) {
                 settings,
                 worker: workerReady ? "ready" : "loading",
                 voices: lastVoices,
+                audioHistory: audioHistoryForHello(sid),
                 pendingUpdate,
                 version: CURRENT_VERSION,
                 pluginManaged: RUNNING_AS_PLUGIN,
@@ -1865,10 +1905,10 @@ async function handleRequest(req, res) {
             }
         });
         ensureWorker();
-        // Reopening the session that is already active: deliver any held audio now,
-        // in FIFO order. The queue is the ONLY delivery path (covers the case where
-        // the client's /focus post is suppressed by its 700ms throttle on reconnect).
-        if (sid === activeSid) drainAudioQueue(sid);
+        // Reopening the session that is already active: deliver any held audio now.
+        // pushAudio is idempotent (delivers only seq > deliveredSeq) so this never
+        // double-plays what the hello already handed over.
+        if (sid === activeSid) pushAudio(sid);
         return;
     }
 
@@ -1945,7 +1985,7 @@ async function handleRequest(req, res) {
         const body = await readBody(req);
         if (body && body.sid) {
             activeSid = String(body.sid);
-            drainAudioQueue(activeSid);
+            pushAudio(activeSid);
             drainTurnsToFork(activeSid);
         }
         dbg(`focus -> activeSid=${activeSid}`);
@@ -2018,12 +2058,6 @@ async function handleRequest(req, res) {
             workerSend({ cmd: "wake", on: settings.wakeWord, phrases: [settings.wakePhrase] });
         }
         return sendJson(res, { ok: true, settings });
-    }
-
-    if (req.method === "POST" && path === "/reply-played") {
-        const body = await readBody(req);
-        clearPendingReply(body && body.sid ? body.sid : activeSid);
-        return sendJson(res, { ok: true });
     }
 
     if (req.method === "POST" && path === "/check-update") {
@@ -2384,7 +2418,7 @@ session = await joinSession({
 session.on("assistant.message", onAssistantMessage);
 session.on("session.idle", onIdle);
 restoreVoiceState();
-restoreAudioQueues();
+restoreAudioHistory();
 restorePendingTurns();
 startHeartbeat();
 const _turnSweep = setInterval(drainAllPendingTurns, 5000);

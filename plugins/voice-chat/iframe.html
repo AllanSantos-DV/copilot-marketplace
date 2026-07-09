@@ -278,6 +278,9 @@
   <div id="replyCard" class="card">
     <h3>Resposta falada
       <span class="speaking-bars"><i></i><i></i><i></i><i></i></span>
+      <button id="histBadge" type="button" title="Novos áudios chegaram — ir ao mais recente"
+        style="display:none;margin-left:8px;padding:2px 9px;border-radius:999px;border:1px solid var(--true-color-blue,#58a6ff);background:color-mix(in srgb,var(--true-color-blue,#58a6ff) 20%,transparent);color:var(--true-color-blue,#58a6ff);font-size:11px;font-weight:600;cursor:pointer">▼ novos</button>
+      <span id="histPos" style="display:none;margin-left:8px;font-size:11px;font-weight:600;color:var(--text-color-muted,#8b949e)"></span>
     </h3>
     <div id="replyText" class="body empty">Aguardando…</div>
     <details class="full" id="fullWrap" style="display:none">
@@ -285,6 +288,10 @@
       <div id="fullText" class="body muted" style="margin-top:6px"></div>
     </details>
     <div class="reply-actions">
+      <button id="prevBtn" class="btn" disabled title="Áudio anterior">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 3.5a.5.5 0 0 1 1 0v3.248l6.267-3.636A.6.6 0 0 1 12 3.6v8.8a.6.6 0 0 1-.733.488L5 9.252V12.5a.5.5 0 0 1-1 0z"/></svg>
+        Anterior
+      </button>
       <button id="replayBtn" class="btn" disabled>
         <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/></svg>
         Repetir
@@ -292,6 +299,10 @@
       <button id="pauseBtn" class="btn" disabled>
         <svg id="pauseIcon" viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.25h2.2v9.5H5zM8.8 3.25H11v9.5H8.8z"/></svg>
         <span id="pauseLabel">Pausar</span>
+      </button>
+      <button id="nextBtn" class="btn" disabled title="Próximo áudio">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M12 3.5a.5.5 0 0 0-1 0v3.248L4.733 3.112A.6.6 0 0 0 4 3.6v8.8a.6.6 0 0 0 .733.488L11 9.252V12.5a.5.5 0 0 0 1 0z"/></svg>
+        Próximo
       </button>
     </div>
   </div>
@@ -390,6 +401,7 @@ const mic = $("mic"), ring = $("ring"), pill = $("pill"), pillText = $("pillText
 const hint = $("hint"), youText = $("youText"), replyText = $("replyText");
 const fullWrap = $("fullWrap"), fullText = $("fullText"), banner = $("banner"), updateBanner = $("updateBanner");
 const audio = $("audio"), replayBtn = $("replayBtn"), pauseBtn = $("pauseBtn"), pauseLabel = $("pauseLabel"), pauseIcon = $("pauseIcon");
+const prevBtn = $("prevBtn"), nextBtn = $("nextBtn"), histBadge = $("histBadge"), histPos = $("histPos");
 const replyCard = $("replyCard"), progress = $("progress"), progressBar = progress.querySelector("i");
 const confirmWrap = $("confirmWrap"), confirmText = $("confirmText"), sendBtn = $("sendBtn"), cancelBtn = $("cancelBtn");
 const cancelRecBtn = $("cancelRecBtn");
@@ -480,7 +492,7 @@ async function post(path, body) {
 function startRec() {
   if (!workerReady || recording || phase === "transcribing") return;
   if (!audio.paused) { audio.pause(); }   
-  clearAudioQueue();                      
+  stopPlayback();                         
   cueLine.style.display = "none";         
   pauseBtn.disabled = true; setPauseBtn(true); 
   hideConfirm();                           
@@ -532,54 +544,139 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && recording) { e.preventDefault(); cancelRec(); }
 });
 
-let audioQueue = [];      
-let playingKind = null;
-let lastReplyUrl = null;
-function enqueueAudio(url, kind) {
-  if (kind === "reply") {
-    if (url && url === lastReplyUrl) return;
-    lastReplyUrl = url;
+// --- Player com HISTÓRICO navegável por sessão -------------------------------
+// hist[] guarda TODOS os áudios (▶ início, 📍 checkpoints, 🔊 resumo) e nunca é
+// descartado ao tocar, então dá pra voltar e re-ouvir. curIdx = o item mostrado/
+// tocando. reviewing = o usuário assumiu o controle (navegou pra trás): áudio novo
+// NÃO interrompe, só acende o badge. playQueue = itens em autoplay sequencial.
+let hist = [];
+let curIdx = -1;
+let reviewing = false;
+let newCount = 0;
+let histMax = 30;
+let playQueue = [];        // itens (por referência) enfileirados p/ autoplay
+let playing = false;       // um item do histórico está tocando
+let previewPlaying = false;// preview de voz (settings): toca 1x, fora do histórico
+let currentAudioUrl = null;
+
+function updateHistUi() {
+  const total = hist.length;
+  prevBtn.disabled = curIdx <= 0;
+  nextBtn.disabled = total === 0 || curIdx >= total - 1;
+  if (total > 1 && curIdx >= 0) {
+    histPos.style.display = "";
+    histPos.textContent = "turno " + (hist[curIdx].turn || 1) + " · " + (curIdx + 1) + "/" + total;
+  } else { histPos.style.display = "none"; }
+  if (newCount > 0) {
+    histBadge.style.display = "";
+    histBadge.textContent = "▼ " + newCount + (newCount > 1 ? " novos" : " novo");
+  } else { histBadge.style.display = "none"; }
+}
+function showItemText(it) {
+  replyText.textContent = it.spoken || "(sem texto)";
+  replyText.classList.toggle("empty", !it.spoken);
+  if (it.full && it.full !== it.spoken) { fullText.textContent = it.full; fullWrap.style.display = "block"; }
+  else { fullWrap.style.display = "none"; }
+}
+// Toca o item de índice i (é o ÚNICO ponto que mexe no <audio> do histórico), e o
+// texto mostrado é SEMPRE o do item que está tocando (corrige o descompasso antigo).
+function playAt(i) {
+  if (i < 0 || i >= hist.length) return;
+  curIdx = i;
+  const it = hist[i];
+  previewPlaying = false;
+  showItemText(it);
+  currentAudioUrl = it.audio || null;
+  replayBtn.disabled = !it.audio;
+  if (it.audio) {
+    playing = true;
+    pauseBtn.disabled = false; setPauseBtn(true);
+    phase = "speaking"; reflectPhase();
+    audio.src = base + it.audio + "?t=" + Date.now();
+    unlockAudio();
+    audio.play().catch(() => { playing = false; onPlaybackEnded(); });
   }
-  audioQueue.push({ url, kind });
-  pumpAudio();
+  updateHistUi();
 }
 function pumpAudio() {
-  if (playingKind) return;
-  if (document.visibilityState !== "visible") return;   // só o painel ativo fala; o resto fica na fila do servidor
-  const next = audioQueue.shift();
-  if (next) playNow(next);
-}
-function playNow(item) {
-  playingKind = item.kind;
-  audio.src = base + item.url + "?t=" + Date.now();
-  if (item.kind === "reply") {
-    currentAudioUrl = item.url;
-    replayBtn.disabled = false; pauseBtn.disabled = false; setPauseBtn(true);
-    phase = "speaking"; reflectPhase();
+  if (playing || previewPlaying) return;
+  if (document.visibilityState !== "visible") return;   // só o painel ativo fala
+  while (playQueue.length) {
+    const it = playQueue.shift();
+    const i = hist.indexOf(it);
+    if (i >= 0 && it.audio) { playAt(i); return; }
   }
+}
+function onPlaybackEnded() {
+  playing = false;
+  if (playQueue.length) { pumpAudio(); return; }
+  // fim do autoplay: volta a pronto e libera a conversa contínua.
+  phase = "ready"; reflectPhase(); hint.textContent = defaultHint();
+  setPauseBtn(true);
+  updateHistUi();
+  maybeConverse();
+}
+// Um áudio novo (ao vivo) chegou do servidor.
+function onAudioItem(item) {
+  if (!item || hist.some((h) => h.id === item.id)) return;   // dedup por id (reconnect)
+  hist.push(item);
+  while (hist.length > histMax) { hist.shift(); if (curIdx >= 0) curIdx--; }
+  if (reviewing) { newCount++; updateHistUi(); return; }     // não interrompe: badge
+  playQueue.push(item);
+  updateHistUi();
+  pumpAudio();
+}
+// Reconstrói o histórico ao (re)abrir; autotoca só a cauda ainda não ouvida.
+function applyAudioHistory(ah) {
+  if (!ah) return;
+  histMax = ah.max || histMax;
+  hist = Array.isArray(ah.items) ? ah.items.slice() : [];
+  reviewing = false; newCount = 0; playQueue = [];
+  curIdx = hist.length ? hist.length - 1 : -1;
+  if (curIdx >= 0) {
+    showItemText(hist[curIdx]);
+    currentAudioUrl = hist[curIdx].audio || null;
+    replayBtn.disabled = !hist[curIdx].audio; pauseBtn.disabled = true; setPauseBtn(true);
+  }
+  const from = ah.playFromSeq || (hist.length ? hist[hist.length - 1].seq + 1 : 1);
+  const tail = hist.filter((it) => it.seq >= from && it.audio);
+  for (const it of tail) playQueue.push(it);
+  updateHistUi();
+  pumpAudio();
+}
+function stopPlayback() {   // corta o que toca e cancela o autoplay (controle manual/gravação)
+  playQueue = [];
+  try { audio.pause(); } catch (e) {}
+  playing = false; previewPlaying = false;
+}
+function goPrev() {
+  if (curIdx <= 0) return;
+  stopPlayback();
+  playAt(curIdx - 1);
+  reviewing = curIdx < hist.length - 1;
+  updateHistUi();
+}
+function goNext() {
+  if (curIdx >= hist.length - 1) return;
+  stopPlayback();
+  playAt(curIdx + 1);
+  reviewing = curIdx < hist.length - 1;
+  if (!reviewing) newCount = 0;
+  updateHistUi();
+}
+function goLive() {
+  stopPlayback();
+  reviewing = false; newCount = 0;
+  if (hist.length) playAt(hist.length - 1);
+  updateHistUi();
+}
+// Preview de voz (settings): toca 1x sem entrar no histórico.
+function playPreview(url) {
+  stopPlayback();
+  previewPlaying = true;
+  audio.src = base + url + "?t=" + Date.now();
   unlockAudio();
-  audio.play().then(() => {
-    if (item.kind === "reply") post("/reply-played");
-  }).catch(() => {
-    const wasReply = item.kind === "reply";
-    playingKind = null;
-    if (wasReply) { lastReplyUrl = null; phase = "ready"; reflectPhase(); hint.textContent = "Toque em ▶ Repetir para ouvir a resposta."; }
-    pumpAudio();
-  });
-}
-function clearAudioQueue() { audioQueue.length = 0; playingKind = null; }
-function showPendingReply(p) {
-  if (!p) return;
-  replyText.textContent = p.spoken || "(sem texto)";
-  replyText.classList.toggle("empty", !p.spoken);
-  if (p.full && p.full !== p.spoken) { fullText.textContent = p.full; fullWrap.style.display = "block"; }
-  else { fullWrap.style.display = "none"; }
-  if (p.audio) {
-    currentAudioUrl = p.audio;
-    replayBtn.disabled = false; pauseBtn.disabled = false; setPauseBtn(true);
-    hint.textContent = "🔊 Resposta pendente — toque ▶ Repetir para ouvir.";
-    enqueueAudio(p.audio, "reply");
-  }
+  audio.play().catch(() => { previewPlaying = false; });
 }
 function setProgress(kind, text) {
   if (!text) return;
@@ -593,19 +690,16 @@ function setPauseBtn(playing) {
     : '<path d="M5 3.5v9l8-4.5z"/>';
 }
 audio.addEventListener("ended", () => {
-  const wasReply = playingKind === "reply";
-  playingKind = null;
-  if (audioQueue.length) { pumpAudio(); return; }
-  if (wasReply) {
-    phase = "ready"; reflectPhase(); hint.textContent = defaultHint();
-    pauseBtn.disabled = true; setPauseBtn(true);
-    maybeConverse();   
-  }
+  if (previewPlaying) { previewPlaying = false; pumpAudio(); return; }
+  onPlaybackEnded();
 });
+prevBtn.addEventListener("click", (e) => { e.preventDefault(); goPrev(); });
+nextBtn.addEventListener("click", (e) => { e.preventDefault(); goNext(); });
+histBadge.addEventListener("click", (e) => { e.preventDefault(); goLive(); });
 replayBtn.addEventListener("click", () => {
-  if (!currentAudioUrl) return;
-  clearAudioQueue(); try { audio.pause(); } catch (e) {}
-  playNow({ url: currentAudioUrl, kind: "reply" });
+  if (curIdx < 0 || !hist[curIdx] || !hist[curIdx].audio) return;
+  stopPlayback();
+  playAt(curIdx);
 });
 pauseBtn.addEventListener("click", () => {
   if (!audio.src) return;
@@ -619,7 +713,6 @@ pauseBtn.addEventListener("click", () => {
     hint.textContent = "Fala pausada. Toque em ▶ Continuar para retomar.";
   }
 });
-let currentAudioUrl = null;
 
 let currentGain = 1.0, audioCtx = null, gainNode = null, srcNode = null;
 function makeSoftClipCurve(threshold) {
@@ -1034,7 +1127,7 @@ window.addEventListener("pointerdown", reportFocus, true);
 let _pausedByHide = false;
 function onVisibilityAudio() {
   if (document.visibilityState === "hidden") {
-    if (playingKind && audio && !audio.paused) {
+    if (playing && audio && !audio.paused) {
       try { audio.pause(); _pausedByHide = true; } catch (e) {}
     }
   } else {
@@ -1092,7 +1185,7 @@ function handle(m) {
       if (m.pendingUpdate) {
         showUpdate(m.pendingUpdate);
       }
-      if (m.pendingReply) showPendingReply(m.pendingReply);
+      if (m.audioHistory) applyAudioHistory(m.audioHistory);
       if (m.voices) populateVoices(m.voices);
       requestMics();
       requestVoices();
@@ -1126,7 +1219,7 @@ function handle(m) {
       break;
     case "voicePreview":
       hideLoading();
-      if (m.audio) enqueueAudio(m.audio, "preview");
+      if (m.audio) playPreview(m.audio);
       break;
     case "mic":
       micOk = !!m.ok;
@@ -1206,19 +1299,25 @@ function handle(m) {
       }
       break;
     case "reply":
-      replyText.textContent = m.spoken || "(sem texto)";
-      replyText.classList.toggle("empty", !m.spoken);
-      if (m.full && m.full !== m.spoken) {
-        fullText.textContent = m.full; fullWrap.style.display = "block";
-      } else { fullWrap.style.display = "none"; }
-      if (m.audio) {
-        currentAudioUrl = m.audio;
-        enqueueAudio(m.audio, "reply");   
-      } else { phase = "ready"; reflectPhase(); }
+      // Prévia de texto (silenciosa) enquanto o TTS sintetiza. Só atualiza a legenda
+      // se NADA está tocando/enfileirado — durante um turno multi-áudio (▶/📍/🔊) o
+      // playAt é o dono da legenda, senão o texto do resumo apareceria por cima de um
+      // cue/checkpoint ainda tocando. O áudio autoritativo chega como {type:"audio"}.
+      if (!reviewing && !playing && !playQueue.length) {
+        replyText.textContent = m.spoken || "(sem texto)";
+        replyText.classList.toggle("empty", !m.spoken);
+        if (m.full && m.full !== m.spoken) {
+          fullText.textContent = m.full; fullWrap.style.display = "block";
+        } else { fullWrap.style.display = "none"; }
+      }
+      break;
+    case "audio":
+      // Áudio autoritativo (▶ início, 📍 checkpoint ou 🔊 resumo): entra no histórico
+      // e toca (autoplay) ou vira badge se estou revisando.
+      if (m.item) onAudioItem(m.item);
       break;
     case "cue":
-      setProgress(m.kind, m.spoken);
-      if (m.audio) enqueueAudio(m.audio, "cue");   
+      setProgress(m.kind, m.spoken);   // linha de progresso; o áudio vem via "audio"
       break;
     case "wake":
       handleWake(m);
