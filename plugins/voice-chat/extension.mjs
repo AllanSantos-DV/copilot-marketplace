@@ -41,7 +41,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.5.0";
+const CURRENT_VERSION = "1.5.1";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -144,9 +144,11 @@ let readyAt = 0;
 let workerStartAt = 0;
 let lastLoadingMsg = "";
 let lastLoadingAt = 0;
+let lastLoadingBusy = false;   // a última fase de "loading" é uma operação LONGA e LEGÍTIMA (install/update do motor)? Se sim, o watchdog NÃO reinicia (matar no meio do install corromperia o venv).
 let startupWatchdog = null;
 let stabilityTimer = null;
 let intentionalRestart = false;
+let wedgeRestarts = 0;   // auto-reinícios consecutivos de um boot TRAVADO (worker vivo, mudo e que nunca ficou pronto); zerado ao ficar pronto, limitado por WEDGE_MAX_RESTARTS.
 let lastDevice = "cpu";
 let lastMics = { devices: [], current: null, default: null };
 // Catálogo de vozes de TTS: VEM SÓ DO MOTOR (evento worker "voices"). Sem lista local
@@ -880,27 +882,67 @@ function startWorker() {
 function clearStartupWatchdog() {
     if (startupWatchdog) { clearInterval(startupWatchdog); startupWatchdog = null; }
 }
+
+// Auto-recuperação de um boot TRAVADO. O motor (daemon vox-engine) pode ficar saudável
+// enquanto o WORKER prende no connect (ex.: open() de um named pipe ocupado): fica vivo,
+// ocioso e nunca emite "ready" — a UI eternizava "Iniciando motor de voz…". O respawn por
+// SAÍDA (child "exit") NÃO cobre isso: um worker travado não sai. Então o watchdog decide,
+// pelo estado observável, AUTO-REINICIAR o worker (restart provou resolver em ~1s).
+const WEDGE_QUIET_SECS = 40;     // sem progresso E sem "ready" por este tempo ⇒ travado
+const WEDGE_MAX_RESTARTS = 3;    // auto-reinícios antes de desistir com erro ALTO
+// Decisão PURA (sem timers/efeitos) p/ ser testável de forma adversarial. NUNCA reinicia
+// durante uma operação longa e LEGÍTIMA (busy: install/update do motor, silenciosa por
+// minutos) — matar o worker no meio ORFANARIA a árvore do install.ps1 e um respawn
+// iniciaria uma 2ª instalação concorrente, corrompendo o venv. Silêncio só conta como
+// wedge FORA de uma fase busy.
+function startupWatchdogAction({ workerReady, hasWorker, quietFor, busy, wedgeRestarts }) {
+    if (workerReady || !hasWorker) return { action: "stop" };
+    if (!busy && quietFor >= WEDGE_QUIET_SECS) {
+        return wedgeRestarts >= WEDGE_MAX_RESTARTS ? { action: "giveup" } : { action: "restart" };
+    }
+    if (quietFor >= 25) return { action: "narrate" };
+    return { action: "none" };
+}
 function armStartupWatchdog() {
     clearStartupWatchdog();
     workerStartAt = Date.now();
     lastLoadingAt = 0;
+    lastLoadingBusy = false;
     // The motor start must never be a silent infinite spinner. While it is coming up
-    // (no "ready" yet), keep logging elapsed + last phase; once the worker itself goes
-    // quiet (no progress event for a while), take over the panel banner with the
-    // elapsed time and the debug.log path so the user can SEE where it is stuck.
+    // (no "ready" yet), keep logging elapsed + last phase; once the worker goes quiet
+    // (no progress event for a while) and is NOT in a busy install phase, take it as a
+    // WEDGE and auto-restart it (bounded). Otherwise surface elapsed time + the
+    // debug.log path so the user can SEE where it is stuck.
     startupWatchdog = setInterval(() => {
         if (workerReady || !worker) { clearStartupWatchdog(); return; }
         const secs = Math.round((Date.now() - workerStartAt) / 1000);
         const quietFor = Math.round((Date.now() - (lastLoadingAt || workerStartAt)) / 1000);
         const phase = lastLoadingMsg || "iniciando";
-        dbg(`worker startup watchdog: ${secs}s total, quiet ${quietFor}s, phase="${phase}"`);
-        if (quietFor >= 25) {
+        dbg(`worker startup watchdog: ${secs}s total, quiet ${quietFor}s, busy=${lastLoadingBusy}, phase="${phase}"`);
+        const act = startupWatchdogAction({
+            workerReady, hasWorker: !!worker, quietFor, busy: lastLoadingBusy, wedgeRestarts,
+        });
+        if (act.action === "restart") {
+            wedgeRestarts++;
+            log(`worker startup WEDGED (quiet ${quietFor}s, phase="${phase}", total ${secs}s) → auto-reinício ${wedgeRestarts}/${WEDGE_MAX_RESTARTS}. Log: ${DEBUG_LOG}`);
+            broadcast({ type: "worker", state: "loading", msg: `O motor de voz travou em "${phase}" — reiniciando (${wedgeRestarts}/${WEDGE_MAX_RESTARTS})…`, secs, stalled: true });
+            clearStartupWatchdog();   // limpa JÁ: worker.kill() é assíncrono; não conte com o "exit" chegar antes do próximo tick (senão double-restart). O respawn re-arma.
+            restartWorker();
+            return;
+        }
+        if (act.action === "giveup") {
+            clearStartupWatchdog();
+            log(`worker startup: desisti após ${wedgeRestarts} auto-reinícios (fase="${phase}", ${secs}s)`);
+            broadcast({ type: "worker", state: "error", msg: `O motor de voz não respondeu após ${wedgeRestarts} reinícios (fase: ${phase}, ${secs}s). Verifique o log: ${DEBUG_LOG}` });
+            return;
+        }
+        if (act.action === "narrate") {
             const msg = secs >= 90
                 ? `Motor sem resposta há ${quietFor}s (fase: ${phase}, total ${secs}s). Log: ${DEBUG_LOG}`
                 : `${phase} — ${secs}s`;
             broadcast({ type: "worker", state: "loading", msg, secs, stalled: quietFor >= 60 });
         }
-    }, 20000);
+    }, 10000);
     if (startupWatchdog.unref) startupWatchdog.unref();
 }
 
@@ -951,11 +993,22 @@ function restartWorker() {
     try { worker.kill(); } catch {  }
 }
 
+// Reinício por INTENÇÃO EXPLÍCITA do usuário (botão / POST /restart-worker). Renova o
+// orçamento de auto-reinício: sem isto, um giveup anterior (wedgeRestarts no teto, que só
+// zera num "ready") faria o watchdog recém-armado desistir na 1ª verificação — matando o
+// restart manual com um erro falso "não respondeu após N reinícios", sem uma única tentativa.
+function manualRestartWorker() {
+    wedgeRestarts = 0;
+    broadcast({ type: "worker", state: "loading", msg: "Reiniciando a captura de voz…" });
+    restartWorker();
+}
+
 function onWorkerEvent(ev) {
     switch (ev.event) {
         case "ready":
             workerReady = true;
             clearStartupWatchdog();
+            wedgeRestarts = 0;   // boot saudável: renova o orçamento de auto-reinício
             readyAt = Date.now();
             lastDevice = ev.device || "cpu";
             if (stabilityTimer) clearTimeout(stabilityTimer);
@@ -969,6 +1022,7 @@ function onWorkerEvent(ev) {
         case "loading":
             lastLoadingMsg = ev.msg || lastLoadingMsg;
             lastLoadingAt = Date.now();
+            lastLoadingBusy = !!ev.busy;   // install/update (busy) é longo e legítimo: o watchdog NÃO reinicia nessa fase
             broadcast({ type: "worker", state: "loading", msg: ev.msg, pct: ev.pct });
             break;
         case "level":
@@ -996,6 +1050,12 @@ function onWorkerEvent(ev) {
         case "error":
             clearRecordingActive();
             turnOwnerSid = null;
+            // Liveness: um worker que EMITE erro está vivo e ciclando (o loop de boot
+            // retenta) — não é um wedge mudo. Renova o "quiet" p/ o self-heal NÃO
+            // reiniciar por cima de um erro ALTO (reiniciar não conserta motor-down),
+            // e encerra qualquer fase busy (a operação longa terminou em erro).
+            lastLoadingAt = Date.now();
+            lastLoadingBusy = false;
             if (ev.fatal) {
                 workerReady = false;
                 broadcast({ type: "worker", state: "error", msg: ev.msg });
@@ -2089,8 +2149,7 @@ async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && path === "/restart-worker") {
-        broadcast({ type: "worker", state: "loading", msg: "Reiniciando a captura de voz…" });
-        restartWorker();
+        manualRestartWorker();
         return sendJson(res, { ok: true });
     }
 
