@@ -1350,15 +1350,20 @@ class _VoxBridge:
         self._status_cb = status_cb          # callback p/ progresso VISÍVEL (instalação lenta)
         self._last_error = None              # última falha DETALHADA (instalação OU boot do daemon) p/ surfacing ALTO em info()
 
-    def _status(self, msg):
+    def _status(self, msg, busy=False):
         """Sinal de progresso VISÍVEL (ex.: instalação lenta que levaria minutos).
         Best-effort: sempre loga; se houver callback, emite p/ a UI. Nunca quebra o
-        boot se o callback falhar (blindado) — mas NUNCA fica mudo no log."""
+        boot se o callback falhar (blindado) — mas NUNCA fica mudo no log.
+
+        ``busy=True`` marca uma operação LONGA e LEGÍTIMA (install/update do motor, que
+        é silenciosa por minutos): o watchdog do Node NÃO auto-reinicia o worker nessa
+        fase — matar no meio do install orfanaria a árvore do install.ps1 e um respawn
+        iniciaria uma 2ª instalação concorrente (corromperia o venv)."""
         log(f"vox-engine: {msg}")
         cb = self._status_cb
         if cb is not None:
             try:
-                cb(msg)
+                cb(msg, busy)
             except Exception as exc:   # noqa: BLE001 — status é best-effort
                 log(f"vox-engine: status_cb falhou: {exc}")
 
@@ -1712,6 +1717,7 @@ class _VoxBridge:
         if timeout is None:
             timeout = self._install_timeout() + 120
         deadline = time.monotonic() + max(0.0, timeout)
+        next_beat = time.monotonic() + 3.0
         while True:
             try:
                 st = os.stat(lock_path)
@@ -1729,6 +1735,16 @@ class _VoxBridge:
             except FileExistsError:
                 if not wait or time.monotonic() >= deadline:
                     return "busy"
+                if time.monotonic() >= next_beat:
+                    # Outro consumidor (voice-chat/copilot-mobile) segura o lock enquanto
+                    # instala/sobe o motor. Espera LEGÍTIMA e longa (até ~install_timeout+
+                    # 120s): emite um heartbeat VIVO (NÃO-busy) p/ o watchdog do Node NÃO
+                    # confundir com um wedge e reiniciar este worker à toa (reiniciar só
+                    # re-bloqueia). Se ESTE worker morrer, o heartbeat cessa e o self-heal
+                    # volta a valer. Só no caminho de espera (wait=True: boot); o decode
+                    # (wait=False) sai na hora sem heartbeat.
+                    self._status("Aguardando outro processo terminar a instalação do motor…")
+                    next_beat = time.monotonic() + 5.0
                 time.sleep(0.5)
             except (OSError, ValueError) as exc:   # ValueError: null-byte no caminho
                 log(f"vox-engine: lock de motor indisponível ({exc}); segue sem lock")
@@ -1755,7 +1771,7 @@ class _VoxBridge:
         if not self._is_newer(latest["version"], cur2):
             return   # outro processo já atualizou
         self._mark_update_attempt(latest["version"])   # 1 tentativa por alvo (anti-loop)
-        self._status(f"Atualizando o motor de voz v{cur2} → v{latest['version']}…")
+        self._status(f"Atualizando o motor de voz v{cur2} → v{latest['version']}…", busy=True)
         try:
             self._download_and_install(latest["asset_url"])
         except Exception as exc:   # noqa: BLE001 — update falhou, mas v{cur2} funciona
@@ -1820,7 +1836,7 @@ class _VoxBridge:
             self._maybe_update(pyw)   # atualiza se a release for mais nova (best-effort)
             return True
         self._status("Instalando o motor de voz pela primeira vez "
-                     "(pode levar alguns minutos)…")
+                     "(pode levar alguns minutos)…", busy=True)
         try:
             rel = self._latest_release()
         except Exception as exc:   # noqa: BLE001 — rede/parse: erro ALTO (não mudo)
@@ -1831,7 +1847,7 @@ class _VoxBridge:
                 f"nenhuma release do motor ('{self._TAG_PREFIX}*' com "
                 f"'{self._INSTALLER_ASSET}') encontrada em {self._RELEASES_API}")
         self._status(f"Baixando e instalando o motor v{rel['version']} "
-                     "(pode incluir wheels CUDA)…")
+                     "(pode incluir wheels CUDA)…", busy=True)
         self._download_and_install(rel["asset_url"])   # levanta VoxEngineError em falha
         if not os.path.exists(pyw):
             raise VoxEngineError(
@@ -1932,6 +1948,12 @@ class _VoxBridge:
         try:
             if self._fh is not None:
                 return True
+            if boot_timeout > 0.0:
+                # Estágio VISÍVEL (loga + evento 'loading' NÃO-busy): o connect é o
+                # ponto onde o worker pode PRENDER (open() de um named pipe ocupado).
+                # Deixar isto no log dá "o estágio exato em que travou"; e como NÃO é
+                # busy, o watchdog do Node pode auto-reiniciar se o open() enroscar.
+                self._status("Conectando ao motor de voz…")
             if self._open():
                 return True
             if time.monotonic() < self._next_retry:
@@ -1958,9 +1980,19 @@ class _VoxBridge:
                 self._next_retry = time.monotonic() + self._cooldown
                 return False
             deadline = time.time() + max(0.0, boot_timeout)
+            next_beat = time.time() + 3.0
             while time.time() < deadline:
                 if self._open():
                     return True
+                now = time.time()
+                if now >= next_beat:
+                    # Heartbeat de PROGRESSO enquanto o daemon recém-subido ainda não
+                    # abriu o pipe (import/CUDA frio leva alguns s). Mantém o watchdog
+                    # do Node vendo progresso (NÃO-busy, mas VIVO) p/ NÃO confundir uma
+                    # subida legítima com um wedge — e mostra "aguardando (Ns)".
+                    waited = int(boot_timeout - (deadline - now))
+                    self._status(f"Aguardando o motor de voz responder… ({waited}s)")
+                    next_beat = now + 5.0
                 time.sleep(0.5)
             # Daemon SUBIU mas o pipe NUNCA apareceu: quase sempre um crash de import
             # ANTES do --log-file do daemon (o "sem log nenhum" da outra máquina).
@@ -2126,12 +2158,16 @@ def main():
              "model": VOX_PROFILE}
     recorder = Recorder()
 
-    def _vox_status(msg):
+    def _vox_status(msg, busy=False):
         """Progresso VISÍVEL do motor (ex.: instalação de 1ª vez, que leva minutos):
         evento 'loading' (NÃO 'error') — a UI mostra estado de carregamento com a
         mensagem, sem acender o erro fatal nem incrementar o contador de falhas.
-        Garante que a UI NÃO fique muda enquanto o install baixa deps/CUDA."""
-        emit({"event": "loading", "source": "vox-engine", "msg": msg})
+        Garante que a UI NÃO fique muda enquanto o install baixa deps/CUDA.
+
+        ``busy`` marca uma operação LONGA e LEGÍTIMA (install/update, silenciosa por
+        minutos): a ponte Node NÃO auto-reinicia o worker nessa fase (o self-heal só
+        vale p/ um wedge MUDO fora de install)."""
+        emit({"event": "loading", "source": "vox-engine", "msg": msg, "busy": bool(busy)})
 
     vox = _VoxBridge(status_cb=_vox_status)
 
