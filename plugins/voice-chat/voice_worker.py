@@ -1313,6 +1313,13 @@ class VoxEngineError(RuntimeError):
     para o STT local — o chamador deve reportar o erro ALTO (visível na UI)."""
 
 
+class _PipeWriteError(OSError):
+    """Falha ao ESCREVER o frame no pipe do motor — o request NÃO chegou ao motor
+    (ex.: pipe ocioso ficou stale → [Errno 22]/EINVAL). Distinto de uma falha de
+    LEITURA: só a escrita pode ser reconectada+repetida com segurança (repetir uma
+    leitura reprocessaria um request que o motor JÁ recebeu — ex.: transcribe)."""
+
+
 class _VoxBridge:
     """Cliente STDLIB-puro do motor único (vox-engine) via named pipe.
 
@@ -2033,8 +2040,16 @@ class _VoxBridge:
         if fh is None:
             raise EOFError("pipe fechado")
         jb = json.dumps(header).encode("utf-8")
-        fh.write(struct.pack(">II", len(jb), len(audio)) + jb + audio)
-        fh.flush()
+        try:
+            fh.write(struct.pack(">II", len(jb), len(audio)) + jb + audio)
+            fh.flush()
+        except OSError as exc:
+            # Falha de ESCRITA: o request NÃO chegou ao motor (pipe ocioso stale →
+            # [Errno 22]/EINVAL). Marca distintamente p/ _request_resilient repetir SÓ
+            # este caso (seguro: nada foi processado). Uma falha de LEITURA cai em
+            # out["err"] (abaixo) como OSError comum e NÃO vira isto — então não é
+            # repetida, evitando reprocessar um transcribe que o motor já recebeu.
+            raise _PipeWriteError(f"escrita no pipe falhou: {exc}") from exc
         out = {}
 
         def _read_reply():
@@ -2065,6 +2080,25 @@ class _VoxBridge:
             raise out["err"]
         return out["resp"]
 
+    def _request_resilient(self, header, audio=b"", timeout=VOX_REQ_TIMEOUT):
+        """1 request com AUTO-RECONEXÃO. Um named pipe OCIOSO por muito tempo fica
+        STALE: a PRÓXIMA escrita falha com OSError ([Errno 22]/EINVAL — medido no
+        debug.log após ~67min ocioso) e o request nem chega ao motor. Como
+        info/transcribe/tts são idempotentes, descartamos o handle morto, reabrimos
+        e repetimos UMA vez — o idle→falar fica transparente, em vez de um erro ALTO
+        que PERDE o áudio (bug real: TTS falhava ao voltar numa sessão ociosa). Só a
+        falha de ESCRITA (:class:`_PipeWriteError`, request não processado) dispara o
+        retry — uma falha de LEITURA NÃO, pois o motor já pode ter processado (repetir
+        um transcribe reprocessaria). 1x só (se a reconexão não resolver, sobe ALTO)."""
+        try:
+            return self._request(header, audio, timeout)
+        except _PipeWriteError as exc:
+            self._close_fh()
+            log(f"vox-engine: pipe caiu ({exc}); reconectando e repetindo 1x")
+            if not self.ensure(boot_timeout=0.0):
+                raise
+            return self._request(header, audio, timeout)
+
     def info(self, boot_timeout=60.0):
         """{model, provider, stt_ready, ...} do motor, ou levanta VoxEngineError.
 
@@ -2080,7 +2114,7 @@ class _VoxBridge:
                 raise VoxEngineError("conexão com o motor caiu")
             try:
                 self._rid += 1
-                h, _ = self._request({"cmd": "info", "req_id": str(self._rid)})
+                h, _ = self._request_resilient({"cmd": "info", "req_id": str(self._rid)})
                 return h
             except Exception as exc:   # QUALQUER falha de framing → erro ALTO (sem mudo)
                 self._close_fh()
@@ -2098,7 +2132,7 @@ class _VoxBridge:
             try:
                 self._rid += 1
                 pcm = np.ascontiguousarray(seg, dtype="<f4").tobytes()
-                h, _ = self._request({"cmd": "transcribe", "req_id": str(self._rid),
+                h, _ = self._request_resilient({"cmd": "transcribe", "req_id": str(self._rid),
                                       "session": "voice-chat", "lang": language or "",
                                       "profile": self._profile}, pcm)
             except Exception as exc:   # OSError/EOFError/ValueError/struct.error/numpy… → ALTO
@@ -2130,7 +2164,7 @@ class _VoxBridge:
                 if voice:
                     header["voice"] = voice
                 # TTS de um resumo curto é rápido, mas damos folga (texto maior):
-                h, audio = self._request(header, b"", timeout=max(VOX_REQ_TIMEOUT, 120.0))
+                h, audio = self._request_resilient(header, b"", timeout=max(VOX_REQ_TIMEOUT, 120.0))
                 if h.get("event") == "tts_audio":
                     sr = int(h.get("sample_rate") or 22050)
                     # frombuffer DENTRO do try: um byte-count não múltiplo de 4 vira
