@@ -41,7 +41,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.5.2";
+const CURRENT_VERSION = "1.5.3";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -81,6 +81,7 @@ let recordingActiveTimer = null;
 let monitorSid = null; 
 let myBaseUrl = null; 
 let registered = false; 
+let sessionDead = false;   // o handle joinSession desta fork morreu ("Session not found"/disconnected). Uma fork morta para de se registrar e reporta falha na entrega para o primary re-rotear a fala p/ uma fork VIVA (nunca perde o turno nem trava com unhandledRejection).
 function mySid() {
     return process.env.SESSION_ID || (session && session.sessionId) || "";
 }
@@ -201,7 +202,12 @@ function dbg(msg) {
 function log(msg, level = "debug") {
     dbg(msg);
     try {
-        session?.log?.(`[voice-chat] ${msg}`, { level, ephemeral: true });
+        // session.log() é uma RPC ASSÍNCRONA (Promise). O try/catch NÃO pega uma
+        // rejeição async: com o handle de sessão morto ("Session not found") a Promise
+        // rejeita e vira unhandledRejection [FATAL] — o que derrubava/desestabilizava a
+        // fork (re-fork → registro flapping). O .catch() neutraliza (log é best-effort).
+        const p = session?.log?.(`[voice-chat] ${msg}`, { level, ephemeral: true });
+        if (p && typeof p.catch === "function") p.catch(() => {});
     } catch {
     }
 }
@@ -1161,7 +1167,51 @@ function notifyCanvas(obj) {
     if (base) httpPostJson(base, "/relay", { sid: mySid(), event: obj });
 }
 
+function isDeadSessionError(e) {
+    // O handle joinSession morreu: o backend não conhece mais a sessão. O SDK reporta
+    // "Session not found for sessionId: …" ou "session has been disconnected". NÃO há
+    // reconnect no SDK — a fork morta deve parar de competir para o primary re-rotear.
+    const m = (e && (e.message || String(e))) || "";
+    // SÓ frases TERMINAIS que o SDK realmente lança (verificado no fonte do SDK,
+    // copilot-sdk/extension.js): "Session not found: <id>" / "…Session not found for
+    // sessionId:…" (8135-8190), "Connection is closed." (2307), "Connection is disposed."
+    // (2310), "…connection got disposed" (2628). NÃO casar o substring cru "disconnect":
+    // mensagens RECUPERÁVEIS ("client disconnected, retrying", "reconnecting…") não podem
+    // quiescer a fork p/ sempre (falso-positivo = perda de voz até reabrir o painel).
+    return /session not found|has been disconnected|connection is (closed|disposed)|connection got disposed/i.test(m);
+}
+
+const DEAD_NOTICE_THROTTLE_MS = 15000;
+let _deadNoticeAt = 0;
+function notifySessionDead() {
+    // Avisa o usuário que a sessão morreu ("reabra o painel"), mas THROTTLED: o mesmo turno
+    // retido é re-tentado pelo sweep a cada 5s contra a fork morta; sem throttle isso viraria
+    // ~1 toast por sweep (spam). 1 aviso a cada 15s basta — o usuário sabe e a ação é clara.
+    const now = Date.now();
+    if (now - _deadNoticeAt < DEAD_NOTICE_THROTTLE_MS) return;
+    _deadNoticeAt = now;
+    notifyCanvas({ type: "error", msg: "Esta sessão foi recarregada. Reabra o painel Voz nesta sessão para voltar a falar por voz." });
+}
+
+function markSessionDead(e) {
+    if (sessionDead) return;
+    sessionDead = true;
+    log("session handle morto (não recuperável): " + (e && e.message ? e.message : e));
+    // Para de se anunciar ao primary: a fork VIVA desta sessão (o painel real) reassume
+    // o roteamento no próximo registro (≤4s). Uma mensagem clara só aparece se esta fork
+    // ainda tiver um painel visível (o zumbi normalmente não tem, então não gera spam).
+    notifySessionDead();
+}
+
 async function handleVoiceTranscript(text) {
+    // Uma fork com a sessão MORTA não pode cumprir o turno: NÃO roda os efeitos (cue,
+    // markTurn, "thinking") e reporta falha. Avisa o usuário SEMPRE (todo turno descartado
+    // avisa) — cobre a sessão PRIMÁRIA morta (dispatch local ignora o retorno), que senão
+    // ficaria muda após a 1ª mensagem.
+    if (sessionDead) {
+        notifySessionDead();
+        return false;
+    }
     pendingVoiceTurn = true;
     _phase = "voiceTurn:start";
     voiceInstructionPending =
@@ -1170,19 +1220,31 @@ async function handleVoiceTranscript(text) {
     saveVoiceState();
     markTurn(mySid());
     notifyCanvas({ type: "status", state: "thinking" });
-    if (settings.cueStart !== false) {
-        speakCue("Ok, comecei a trabalhar na sua solicitação.", "start").catch(() => {});
-    }
     armIdleFallback();
     dbg(`handleVoiceTranscript: sending prompt (${text.length} chars): ${text.slice(0, 120)}`);
     try {
         const messageId = await session.send({ prompt: text });
         _phase = "voiceTurn:sent";
+        // Cue "Ok, comecei" SÓ depois do send ACEITO: numa fork zumbi o send lança antes,
+        // então ela não emite o cue e a fork viva (que recebe o re-roteio) fala 1x só —
+        // sem o "Ok, comecei" dobrado no failover. Também é mais honesto (só confirma se foi).
+        if (settings.cueStart !== false) {
+            speakCue("Ok, comecei a trabalhar na sua solicitação.", "start").catch(() => {});
+        }
         dbg(`session.send resolved messageId=${messageId}`);
+        return true;
     } catch (e) {
         dbg(`session.send THREW: ${e && e.stack ? e.stack : e}`);
         log("session.send failed: " + e.message);
+        if (isDeadSessionError(e)) {
+            // Sessão morta: NÃO mostra o erro técnico cru e NÃO deixa o turno "entregue".
+            // markSessionDead quiesce a fork; retornar false faz o primary reter e re-rotear.
+            pendingVoiceTurn = false;
+            markSessionDead(e);
+            return false;
+        }
         notifyCanvas({ type: "error", msg: "Falha ao enviar para o Copilot: " + e.message });
+        return false;
     }
 }
 
@@ -1474,12 +1536,41 @@ function drainAllPendingTurns() {
 // session.send() twice (the user raged about duplicated audio; same rule here).
 const injectedTurnIds = new Set();
 const injectedTurnOrder = [];
+const injectingIds = new Set();   // ids com um turno EM ANDAMENTO (await session.send ainda não resolveu). Guarda contra DOUBLE-SEND: o dedup por id só grava NO SUCESSO, então se o primary re-injetar o mesmo id enquanto o 1º ainda está no ar (ex.: send VIVO > timeout do POST + sweep re-injeta), sem esta guarda o turno rodaria 2x.
 function seenInjectedId(id) { return !!id && injectedTurnIds.has(id); }
 function rememberInjectedId(id) {
     if (!id || injectedTurnIds.has(id)) return;
     injectedTurnIds.add(id);
     injectedTurnOrder.push(id);
     if (injectedTurnOrder.length > 300) injectedTurnIds.delete(injectedTurnOrder.shift());
+}
+
+// Recebe um turno entregue pelo primary. Retorna {ok, code, dup} para o handler traduzir
+// em STATUS HTTP — porque o primary decide reter/re-rotear pelo status 2xx (httpPostJson),
+// NÃO pelo corpo. Regras:
+//  - texto vazio → 400 (nunca deveria acontecer; não fica na fila).
+//  - id já visto → 200 dup (idempotente após um failover).
+//  - senão roda o turno e AGUARDA o session.send: sucesso → 200 e só ENTÃO memoriza o id
+//    (dedup só no sucesso, senão um retry após falha viraria dup e PERDERIA a fala);
+//    falha (sessão morta/transitória) → 503 para o primary MANTER na fila e re-rotear
+//    para uma fork viva (converge; nunca descarta o turno como o ok:true fire-and-forget
+//    antigo, que perdia a fala quando a sessão estava morta).
+async function injectTurn(text, id) {
+    const t = (text || "").trim();
+    if (!t) return { ok: false, code: 400 };
+    if (id && seenInjectedId(id)) return { ok: true, dup: true, code: 200 };
+    // Já em andamento (o 1º inject ainda aguarda o send): NÃO rode de novo — retorna 409
+    // (não-2xx, retryable) p/ o primary manter na fila sem duplicar a fala.
+    if (id && injectingIds.has(id)) return { ok: false, retry: true, code: 409 };
+    if (id) injectingIds.add(id);
+    try {
+        const ok = await handleVoiceTranscript(t);
+        if (!ok) return { ok: false, retry: true, code: 503 };
+        if (id) rememberInjectedId(id);
+        return { ok: true, code: 200 };
+    } finally {
+        if (id) injectingIds.delete(id);
+    }
 }
 
 async function speakToCanvas(sid, spoken, full, cue) {
@@ -1716,7 +1807,8 @@ function readBody(req) {
     });
 }
 
-function httpPostJson(baseUrl, path, body) {
+const HTTP_POST_TIMEOUT_MS = 30000;   // teto p/ um POST entre forks. /inject agora AGUARDA session.send; sem teto, um send VIVO travado deixaria o req pendurado -> drainingTurns(sid) nunca liberado -> a fila daquele sid emperra. No timeout resolvemos false: o turno segue na fila e re-roteia.
+function httpPostJson(baseUrl, path, body, timeoutMs = HTTP_POST_TIMEOUT_MS) {
     return new Promise((resolve) => {
         try {
             const u = new URL(path, baseUrl);
@@ -1738,6 +1830,14 @@ function httpPostJson(baseUrl, path, body) {
                     res.on("end", () => resolve(res.statusCode >= 200 && res.statusCode < 300));
                 },
             );
+            if (timeoutMs > 0) {
+                req.setTimeout(timeoutMs, () => {
+                    // Não deixa o drain preso num send que nunca responde: aborta e reporta
+                    // falha (o turno fica na fila e re-roteia p/ uma fork viva).
+                    try { req.destroy(); } catch { }
+                    resolve(false);
+                });
+            }
             req.on("error", (e) => {
                 if (!primaryFork && e && DEAD_PRIMARY_CODES.has(e.code) && baseUrl === canonicalBase()) {
                     reclaimPrimaryIfOrphaned("forward " + e.code).catch(() => { });
@@ -1754,6 +1854,7 @@ function httpPostJson(baseUrl, path, body) {
 
 function registerSelf() {
     if (!myBaseUrl) return;
+    if (sessionDead) return;   // fork morta não se anuncia: deixa a fork viva desta sessão assumir o roteamento
     if (primaryFork) {
         forks.set(mySid(), myBaseUrl);
         return;
@@ -2065,14 +2166,12 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && path === "/inject") {
         const body = await readBody(req);
-        const text = (body && body.text ? String(body.text) : "").trim();
-        const id = body && body.id ? String(body.id) : "";
-        if (id && seenInjectedId(id)) return sendJson(res, { ok: true, dup: true });
-        if (text) {
-            if (id) rememberInjectedId(id);
-            handleVoiceTranscript(text);
-        }
-        return sendJson(res, { ok: !!text });
+        const r = await injectTurn(body && body.text, body && body.id ? String(body.id) : "");
+        // STATUS reflete o resultado real: 503 numa falha faz o primary RETER o turno e
+        // re-rotear p/ uma fork viva (httpPostJson resolve por 2xx). Nunca mais um ok:true
+        // fire-and-forget que descartava a fala numa sessão morta.
+        const payload = r.dup ? { ok: true, dup: true } : (r.retry ? { ok: false, retry: true } : { ok: r.ok });
+        return sendJson(res, payload, r.code);
     }
 
     if (req.method === "POST" && path === "/speak") {
