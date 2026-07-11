@@ -1,5 +1,5 @@
 
-import { createServer, request as httpRequest, get as httpGet } from "node:http";
+import { createServer, request as httpRequest, get as httpGet, Agent as HttpAgent } from "node:http";
 import { get as httpsGet } from "node:https";
 import tls from "node:tls";
 import { spawn, spawnSync } from "node:child_process";
@@ -41,7 +41,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.5.3";
+const CURRENT_VERSION = "1.5.4";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -73,6 +73,19 @@ let promotedServer = null;
 let primaryServerEntry = null;
 
 const forks = new Map(); 
+const forkSeen = new Map();   // sid -> última vez que a fork se anunciou (para eviction de sids mortos)
+function setFork(sid, url) { forks.set(sid, url); forkSeen.set(sid, Date.now()); }
+const FORK_TTL_MS = 600000;   // 10min sem re-registro => sid morto (uma fork viva re-registra a cada 4s; uma morta/sessionDead para). NUNCA remove a própria (mySid).
+function pruneDeadSids() {
+    const now = Date.now();
+    const me = mySid();
+    for (const [sid, ts] of forkSeen) {
+        if (sid !== me && now - ts > FORK_TTL_MS) { forks.delete(sid); forkSeen.delete(sid); }
+    }
+    for (const [sid, v] of recentSpoken) {
+        if (now - (v && v.ts || 0) > FORK_TTL_MS) recentSpoken.delete(sid);
+    }
+}
 let activeSid = null; 
 let lastTtsPreviewSid = null;
 let turnOwnerSid = null; 
@@ -236,21 +249,36 @@ const VOICE_TURN_TTL = 300000;
 const SPEAK_DEDUP_MS = 20000;
 const recentSpoken = new Map();
 
-function readTurns() {
-    try { return JSON.parse(readFileSync(VOICE_TURNS_FILE, "utf8")) || {}; } catch { return {}; }
+let _turnsCache = null;
+let _turnsCacheAt = 0;
+const TURNS_CACHE_MS = 1000;
+function readTurns(fresh) {
+    // Cache curto (1s): sessionTurnPending() era um readFileSync+JSON.parse POR evento de
+    // assistant.message (hot path da resposta). O TTL colapsa as N leituras/s numa só e
+    // ainda re-lê a cada 1s (visibilidade cross-fork; o TTL do turno é 5min, folgado).
+    // INVARIANTE: o retorno é o objeto de cache COMPARTILHADO por referência — NÃO mutar sem
+    // passar por writeTurns(). Escritores usam readTurns(true) e chamam writeTurns em seguida.
+    // fresh=true: escritores (markTurn/clearTurn) fazem read-modify-write do mapa INTEIRO;
+    // usar o cache aqui persistiria marcadores stale de OUTROS forks (lost-update cross-fork).
+    const now = Date.now();
+    if (!fresh && _turnsCache && now - _turnsCacheAt < TURNS_CACHE_MS) return _turnsCache;
+    try { _turnsCache = JSON.parse(readFileSync(VOICE_TURNS_FILE, "utf8")) || {}; } catch { _turnsCache = {}; }
+    _turnsCacheAt = now;
+    return _turnsCache;
 }
 function writeTurns(m) {
+    _turnsCache = m; _turnsCacheAt = Date.now();   // write-through: mantém o cache coerente
     try { writeFileSync(VOICE_TURNS_FILE, JSON.stringify(m)); } catch {  }
 }
 function markTurn(sid) {
     if (!sid) return;
-    const m = readTurns();
+    const m = readTurns(true);   // fresh: nunca escreve um mapa stale de outro fork
     m[String(sid)] = Date.now();
     writeTurns(m);
 }
 function clearTurn(sid) {
     if (!sid) return;
-    const m = readTurns();
+    const m = readTurns(true);   // fresh antes do RMW (idem markTurn)
     if (m[String(sid)] != null) { delete m[String(sid)]; writeTurns(m); }
 }
 function sessionTurnPending(sid) {
@@ -1253,9 +1281,10 @@ function onAssistantMessage(event) {
     const content = event?.data?.content;
     // Speak when there's a pending voice turn OR an explicit 🔊 summary (text turns),
     // OR global speakAll on the primary.
-    if (!hasPendingTurn() && !replyWantsSpeech(content) && !(primaryFork && settings.speakAll)) return;
+    const pending = hasPendingTurn();   // avalia 1x (evita 2º readTurns só p/ o log abaixo)
+    if (!pending && !replyWantsSpeech(content) && !(primaryFork && settings.speakAll)) return;
     _phase = "reply:msg";
-    dbg(`onAssistantMessage: len=${typeof content === "string" ? content.length : 0} pending=${hasPendingTurn()} sentinel=${typeof content === "string" && content.includes(VOICE_SENTINEL)}`);
+    dbg(`onAssistantMessage: len=${typeof content === "string" ? content.length : 0} pending=${pending} sentinel=${typeof content === "string" && content.includes(VOICE_SENTINEL)}`);
     armIdleFallback();
     if (typeof content === "string" && content.trim()) {
         latestReply = content;
@@ -1366,30 +1395,36 @@ function appendAudioItem(sid, partial) {
     audioHistoryBySid.set(sid, hist);
     // A final reply closes the turn -> the next audio belongs to the next turn.
     if (partial.type === "reply") audioTurnBySid.set(sid, turn + 1);
-    persistAudioState();
     return item;
 }
 
 // Deliver to the active+connected client every history item it hasn't seen yet
 // (seq > deliveredSeq), in order, and advance the cursor. Idempotent: a second
 // call finds nothing new. Used on live append, on /focus and on reconnect.
+// Returns true iff it advanced the cursor (and thus persisted) — lets the caller
+// avoid a second whole-map write for the same audio.
 function pushAudio(sid) {
-    if (!sid || sid !== activeSid || !sessionHasClient(sid)) return;
+    if (!sid || sid !== activeSid || !sessionHasClient(sid)) return false;
     const hist = audioHistoryBySid.get(sid) || [];
-    if (!hist.length) return;
+    if (!hist.length) return false;
     const delivered = audioDeliveredBySid.get(sid) || 0;
     const fresh = hist.filter((it) => it.seq > delivered);
-    if (!fresh.length) return;
+    if (!fresh.length) return false;
     audioDeliveredBySid.set(sid, hist[hist.length - 1].seq);
     persistAudioState();
     for (const item of fresh) broadcastTo(sid, { type: "audio", item });
     dbg(`pushAudio: delivered ${fresh.length} audio item(s) to sid=${sid}`);
+    return true;
 }
 
 // Public entry used by speakToCanvas: record the audio in history, then deliver
 // it live if this session is active (else it waits in history for the reopen).
+// ONE whole-map persist per audio: if pushAudio delivered (active session) it already
+// persisted the cursor advance; otherwise (background) we persist the appended item here.
 function playOrQueueAudio(sid, partial) {
-    if (appendAudioItem(sid, partial)) pushAudio(sid);
+    const item = appendAudioItem(sid, partial);
+    if (!item) return;
+    if (!pushAudio(sid)) persistAudioState();
 }
 
 // The audio state the hello hands a (re)connecting client: the FULL per-session
@@ -1795,10 +1830,15 @@ async function cleanupOldWavs() {
 
 function readBody(req) {
     return new Promise((resolve) => {
-        let b = "";
-        req.on("data", (c) => (b += c));
+        const chunks = [];
+        req.on("data", (c) => chunks.push(c));
         req.on("end", () => {
             try {
+                // Buffer.concat + toString: `b += c` coage cada Buffer p/ string por chunk
+                // (O(n²) em corpos grandes) E pode QUEBRAR um caractere UTF-8 multibyte
+                // dividido entre dois chunks -> JSON.parse falharia. Concatenar os bytes e
+                // decodificar 1x é mais rápido e correto.
+                const b = Buffer.concat(chunks).toString("utf8");
                 resolve(b ? JSON.parse(b) : {});
             } catch {
                 resolve({});
@@ -1808,17 +1848,23 @@ function readBody(req) {
 }
 
 const HTTP_POST_TIMEOUT_MS = 30000;   // teto p/ um POST entre forks. /inject agora AGUARDA session.send; sem teto, um send VIVO travado deixaria o req pendurado -> drainingTurns(sid) nunca liberado -> a fila daquele sid emperra. No timeout resolvemos false: o turno segue na fila e re-roteia.
+// Keep-alive só p/ loopback (forks na mesma máquina): reusa o socket entre POSTs
+// (register a cada 4s + inject/speak/focus/relay) em vez de abrir um socket novo por
+// chamada. Sem TLS, mesmo host -> ganho de handshake/FD sem custo de segurança.
+const loopbackAgent = new HttpAgent({ keepAlive: true, keepAliveMsecs: 15000, maxSockets: 8 });
 function httpPostJson(baseUrl, path, body, timeoutMs = HTTP_POST_TIMEOUT_MS) {
     return new Promise((resolve) => {
         try {
             const u = new URL(path, baseUrl);
             const data = Buffer.from(JSON.stringify(body || {}));
+            const isLoopback = u.hostname === "127.0.0.1" || u.hostname === "localhost";
             const req = httpRequest(
                 {
                     hostname: u.hostname,
                     port: u.port,
                     path: u.pathname,
                     method: "POST",
+                    agent: isLoopback ? loopbackAgent : undefined,
                     headers: {
                         "Content-Type": "application/json",
                         "Content-Length": data.length,
@@ -1856,7 +1902,7 @@ function registerSelf() {
     if (!myBaseUrl) return;
     if (sessionDead) return;   // fork morta não se anuncia: deixa a fork viva desta sessão assumir o roteamento
     if (primaryFork) {
-        forks.set(mySid(), myBaseUrl);
+        setFork(mySid(), myBaseUrl);
         return;
     }
     const base = canonicalBase();
@@ -2133,7 +2179,7 @@ async function handleRequest(req, res) {
         if (body && body.sid && body.url) {
             const sid = String(body.sid), url = String(body.url);
             const changed = forks.get(sid) !== url;
-            forks.set(sid, url);
+            setFork(sid, url);
             if (changed) dbg(`registered fork sid=${sid}`);
             // The URL just arrived from a live server -> deliver any held turns now
             // against this fresh URL (fixes stale-URL and late-register drops).
@@ -2433,7 +2479,7 @@ async function reclaimPrimaryIfOrphaned(reason) {
         preferredPort = canonical;
         myBaseUrl = `http://127.0.0.1:${canonical}/`;
         savePort(canonical);
-        forks.set(mySid(), myBaseUrl);
+        setFork(mySid(), myBaseUrl);
         log(`reclaimPrimary: promoted to primary on ${canonical} (${reason})`);
         broadcast({ type: "worker", state: "loading", msg: "Reassumindo motor de voz…" });
         ensureWorker();
@@ -2581,6 +2627,8 @@ restorePendingTurns();
 startHeartbeat();
 const _turnSweep = setInterval(drainAllPendingTurns, 5000);
 if (_turnSweep.unref) _turnSweep.unref();
+const _sidPrune = setInterval(pruneDeadSids, 300000);   // 5min: poda sids mortos (forks/forkSeen/recentSpoken)
+if (_sidPrune.unref) _sidPrune.unref();
 log("voice-chat extension loaded", "info");
 
 function _hbWrite(s) {
