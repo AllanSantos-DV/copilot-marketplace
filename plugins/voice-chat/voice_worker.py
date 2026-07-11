@@ -411,6 +411,17 @@ def synthesize_tts(msg, synth):
         emit({"event": "tts", "id": _id, "ok": False, "msg": str(exc)})
 
 
+METER_DELTA_RMS = 0.004
+METER_DELTA_PEAK = 0.008
+
+
+def _meter_should_emit(rms, peak, last_rms, last_peak):
+    """Delta-gate do medidor de nível: só vale emitir quando o valor muda de forma
+    perceptível. Sem isto, o medidor inunda a cadeia worker→Node→SSE→DOM a ~8/s com
+    valores repetidos (ex.: silêncio estável). ``last=-1`` (sentinela) força o 1º emit."""
+    return abs(rms - last_rms) > METER_DELTA_RMS or abs(peak - last_peak) > METER_DELTA_PEAK
+
+
 class Recorder:
     def __init__(self):
         self._frames = []
@@ -445,10 +456,13 @@ class Recorder:
             self._max_peak = self._last_peak
 
     def _meter_loop(self):
+        last_rms = last_peak = -1.0
         while self._recording:
-            emit({"event": "level",
-                  "rms": round(self._last_rms, 5),
-                  "peak": round(self._last_peak, 4)})
+            rms = round(self._last_rms, 5)
+            peak = round(self._last_peak, 4)
+            if _meter_should_emit(rms, peak, last_rms, last_peak):
+                emit({"event": "level", "rms": rms, "peak": peak})
+                last_rms, last_peak = rms, peak
             time.sleep(0.12)
 
     def _decode_seg(self, seg):
@@ -1068,11 +1082,10 @@ class AudioHub:
         elif self._wake_on:
             self._wake.feed(block)
         if self._monitor_on and not self._rec and block.size:
-            import numpy as _np
-            p = float(_np.max(_np.abs(block)))
+            p = float(np.max(np.abs(block)))
             if p > self._mon_peak:
                 self._mon_peak = p
-            self._mon_rms = float(_np.sqrt(_np.mean(block * block)))
+            self._mon_rms = float(np.sqrt(np.mean(block * block)))
 
     def _ensure_open(self):
         if self._stream is not None:
@@ -1149,14 +1162,17 @@ class AudioHub:
                     self._ensure_closed()
 
     def _monitor_loop(self):
+        last_rms = last_peak = -1.0
         while self._monitor_on:
             time.sleep(0.15)
             if not self._monitor_on:
                 break
-            emit({"event": "monitor_level",
-                  "peak": round(self._mon_peak, 5),
-                  "rms": round(self._mon_rms, 5)})
-            self._mon_peak = 0.0
+            peak = round(self._mon_peak, 5)
+            rms = round(self._mon_rms, 5)
+            self._mon_peak = 0.0   # sempre reseta a janela (o VU decai); emite só se mudou
+            if _meter_should_emit(rms, peak, last_rms, last_peak):
+                emit({"event": "monitor_level", "peak": peak, "rms": rms})
+                last_rms, last_peak = rms, peak
 
     def set_monitor(self, on):
         """At-rest VU monitor: opens the shared mic stream (only if idle) to emit
@@ -2021,13 +2037,15 @@ class _VoxBridge:
         """Lê n bytes de UM handle específico (passado explicitamente). Nunca
         relê self._fh — assim uma thread leitora abandonada fica presa no SEU
         pipe e não migra p/ um pipe reconectado (HIGH-1)."""
-        buf = b""
+        # bytearray + extend: append amortizado O(1). Com `buf = b""; buf += chunk`
+        # cada chunk rerealoca+copia o acumulado -> O(n²) num frame de áudio/TTS multi-MB.
+        buf = bytearray()
         while len(buf) < n:
             chunk = fh.read(n - len(buf))
             if not chunk:
                 raise EOFError("pipe fechado")
-            buf += chunk
-        return buf
+            buf.extend(chunk)
+        return bytes(buf)
 
     def _request(self, header, audio=b"", timeout=VOX_REQ_TIMEOUT):
         """Envia 1 frame e lê a resposta com TETO de tamanho e TIMEOUT.
