@@ -41,7 +41,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.5.7";
+const CURRENT_VERSION = "1.5.8";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -71,6 +71,21 @@ let reclaiming = false;
 let lastReclaimAttempt = 0;
 let promotedServer = null;
 let primaryServerEntry = null;
+// Handover automático consciente de versão: um primário de código VELHO cede a porta+worker
+// para uma fork MAIS NOVA — ativa um update do extension.mjs SEM fechar o app / matar processo.
+let handingOver = false;             // step-down de versão em andamento (throttle + guarda anti-respawn do worker)
+let suppressReclaimUntil = 0;        // após ceder, NÃO reassumir a porta por um tempo (deixa a nova pegar; ANTI-FLAP)
+let secondaryTimersOn = false;       // timers de re-registro/probe (idempotente entre startServer e step-down)
+const HANDOVER_GRACE_MS = 8000;
+const forkVersions = new Map();      // sid -> versão anunciada no /register (diagnóstico + decisão de handover)
+// ANTI-FLAP GLOBAL: durante um handover, QUALQUER fork (inclusive um secundário velho bystander que
+// não cedeu) deve suspender o reclaim na janela — senão ele fisga a porta recém-liberada e vira um
+// primário VELHO espúrio. suppressReclaimUntil é por-fork; este arquivo compartilha a janela.
+const HANDOVER_LOCK_FILE = join(ARTIFACTS, "handover.lock");
+function writeHandoverLock(until) { try { writeFileSync(HANDOVER_LOCK_FILE, String(until)); } catch { } }
+function handoverLockActive() {
+    try { return Date.now() < (parseInt(readFileSync(HANDOVER_LOCK_FILE, "utf8"), 10) || 0); } catch { return false; }
+}
 
 const forks = new Map(); 
 const forkSeen = new Map();   // sid -> última vez que a fork se anunciou (para eviction de sids mortos)
@@ -405,6 +420,11 @@ function verGt(a, b) {
         if ((A[i] || 0) < (B[i] || 0)) return false;
     }
     return false;
+}
+// O primário cede a uma fork ESTRITAMENTE mais nova (mesmo mecanismo do reclaim, agora
+// automático + consciente de versão). Versão vazia/igual/menor NÃO cede (evita flap/loop).
+function shouldStepDownForNewer(myVer, forkVer) {
+    return !!forkVer && verGt(String(forkVer), String(myVer));
 }
 function readUpdateState() {
     try {
@@ -963,6 +983,7 @@ function startWorker() {
             setTimeout(ensureWorker, 300);
             return;
         }
+        if (handingOver) return;   // handover de versão: a fork NOVA abre o worker; não respawn aqui (evita 2 workers)
         if (errored) return; 
         const wasStable = sawReady && readyAt && (Date.now() - readyAt >= WORKER_STABLE_MS);
         if (!wasStable) crashCount++;
@@ -2000,12 +2021,110 @@ function httpPostJson(baseUrl, path, body, timeoutMs = HTTP_POST_TIMEOUT_MS) {
 function registerSelf() {
     if (!myBaseUrl) return;
     if (sessionDead) return;   // fork morta não se anuncia: deixa a fork viva desta sessão assumir o roteamento
+    if (!primaryFork && myBaseUrl === canonicalBase()) return;   // INVARIANTE ESTRUTURAL: uma não-primária NUNCA anuncia a porta canônica (senão vaza esta sessão p/ o novo primário). Independe de handingOver.
     if (primaryFork) {
         setFork(mySid(), myBaseUrl);
         return;
     }
     const base = canonicalBase();
-    if (base) httpPostJson(base, "/register", { sid: mySid(), url: myBaseUrl });
+    if (base) httpPostJson(base, "/register", { sid: mySid(), url: myBaseUrl, version: CURRENT_VERSION });
+}
+
+// Timers de secundário (re-registro a cada 4s + probe do primário). Idempotente: chamado no
+// cold-start (startServer) E quando um primário cede e volta a ser secundário (step-down).
+let _secRegTimer = null, _secProbeTimer = null;
+function ensureSecondaryTimers() {
+    if (secondaryTimersOn) return;
+    secondaryTimersOn = true;
+    _secRegTimer = setInterval(registerSelf, 4000);
+    if (_secRegTimer.unref) _secRegTimer.unref();
+    _secProbeTimer = setInterval(probePrimary, 7000 + Math.floor(Math.random() * 3000));
+    if (_secProbeTimer.unref) _secProbeTimer.unref();
+}
+// Ao PROMOVER um secundário a primário, os timers de secundário (re-registro/probe) precisam PARAR:
+// senão um re-registro atrasado anuncia uma URL errada, e o step-down futuro tem um timer fantasma
+// anunciando a canônica na janela (o vazamento cross-sessão que o gate pegou).
+function stopSecondaryTimers() {
+    if (_secRegTimer) { clearInterval(_secRegTimer); _secRegTimer = null; }
+    if (_secProbeTimer) { clearInterval(_secProbeTimer); _secProbeTimer = null; }
+    secondaryTimersOn = false;
+}
+
+// Cede o microfone ÚNICO: encerra o worker SEM respawn (a fork nova abre o dela). O guard
+// `handingOver` no exit handler impede o respawn de crash.
+function shutdownWorkerForHandover() {
+    if (!worker) return;
+    try { workerSend({ cmd: "shutdown" }); } catch { }
+    try { worker.kill(); } catch { }
+    worker = null; workerReady = false; workerStarting = false;
+}
+
+// Este primário roda código VELHO e uma fork MAIS NOVA apareceu: cede a ela de forma limpa —
+// solta o worker, libera a porta canônica e cutuca a nova p/ reassumir JÁ. Vira secundário.
+// suppressReclaimUntil impede reassumir a porta de volta na janela (anti-flap). É o que ativa
+// um update do extension.mjs sem o usuário fechar o app.
+async function stepDownForNewer(newerUrl, newerVer) {
+    if (handingOver || !primaryFork) return;
+    handingOver = true;
+    log(`handover: cedendo primário p/ v${newerVer} (${newerUrl}); eu=v${CURRENT_VERSION}`);
+    broadcast({ type: "worker", state: "loading", msg: `Ativando atualização (v${newerVer})…` });
+    const graceUntil = Date.now() + HANDOVER_GRACE_MS;
+    suppressReclaimUntil = graceUntil;
+    writeHandoverLock(graceUntil);   // ANTI-FLAP global: bystanders velhos também suspendem o reclaim na janela
+    // ORDEM CRÍTICA (gate): subo meu server EFÊMERO e reaponto myBaseUrl ANTES de qualquer await e ANTES
+    // de virar não-primário. Assim NUNCA existe uma janela em que eu (não-primário) anuncie a porta
+    // canônica (agora do novo primário) — o que injetaria minhas falas na sessão DELE (vazamento).
+    let ephem = null;
+    try {
+        ephem = makeVoiceServer();
+        await listenOnce(ephem, 0);
+        myBaseUrl = `http://127.0.0.1:${ephem.address().port}/`;
+        log(`handover: server efêmero próprio em ${myBaseUrl} (rota da minha sessão preservada)`);
+    } catch (e) {
+        // ABORT: sem meu próprio server efêmero não há rota segura p/ a MINHA sessão. Ceder o primário aqui
+        // deixaria myBaseUrl canônica (vaza minha fala p/ a sessão do novo primário) ou me deixaria sem rota.
+        // Então NÃO cedo: reverto tudo e sigo primário; a fork nova tenta de novo no próximo /register (4s).
+        dbg("handover: falha ao subir server efêmero, ABORTANDO step-down (sigo primário): " + (e && e.message));
+        try { if (ephem) ephem.close(); } catch { }
+        handingOver = false;
+        suppressReclaimUntil = 0;
+        writeHandoverLock(0);   // limpa o lock global: bystanders não devem suspender o reclaim por um handover que não aconteceu
+        broadcast({ type: "worker", state: workerReady ? "ready" : "loading", device: lastDevice });   // limpa o "Ativando atualização…" (o worker segue vivo, eu sigo primário)
+        return;
+    }
+    primaryFork = false;
+    shutdownWorkerForHandover();
+    // Registra o server efêmero no bookkeeping por instância (funciona p/ primário cold-start E reclaim,
+    // cujo entry era primary:false) e libera a porta canônica SEM await (as conexões SSE dos painéis
+    // ficam abertas por DESIGN no handover -> server.close(cb) NUNCA chamaria o cb; destruo os sockets
+    // e sigo). O novo primário assume a canônica.
+    for (const [id, entry] of servers) {
+        if (entry && (entry.primary || (entry.server && (entry.server === promotedServer || (primaryServerEntry && entry.server === primaryServerEntry.server))))) {
+            servers.set(id, { ...entry, server: ephem, url: myBaseUrl, primary: false });
+        }
+    }
+    const oldSrv = promotedServer || (primaryServerEntry && primaryServerEntry.server);
+    promotedServer = null;
+    primaryServerEntry = null;
+    if (oldSrv) {
+        try { for (const res of [...sseClients.keys()]) { try { res.end(); } catch { } sseClients.delete(res); } } catch { }
+        try { oldSrv.close(); } catch { }   // fire-and-forget: sockets destruídos acima; a porta libera
+    }
+    ensureSecondaryTimers();
+    httpPostJson(newerUrl, "/reclaim-now", { from: CURRENT_VERSION }).catch(() => { });   // reassuma JÁ (não espere o probe dela)
+    registerSelf();   // já com o myBaseUrl efêmero -> o novo primário roteia minhas falas de volta p/ MIM
+    setTimeout(() => { handingOver = false; registerSelf(); }, 2000);
+}
+
+// Reassume o primário com re-tentativas (o antigo pode levar um instante p/ liberar a porta).
+// `force` no reclaim pula o throttle de 2s (é um pedido EXPLÍCITO de handover, não um probe).
+async function reclaimWithRetry(reason, attempts = 12) {
+    for (let i = 0; i < attempts; i++) {
+        if (primaryFork) return true;
+        if (await reclaimPrimaryIfOrphaned(reason, true)) return true;
+        await new Promise((r) => setTimeout(r, 250));
+    }
+    return false;
 }
 
 function sendJson(res, obj, code = 200) {
@@ -2277,13 +2396,27 @@ async function handleRequest(req, res) {
         const body = await readBody(req);
         if (body && body.sid && body.url) {
             const sid = String(body.sid), url = String(body.url);
+            const ver = body.version ? String(body.version) : "";
+            if (ver) forkVersions.set(sid, ver);
             const changed = forks.get(sid) !== url;
             setFork(sid, url);
-            if (changed) dbg(`registered fork sid=${sid}`);
+            if (changed) dbg(`registered fork sid=${sid}${ver ? " v" + ver : ""}`);
             // The URL just arrived from a live server -> deliver any held turns now
             // against this fresh URL (fixes stale-URL and late-register drops).
             drainTurnsToFork(sid, url);
+            // Auto-handover: uma fork MAIS NOVA registrou -> este primário (código velho) cede a
+            // porta+worker p/ ela. Ativa um update do extension.mjs sem fechar o app.
+            if (primaryFork && !handingOver && shouldStepDownForNewer(CURRENT_VERSION, ver)) {
+                stepDownForNewer(url, ver).catch((e) => dbg("stepDownForNewer: " + (e && e.message)));
+                return sendJson(res, { ok: true, reclaim: true });
+            }
         }
+        return sendJson(res, { ok: true });
+    }
+
+    if (req.method === "POST" && path === "/reclaim-now") {
+        // Um primário mais VELHO cedeu p/ mim (versão mais nova): reassumo a porta JÁ.
+        reclaimWithRetry("handover-poke").catch(() => { });
         return sendJson(res, { ok: true });
     }
 
@@ -2544,18 +2677,17 @@ async function startServer() {
         registered = true;
         registerSelf();
         if (!primary) {
-            const t = setInterval(registerSelf, 4000);
-            if (t.unref) t.unref();
-            const pp = setInterval(probePrimary, 7000 + Math.floor(Math.random() * 3000));
-            if (pp.unref) pp.unref();
+            ensureSecondaryTimers();
         }
     }
     return { server, url: `http://127.0.0.1:${bound}/`, primary };
 }
 
-async function reclaimPrimaryIfOrphaned(reason) {
+async function reclaimPrimaryIfOrphaned(reason, force = false) {
     if (primaryFork || reclaiming) return false;
-    if (Date.now() - lastReclaimAttempt < 2000) return false;
+    if (!force && Date.now() < suppressReclaimUntil) return false;   // acabei de ceder p/ versão mais nova: NÃO reassuma (anti-flap por-fork)
+    if (!force && handoverLockActive()) return false;                // handover em curso (por QUALQUER fork): bystander velho não fisga a porta (anti-flap global)
+    if (!force && Date.now() - lastReclaimAttempt < 2000) return false;
     reclaiming = true;
     lastReclaimAttempt = Date.now();
     try {
@@ -2568,6 +2700,7 @@ async function reclaimPrimaryIfOrphaned(reason) {
         } catch (e) {
             if (e && e.code === "EADDRINUSE") {
                 sharedToken = readSavedToken() || sharedToken;
+                try { server.close(); } catch { }   // libera o objeto server que não chegou a bindar (higiene; nit do gate)
                 return false;
             }
             try { server.close(); } catch { }
@@ -2575,10 +2708,25 @@ async function reclaimPrimaryIfOrphaned(reason) {
         }
         promotedServer = server;
         primaryFork = true;
+        stopSecondaryTimers();   // promovido: para os timers de secundário (senão um re-registro atrasado anuncia URL errada / vaza no próximo step-down)
         preferredPort = canonical;
         myBaseUrl = `http://127.0.0.1:${canonical}/`;
         savePort(canonical);
         setFork(mySid(), myBaseUrl);
+        // RECONCILIA o bookkeeping p/ ESPELHAR um primário de cold-start: as entradas de painel desta fork eram
+        // secundárias, apontando p/ um server efêmero AGORA órfão (esta fork passou a servir pela canônica). Sem
+        // isso, um step-down futuro não acha a entrada primária -> o server efêmero novo não é rastreado (vaza) e
+        // o onClose fecha o server ERRADO. Reaponto as entradas p/ o server canônico promovido, marco primary:true,
+        // seto primaryServerEntry e fecho o secundário órfão.
+        primaryServerEntry = null;
+        for (const [id, entry] of servers) {
+            if (entry && entry.server && entry.server !== server) {
+                try { entry.server.close(); } catch { }   // fecha o secundário órfão (a fork agora serve pela canônica)
+            }
+            const rebuilt = { ...entry, server, url: myBaseUrl, primary: true };
+            servers.set(id, rebuilt);
+            if (!primaryServerEntry) primaryServerEntry = rebuilt;
+        }
         log(`reclaimPrimary: promoted to primary on ${canonical} (${reason})`);
         broadcast({ type: "worker", state: "loading", msg: "Reassumindo motor de voz…" });
         ensureWorker();
