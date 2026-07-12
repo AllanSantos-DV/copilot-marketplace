@@ -198,6 +198,104 @@ def set_selected_mic(dev):
     global SELECTED_MIC
     SELECTED_MIC = (int(dev) if dev is not None else None)
 
+
+# --- Seguir o microfone PADRÃO do Windows -------------------------------------------
+# O PortAudio congela a lista de devices (e o "default") no init do processo. Num worker
+# de vida longa, trocar o padrão do Windows NÃO é percebido: ele segue capturando/exibindo
+# o device antigo. A correção é re-scanear o PortAudio (Pa_Terminate+Pa_Initialize) quando
+# o padrão muda — mas isso é caro (~125ms) e PERIGOSO com stream aberto, então usamos um
+# SINAL de mudança barato (Core Audio MMDevice, ~2ms) e só re-scaneamos no modo padrão,
+# com o stream fechado e nunca no meio de uma gravação. NÃO seguimos em pino explícito:
+# os índices do PortAudio não são estáveis entre re-inits (re-scan num pino trocaria o mic).
+HUB = None
+_com_tls = threading.local()   # CoInitializeEx uma vez por thread (não re-inicia a cada chamada)
+
+
+def _default_follow_should_reinit(selected_mic, cur_id, last_id):
+    """True só quando vale re-scanear para seguir o padrão do sistema: modo padrão
+    (selected_mic is None), com id atual e baseline conhecidos e DIFERENTES."""
+    return (selected_mic is None and cur_id is not None
+            and last_id is not None and cur_id != last_id)
+
+
+def _default_capture_id():
+    """ID estável do endpoint de captura PADRÃO do Windows via Core Audio (MMDevice),
+    ~2ms, SEM tocar no PortAudio. Só um SINAL de mudança; retorna None se indisponível
+    (aí degrada para o comportamento atual, sem re-scan)."""
+    try:
+        import ctypes as _C
+        ole32 = _C.oledll.ole32     # calls que retornam HRESULT (auto-raise em falha)
+        ole32w = _C.windll.ole32    # void / best-effort (NÃO interpretar retorno como HRESULT)
+        ole32w.CoTaskMemFree.restype = None
+
+        class _GUID(_C.Structure):
+            _fields_ = [("Data1", _C.c_uint32), ("Data2", _C.c_uint16),
+                        ("Data3", _C.c_uint16), ("Data4", _C.c_ubyte * 8)]
+
+        def _guid(s):
+            g = _GUID()
+            ole32.CLSIDFromString(_C.c_wchar_p(s), _C.byref(g))
+            return g
+
+        clsid = _guid("{BCDE0395-E52F-467C-8E3D-C4579291692E}")   # MMDeviceEnumerator
+        iid = _guid("{A95664D2-9614-4F35-A746-DE8DB63617E6}")      # IMMDeviceEnumerator
+        if not getattr(_com_tls, "inited", False):
+            ole32w.CoInitializeEx(None, 0x2)   # APARTMENTTHREADED; best-effort, 1x por thread
+            _com_tls.inited = True
+        enum = _C.c_void_p()
+        if ole32.CoCreateInstance(_C.byref(clsid), None, 0x17,
+                                  _C.byref(iid), _C.byref(enum)) < 0:
+            return None
+
+        def _call(ptr, idx, argtypes, *a):
+            vt = _C.cast(ptr, _C.POINTER(_C.POINTER(_C.c_void_p)))[0]
+            # métodos COM são __stdcall -> WINFUNCTYPE (no x64 é unificado, mas fica correto por intenção)
+            return _C.cast(vt[idx], _C.WINFUNCTYPE(_C.c_long, _C.c_void_p, *argtypes))(ptr, *a)
+
+        dev = _C.c_void_p()
+        try:
+            # IMMDeviceEnumerator::GetDefaultAudioEndpoint(eCapture=1, eConsole=0)
+            if _call(enum, 4, [_C.c_int, _C.c_int, _C.POINTER(_C.c_void_p)],
+                     1, 0, _C.byref(dev)) < 0:
+                return None
+            pid = _C.c_void_p()
+            try:
+                if _call(dev, 5, [_C.POINTER(_C.c_void_p)], _C.byref(pid)) < 0:   # IMMDevice::GetId
+                    return None
+                # GetId aloca a string com CoTaskMemAlloc: copiar e LIBERAR (senão vaza ~230B/chamada)
+                return _C.wstring_at(pid) if pid.value else None
+            finally:
+                if pid.value:
+                    ole32w.CoTaskMemFree(pid)
+                _call(dev, 2, [])     # dev->Release
+        finally:
+            _call(enum, 2, [])         # enum->Release
+    except Exception:
+        return None
+
+
+def _reinit_portaudio():
+    """Re-scaneia o PortAudio (Pa_Terminate+Pa_Initialize) para enxergar o novo padrão/
+    hardware. PERIGOSO com stream aberto (Pa_Terminate fecha streams): os chamadores
+    garantem stream FECHADO sob lock. Retorna True se re-scaneou. O _terminate é
+    best-effort (pode já estar terminado) para SEMPRE tentar o _initialize e nunca
+    deixar o PortAudio num estado não-inicializado."""
+    try:
+        import sounddevice as sd
+    except Exception as exc:
+        log(f"portaudio reinit failed (import): {exc}")
+        return False
+    try:
+        sd._terminate()
+    except Exception:
+        pass   # já terminado / estado parcial: segue para reinicializar
+    try:
+        sd._initialize()
+        return True
+    except Exception as exc:
+        log(f"portaudio reinit failed: {exc}")
+        return False
+
 WAKE_PHRASES = [p.strip() for p in
                 os.environ.get("VOICE_WAKE_PHRASES", "escuta jarvis").split("|")
                 if p.strip()] or ["escuta jarvis"]
@@ -1074,6 +1172,7 @@ class AudioHub:
         self.capture_sid = ""
         self._mon_thread = None
         self._lock = threading.Lock()
+        self._last_default_id = _default_capture_id()   # baseline p/ seguir o padrão do sistema
 
     def _callback(self, indata, frames, time_info, status):  
         block = indata[:, 0].copy()
@@ -1087,10 +1186,26 @@ class AudioHub:
                 self._mon_peak = p
             self._mon_rms = float(np.sqrt(np.mean(block * block)))
 
+    def _adopt_or_follow_default(self):
+        """(sob lock, stream FECHADO) Se o padrão do Windows mudou, re-scaneia o
+        PortAudio para que device=None capture o NOVO padrão. Adota o baseline sem
+        re-scan quando ainda não há um. No-op fora do modo padrão. Devolve True se
+        re-scaneou."""
+        cur = _default_capture_id()
+        if SELECTED_MIC is None and cur is not None and self._last_default_id is None:
+            self._last_default_id = cur   # primeiro baseline conhecido: adota sem re-scan
+            return False
+        if _default_follow_should_reinit(SELECTED_MIC, cur, self._last_default_id):
+            if _reinit_portaudio():
+                self._last_default_id = cur
+                return True
+        return False
+
     def _ensure_open(self):
         if self._stream is not None:
             return
         import sounddevice as sd
+        self._adopt_or_follow_default()
         self._stream = sd.InputStream(
             samplerate=SAMPLE_RATE, channels=1, dtype="float32",
             blocksize=WAKE_BLOCK, callback=self._callback,
@@ -1114,6 +1229,33 @@ class AudioHub:
             self._ensure_closed()
             if keep:
                 self._ensure_open()
+
+    def refresh_and_reopen(self):
+        """Segue uma TROCA do padrão do Windows (só no modo padrão). Re-scaneia o
+        PortAudio e reabre o stream compartilhado para que captura e enumeração
+        passem a usar o NOVO padrão. SEGURO: nunca roda no meio de um push-to-talk
+        (devolve False) e só re-inicia o PortAudio com o stream FECHADO. Devolve
+        True quando de fato seguiu a troca."""
+        with self._lock:
+            if self._rec:
+                return False   # nunca interrompe uma gravação ativa
+            cur = _default_capture_id()
+            if SELECTED_MIC is None and cur is not None and self._last_default_id is None:
+                self._last_default_id = cur   # adota baseline sem re-scan
+                return False
+            if not _default_follow_should_reinit(SELECTED_MIC, cur, self._last_default_id):
+                return False
+            keep = self._wake_on or self._monitor_on
+            self._ensure_closed()
+            did = _reinit_portaudio()
+            if did:
+                self._last_default_id = cur   # avança o baseline no sucesso deste re-scan
+            if keep:
+                # se o re-scan acima falhou, _ensure_open pode re-scanear e avançar o baseline aqui
+                self._ensure_open()
+            # resultado EFETIVO: seguiu o novo padrão por QUALQUER um dos re-scans (p/ o mic_monitor
+            # reemitir 'mics' e a UI trocar o nome). Baseline intocado numa falha total -> reintenta.
+            return self._last_default_id == cur
 
     def start_record(self):
         """Begin push-to-talk. If wake was listening the stream is already open,
@@ -1313,9 +1455,19 @@ def list_mics():
 
 def mic_monitor():
     """Vigia o microfone e emite 'mic' só quando o estado muda (conectar/desconectar),
-    para a UI refletir hardware em tempo real sem custo."""
+    para a UI refletir hardware em tempo real sem custo. Também SEGUE o padrão do
+    Windows: se o endpoint de captura padrão mudou (sinal MMDevice ~2ms), re-scaneia
+    o PortAudio (só no modo padrão, com o hub ocioso ou sem gravar) e reemite a lista
+    para a UI trocar o nome/seleção sozinha."""
     last = None
     while True:
+        hub = HUB
+        if hub is not None:
+            try:
+                if hub.refresh_and_reopen():
+                    emit({"event": "mics", **list_mics()})
+            except Exception as exc:
+                log(f"default-follow refresh failed: {exc}")
         ok, name, reason = detect_mic()
         cur = (ok, name)
         if cur != last:
@@ -2353,6 +2505,8 @@ def main():
 
     wake = WakeListener(decode_seg, WAKE_PHRASES)
     hub = AudioHub(recorder, wake)
+    global HUB
+    HUB = hub   # publica p/ o mic_monitor seguir o padrão do Windows
 
     for raw in sys.stdin:
         raw = raw.strip()
