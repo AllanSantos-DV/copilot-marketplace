@@ -41,7 +41,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.5.6";
+const CURRENT_VERSION = "1.5.7";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -1301,11 +1301,23 @@ function markSessionDead(e) {
     notifySessionDead();
 }
 
+const SEND_DEAD_RETRIES = 3;        // re-tentativas de session.send diante de "Session not found" TRANSITÓRIO (ex.: logo após um Stop que só aborta o turno)
+const SEND_RETRY_BASE_MS = 400;
+
+// Só "mata" a fork (para de se registrar p/ a fork VIVA assumir o roteamento — comportamento v1.5.3)
+// quando NÃO há painel aberto aqui, i.e., é uma fork ZUMBI. Uma fork com o painel ABERTO (o caso do
+// usuário: um painel só) NUNCA vira zumbi por um erro de sessão: a sessão pode voltar, então re-tenta
+// no próximo turno em vez de bricar a voz até reabrir.
+function shouldLatchDeadFork(hasOpenPanel) {
+    return !hasOpenPanel;
+}
+function hasOpenPanelHere() {
+    return sessionHasClient(mySid());
+}
+
 async function handleVoiceTranscript(text) {
-    // Uma fork com a sessão MORTA não pode cumprir o turno: NÃO roda os efeitos (cue,
-    // markTurn, "thinking") e reporta falha. Avisa o usuário SEMPRE (todo turno descartado
-    // avisa) — cobre a sessão PRIMÁRIA morta (dispatch local ignora o retorno), que senão
-    // ficaria muda após a 1ª mensagem.
+    // Uma fork ZUMBI com a sessão MORTA não pode cumprir o turno: reporta falha (o primary re-rota
+    // para uma fork VIVA). Uma fork com painel aberto nunca fica nesse estado (ver abaixo).
     if (sessionDead) {
         notifySessionDead();
         return false;
@@ -1320,30 +1332,47 @@ async function handleVoiceTranscript(text) {
     notifyCanvas({ type: "status", state: "thinking" });
     armIdleFallback();
     dbg(`handleVoiceTranscript: sending prompt (${text.length} chars): ${text.slice(0, 120)}`);
-    try {
-        const messageId = await session.send({ prompt: text });
-        _phase = "voiceTurn:sent";
-        // Cue "Ok, comecei" SÓ depois do send ACEITO: numa fork zumbi o send lança antes,
-        // então ela não emite o cue e a fork viva (que recebe o re-roteio) fala 1x só —
-        // sem o "Ok, comecei" dobrado no failover. Também é mais honesto (só confirma se foi).
-        if (settings.cueStart !== false) {
-            speakCue("Ok, comecei a trabalhar na sua solicitação.", "start").catch(() => {});
+    let lastErr = null;
+    for (let attempt = 1; attempt <= SEND_DEAD_RETRIES; attempt++) {
+        try {
+            const messageId = await session.send({ prompt: text });
+            _phase = "voiceTurn:sent";
+            // Cue "Ok, comecei" SÓ depois do send ACEITO (numa fork zumbi o send lança antes → sem cue
+            // dobrado no failover; também é mais honesto).
+            if (settings.cueStart !== false) {
+                speakCue("Ok, comecei a trabalhar na sua solicitação.", "start").catch(() => {});
+            }
+            dbg(`session.send resolved messageId=${messageId}${attempt > 1 ? ` (após ${attempt} tentativas)` : ""}`);
+            return true;
+        } catch (e) {
+            lastErr = e;
+            if (!isDeadSessionError(e)) {
+                dbg(`session.send THREW (não-recuperável): ${e && e.stack ? e.stack : e}`);
+                log("session.send failed: " + e.message);
+                notifyCanvas({ type: "error", msg: "Falha ao enviar para o Copilot: " + e.message });
+                pendingVoiceTurn = false;
+                return false;
+            }
+            // "Session not found" pode ser TRANSITÓRIO: o Stop aborta o turno e o backend reassenta a
+            // sessão em ~1s. Re-tenta no MESMO handle — re-join do SDK NÃO é seguro (um 2º leitor no
+            // process.stdin corromperia o IPC).
+            dbg(`session.send dead-session (tentativa ${attempt}/${SEND_DEAD_RETRIES}): ${e && e.message}`);
+            if (attempt < SEND_DEAD_RETRIES) {
+                await new Promise((r) => setTimeout(r, SEND_RETRY_BASE_MS * attempt));
+            }
         }
-        dbg(`session.send resolved messageId=${messageId}`);
-        return true;
-    } catch (e) {
-        dbg(`session.send THREW: ${e && e.stack ? e.stack : e}`);
-        log("session.send failed: " + e.message);
-        if (isDeadSessionError(e)) {
-            // Sessão morta: NÃO mostra o erro técnico cru e NÃO deixa o turno "entregue".
-            // markSessionDead quiesce a fork; retornar false faz o primary reter e re-rotear.
-            pendingVoiceTurn = false;
-            markSessionDead(e);
-            return false;
-        }
-        notifyCanvas({ type: "error", msg: "Falha ao enviar para o Copilot: " + e.message });
-        return false;
     }
+    log("session.send falhou (sessão morta, " + SEND_DEAD_RETRIES + " tentativas): " + (lastErr && lastErr.message ? lastErr.message : lastErr));
+    pendingVoiceTurn = false;
+    if (shouldLatchDeadFork(hasOpenPanelHere())) {
+        // Fork ZUMBI (sem painel): mata p/ a fork VIVA desta sessão reassumir o roteamento (v1.5.3).
+        markSessionDead(lastErr);
+    } else {
+        // Painel ABERTO aqui: NÃO vira zumbi (não brica a voz). Avisa (throttled) e segue registrando;
+        // o próximo turno re-tenta e recupera quando a sessão voltar.
+        notifySessionDead();
+    }
+    return false;
 }
 
 function onAssistantMessage(event) {
