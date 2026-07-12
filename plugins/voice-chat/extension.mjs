@@ -41,7 +41,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.5.5";
+const CURRENT_VERSION = "1.5.6";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -416,7 +416,8 @@ function readUpdateState() {
 function writeUpdateState(s) {
     try {
         writeFileSync(UPDATE_STATE_FILE, JSON.stringify(s));
-    } catch {
+    } catch (e) {
+        dbg("writeUpdateState failed: " + (e && e.message));
     }
 }
 function sha256Hex(buf) {
@@ -621,15 +622,57 @@ function releaseAssetBase(version) {
     return `https://github.com/AllanSantos-DV/copilot-marketplace/releases/download/${PLUGIN_NAME}-v${version}/`;
 }
 
+// --- Auto-aplicar update (worker/UI a quente; app-restart só se a LÓGICA do extension.mjs mudou) ---
+// Arquivos que o worker (processo filho) carrega: um restart do worker os aplica a quente.
+const WORKER_UPDATE_FILES = new Set(["voice_worker.py", "vox_sdk.py", "_ed25519_ref.py", "requirements.txt"]);
+// A versão é sincronizada dentro do extension.mjs a cada release (gen-manifest), então o FILE
+// muda todo release. Para decidir se a LÓGICA mudou (e o app precisa reimportar o módulo),
+// hasheamos ignorando a linha da versão: release que só troca versão (ou só mexe em worker/UI)
+// NÃO conta como mudança de extension.mjs e é aplicado a quente.
+function extLogicNormalize(src) {
+    // Máscara da VERSÃO para o hash "de lógica". Robusto por design (gate):
+    //  - normaliza EOL (CRLF->LF) p/ ser insensível a fim de linha entre releases;
+    //  - âncora no INÍCIO da linha (flag m) p/ NUNCA casar a linha-isca 'const CURRENT_VERSION="0";'
+    //    daqui de dentro nem uma ocorrência em comentário; tolera espaçamento variável.
+    return String(src)
+        .replace(/\r\n/g, "\n")
+        .replace(/^const\s+CURRENT_VERSION\s*=\s*"[^"]*"\s*;/m, 'const CURRENT_VERSION="0";');
+}
+function extLogicSha(src) {
+    return sha256Hex(Buffer.from(extLogicNormalize(src), "utf8"));
+}
+const RUNNING_EXT_LOGIC_SHA = (() => {
+    try { return extLogicSha(readFileSync(fileURLToPath(import.meta.url), "utf8")); } catch { return ""; }
+})();
+// Decisão PURA: dado o que mudou no stage, o que aplicar. needsAppRestart só quando a LÓGICA do
+// extension.mjs mudou (o bundle é co-versionado -> aplica tudo junto num restart do app, atômico).
+function classifyStagedUpdate(changedRels, extLogicChanged) {
+    const set = new Set(changedRels || []);
+    let workerChanged = false;
+    for (const f of WORKER_UPDATE_FILES) if (set.has(f)) { workerChanged = true; break; }
+    return { workerChanged, uiChanged: set.has("iframe.html"), needsAppRestart: !!extLogicChanged };
+}
+// Versão EFETIVA instalada: o maior entre a baked (extension.mjs em memória) e a aplicada a quente.
+function effectiveVersion(state) {
+    const applied = state && state.appliedVersion;
+    return (applied && verGt(applied, CURRENT_VERSION)) ? applied : CURRENT_VERSION;
+}
+// pendingUpdate p/ a UI: só quando há um app-restart pendente E é mais novo que o efetivo.
+function pendingRestartVersion(state) {
+    const pv = state && state.pendingVersion;
+    return (pv && verGt(pv, effectiveVersion(state))) ? pv : null;
+}
+
 async function checkForUpdate(opts = {}) {
     const force = opts.force === true;
     if (UPDATE_DISABLED || !primaryFork) return { status: "disabled" };
     const st = readUpdateState();
     const now = Date.now();
     if (!force && UPDATE_THROTTLE_MS > 0 && st.lastCheck && now - st.lastCheck < UPDATE_THROTTLE_MS) {
-        if (st.pendingVersion && verGt(st.pendingVersion, CURRENT_VERSION)) {
-            broadcast({ type: "update", version: st.pendingVersion });
-            return { status: "pending", version: st.pendingVersion };
+        const pend = pendingRestartVersion(st);
+        if (pend) {
+            broadcast({ type: "update", version: pend, needsAppRestart: true });
+            return { status: "pending", version: pend, needsAppRestart: true };
         }
         return { status: "throttled" };
     }
@@ -641,10 +684,10 @@ async function checkForUpdate(opts = {}) {
         // same marketplace repo — the single release hub (copilot-mobile convention).
         const mp = JSON.parse((await fetchBuf(MARKETPLACE_MANIFEST_URL)).toString("utf8"));
         const remoteVer = pickPluginVersion(mp, PLUGIN_NAME);
-        if (!remoteVer || !verGt(remoteVer, CURRENT_VERSION)) return { status: "uptodate", version: CURRENT_VERSION };
+        if (!remoteVer || !verGt(remoteVer, effectiveVersion(st))) return { status: "uptodate", version: effectiveVersion(st) };
         if (st.pendingVersion === remoteVer) {
-            broadcast({ type: "update", version: remoteVer });
-            return { status: "pending", version: remoteVer };
+            broadcast({ type: "update", version: remoteVer, needsAppRestart: true });
+            return { status: "pending", version: remoteVer, needsAppRestart: true };
         }
         const base = releaseAssetBase(remoteVer);
         const manifest = JSON.parse((await fetchBuf(base + "manifest.json")).toString("utf8"));
@@ -655,9 +698,9 @@ async function checkForUpdate(opts = {}) {
         // Anti-rollback: a versão ASSINADA precisa ser a anunciada E maior que a atual.
         // Bloqueia o MITM que anuncia versão alta (marketplace.json não é assinado) e
         // devolve um manifesto ANTIGO genuinamente assinado (downgrade forçado).
-        if (!updateVersionAcceptable(manifest.version, remoteVer, CURRENT_VERSION))
+        if (!updateVersionAcceptable(manifest.version, remoteVer, effectiveVersion(st)))
             throw new Error("versão do update recusada (rollback/incoerente): assinada="
-                + (manifest && manifest.version) + " anunciada=" + remoteVer + " atual=" + CURRENT_VERSION);
+                + (manifest && manifest.version) + " anunciada=" + remoteVer + " atual=" + effectiveVersion(st));
         const files = Array.isArray(manifest.files) ? manifest.files : [];
         const staged = [];
         for (const f of files) {
@@ -672,7 +715,17 @@ async function checkForUpdate(opts = {}) {
             if (sha256Hex(buf) !== want) throw new Error("sha256 mismatch for " + rel);
             staged.push({ rel, buf });
         }
-        if (!staged.length) return { status: "uptodate", version: CURRENT_VERSION };
+        if (!staged.length) return { status: "uptodate", version: effectiveVersion(st) };
+        // Classifica ANTES de sobrescrever: o que muda vs o disco atual + se a LÓGICA do extension.mjs mudou.
+        const changedRels = [];
+        let extLogicChanged = false;
+        for (const s of staged) {
+            const target = join(EXT_DIR, s.rel);
+            let preSha = null;
+            try { if (existsSync(target)) preSha = sha256Hex(readFileSync(target)); } catch { }
+            if (sha256Hex(s.buf) !== preSha) changedRels.push(s.rel);
+            if (s.rel === "extension.mjs") extLogicChanged = extLogicSha(s.buf.toString("utf8")) !== RUNNING_EXT_LOGIC_SHA;
+        }
         for (const s of staged) {
             const target = join(EXT_DIR, s.rel);
             const part = target + ".part";
@@ -683,11 +736,28 @@ async function checkForUpdate(opts = {}) {
             }
             renameSync(part, target);
         }
-        st.pendingVersion = remoteVer;
+        const plan = classifyStagedUpdate(changedRels, extLogicChanged);
+        if (plan.needsAppRestart) {
+            // A LÓGICA do extension.mjs mudou: o bundle é co-versionado -> só um restart do app aplica
+            // tudo junto (o host precisa reimportar o módulo). NÃO aplica a quente (evita UI/worker novos
+            // contra um extension.mjs velho). Marca pendente e avisa de forma honesta.
+            st.pendingVersion = remoteVer;
+            delete st.appliedVersion;
+            writeUpdateState(st);
+            log("auto-update: v" + remoteVer + " baixado; extension.mjs (lógica) mudou -> app restart pendente");
+            broadcast({ type: "update", version: remoteVer, needsAppRestart: true });
+            return { status: "staged", version: remoteVer, needsAppRestart: true };
+        }
+        // extension.mjs (lógica) inalterado -> worker/UI novos são compatíveis com o módulo em memória:
+        // aplica a QUENTE (só o primary chega aqui, guard no topo). Sem "reinicie" eterno.
+        if (plan.workerChanged) { try { restartWorker(); } catch (e) { dbg("auto-update restartWorker: " + (e && e.message)); } }
+        if (plan.uiChanged) { try { broadcast({ type: "reloadUi" }); } catch { } }
+        st.appliedVersion = remoteVer;
+        delete st.pendingVersion;
         writeUpdateState(st);
-        log("auto-update: staged v" + remoteVer + " (" + staged.length + " files) — restart pending");
-        broadcast({ type: "update", version: remoteVer });
-        return { status: "staged", version: remoteVer };
+        log("auto-update: v" + remoteVer + " aplicado a quente (worker=" + plan.workerChanged + " ui=" + plan.uiChanged + ")");
+        broadcast({ type: "updated", version: remoteVer });
+        return { status: "applied", version: remoteVer };
     } catch (e) {
         dbg("update check failed: " + (e && e.message));
         return { status: "error", error: (e && e.message) || "falha ao verificar" };
@@ -2073,7 +2143,7 @@ async function handleRequest(req, res) {
             try { workerSend({ cmd: "wake", on: true, phrases: [settings.wakePhrase] }); } catch { }
         }
         const _us = readUpdateState();
-        const pendingUpdate = _us.pendingVersion && verGt(_us.pendingVersion, CURRENT_VERSION) ? _us.pendingVersion : null;
+        const pendingUpdate = pendingRestartVersion(_us);
         res.write(
             `data: ${JSON.stringify({
                 type: "hello",
@@ -2082,7 +2152,7 @@ async function handleRequest(req, res) {
                 voices: lastVoices,
                 audioHistory: audioHistoryForHello(sid),
                 pendingUpdate,
-                version: CURRENT_VERSION,
+                version: effectiveVersion(_us),
                 pluginManaged: RUNNING_AS_PLUGIN,
             })}\n\n`,
         );
@@ -2268,7 +2338,7 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && path === "/check-update") {
         const r = await checkForUpdate({ force: true });
         const ok = r.status !== "error" && r.status !== "disabled";
-        return sendJson(res, { ok, status: r.status, version: r.version, current: CURRENT_VERSION, error: r.error });
+        return sendJson(res, { ok, status: r.status, version: r.version, current: effectiveVersion(readUpdateState()), needsAppRestart: !!r.needsAppRestart, error: r.error });
     }
 
     if (req.method === "GET" && path === "/mics") {

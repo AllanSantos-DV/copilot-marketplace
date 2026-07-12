@@ -860,8 +860,11 @@ $("updateBtn").addEventListener("click", async () => {
   btn.disabled = false;
   btn.textContent = label;
   if (!r) { sub.textContent = "Falha de comunicação."; return; }
-  if (r.status === "staged" || r.status === "pending") {
-    sub.textContent = "Atualização v" + r.version + " baixada. Reinicie a extensão para aplicar.";
+  if (r.status === "applied") {
+    appVersion = r.version || appVersion; setUpdateVersionLabel();
+    sub.textContent = "Atualizado para v" + (r.version || "") + " ✓";
+  } else if (r.status === "staged" || r.status === "pending") {
+    sub.textContent = "Atualização v" + r.version + " pronta. Feche e reabra o app para concluir.";
     showUpdate(r.version);
   } else if (r.status === "uptodate" || r.status === "throttled") {
     sub.textContent = "Você já está na versão mais recente (v" + (r.current || appVersion) + ").";
@@ -1180,7 +1183,7 @@ function showUpdate(version) {
   const row = document.createElement("div");
   row.className = "update-row";
   const span = document.createElement("span");
-  span.textContent = "Atualização v" + (version || "") + " baixada. Reinicie a extensão de voz para aplicar.";
+  span.textContent = "Atualização v" + (version || "") + " pronta. Feche e reabra o app para concluir.";
   const btn = document.createElement("button");
   btn.className = "update-btn";
   btn.textContent = "Ok";
@@ -1344,6 +1347,17 @@ function handle(m) {
       break;
     case "update":
       showUpdate(m.version);
+      break;
+    case "reloadUi":
+      // A UI foi atualizada a quente (novo iframe.html no disco): recarrega para aplicar.
+      setTimeout(() => { try { location.reload(); } catch (_) {} }, 150);
+      break;
+    case "updated":
+      // Worker/UI atualizados a quente, sem precisar reabrir o app.
+      appVersion = m.version || appVersion; setUpdateVersionLabel();
+      updateBanner.classList.remove("show");
+      showBanner("Atualizado para v" + (m.version || "") + " ✓");
+      setTimeout(hideBanner, 3500);
       break;
     case "busy":
       recording = false;
