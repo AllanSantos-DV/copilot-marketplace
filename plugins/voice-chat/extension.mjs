@@ -41,7 +41,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.5.9";
+const CURRENT_VERSION = "1.5.10";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -1495,7 +1495,8 @@ const AUDIO_QUEUE_FILE = join(ARTIFACTS, "audio-queue.json");
 const audioHistoryBySid = new Map();   // sid -> item[]
 const audioSeqBySid = new Map();       // sid -> last seq issued
 const audioTurnBySid = new Map();      // sid -> current turn number
-const audioDeliveredBySid = new Map(); // sid -> highest seq delivered to active client
+const audioDeliveredBySid = new Map(); // sid -> highest seq SENT to a live client (dedup do push ao vivo)
+const audioHeardBySid = new Map();      // sid -> highest seq que o cliente CONFIRMOU ter TOCADO até o fim (cursor DURÁVEL de "consumido"; só avança via /played, NUNCA na entrega). É o que decide o autoplay ao reabrir: fechar no meio da fala NÃO marca como ouvido, então reabrir retoca o que faltou.
 
 function appendAudioItem(sid, partial) {
     if (!sid) return null;
@@ -1549,18 +1550,33 @@ function playOrQueueAudio(sid, partial) {
 
 // The audio state the hello hands a (re)connecting client: the FULL per-session
 // history (for the navigable player) + playFromSeq = the first seq it hasn't
-// heard, so the client autoplays only the accumulated tail. Marks it delivered.
+// HEARD (ouvido de verdade), so the client autoplays only the tail that wasn't
+// played to completion yet. playFromSeq usa o cursor HEARD (durável), NÃO o de
+// entrega — assim fechar no meio da fala retoca ao reabrir. Avança o cursor de
+// ENVIO (delivered) p/ o topo só p/ o push ao vivo não reenviar o que o hello já mandou.
 function audioHistoryForHello(sid) {
     const hist = audioHistoryBySid.get(sid) || [];
-    const playFromSeq = (audioDeliveredBySid.get(sid) || 0) + 1;
+    const playFromSeq = (audioHeardBySid.get(sid) || 0) + 1;
     if (hist.length) {
-        // Advancing the delivered cursor MUST be persisted, else a restart/failover
-        // after a reopen-only delivery resets it to 0 and the whole history
-        // re-autoplays on the next reopen (the very bug this feature removes).
-        audioDeliveredBySid.set(sid, hist[hist.length - 1].seq);
+        audioDeliveredBySid.set(sid, hist[hist.length - 1].seq);   // cursor de ENVIO (não o de "ouvido")
         persistAudioState();
     }
     return { items: hist, playFromSeq, max: AUDIO_HISTORY_MAX };
+}
+
+// O cliente confirmou que TOCOU o item `seq` até o fim -> avança o cursor DURÁVEL de
+// "ouvido" (monotônico; um ack de seq menor, ex. replay manual de item antigo, é no-op).
+// Só ISTO consome a fila de verdade: um áudio entregue mas não tocado (painel fechado no
+// meio) segue com seq > heard e retoca no próximo reabrir. Persiste (sobrevive restart).
+function markPlayed(sid, seq) {
+    if (!sid || !(seq > 0)) return false;
+    const last = audioSeqBySid.get(sid) || 0;
+    if (seq > last) seq = last;   // clamp: nunca parkear o cursor ALÉM do último seq emitido (cliente stale/malformado)
+    const cur = audioHeardBySid.get(sid) || 0;
+    if (seq <= cur) return false;
+    audioHeardBySid.set(sid, seq);
+    persistAudioState();
+    return true;
 }
 
 function readAudioStateMap() {
@@ -1568,15 +1584,28 @@ function readAudioStateMap() {
 }
 function persistAudioState() {
     try {
-        const map = {};
-        for (const [sid, hist] of audioHistoryBySid) {
-            if (!hist || !hist.length) continue;
+        const map = readAudioStateMap();   // parte do DISCO: preserva sids que ESTA fork não tem em memória.
+        for (const [sid, hist] of audioHistoryBySid) {   // (numa promoção o secundário só conhece um PREFIXO -> não pode apagar/truncar o resto)
+            if (!hist || !hist.length) continue;         // sid vazio em memória NÃO apaga o registro do disco
+            const prev = map[sid];
+            const memSeq = audioSeqBySid.get(sid) || 0;
+            const memHeard = audioHeardBySid.get(sid) || 0;
+            // GUARD de escrita (espelha o reload): se o DISCO está mais à frente que a visão desta fork
+            // (prefixo stale), NÃO clobbera — só sobe o heard. Impede regredir seq/heard e truncar o
+            // histórico durável (defense-in-depth p/ o dia em que "só o primário persiste" deixar de valer).
+            if (prev && !Array.isArray(prev) && (prev.seq || 0) > memSeq) {
+                prev.heard = Math.max(prev.heard || 0, memHeard);
+                continue;
+            }
             map[sid] = {
-                items: hist, seq: audioSeqBySid.get(sid) || 0,
+                items: hist, seq: memSeq,
                 turn: audioTurnBySid.get(sid) || 1, delivered: audioDeliveredBySid.get(sid) || 0,
+                heard: Math.max(memHeard, (prev && !Array.isArray(prev) && prev.heard) || 0),   // heard nunca regride no disco
             };
         }
-        writeFileSync(AUDIO_QUEUE_FILE, JSON.stringify(map));
+        const tmp = AUDIO_QUEUE_FILE + "." + process.pid + ".tmp";
+        writeFileSync(tmp, JSON.stringify(map));
+        renameSync(tmp, AUDIO_QUEUE_FILE);   // rename atômico (mesmo FS): um crash NO MEIO da escrita não deixa o arquivo TORN (readAudioStateMap veria {} = perde TODAS as filas no restart)
     } catch { }
 }
 function restoreAudioHistory() {
@@ -1596,9 +1625,38 @@ function restoreAudioHistory() {
             audioHistoryBySid.set(sid, items);
             audioSeqBySid.set(sid, Array.isArray(v) ? maxSeq : (v.seq || maxSeq));
             audioTurnBySid.set(sid, Array.isArray(v) ? 1 : (v.turn || 1));
-            // On restart nothing counts as delivered -> the reopened session
-            // re-offers the tail (better than silently dropping unheard audio).
+            // `delivered` = cursor de ENVIO (dedup do push AO VIVO), NÃO de "ouvido". No restart é
+            // inerte p/ o replay (o replay é governado pelo HEARD: playFromSeq=heard+1) e o
+            // audioHistoryForHello re-seta delivered=último ao reabrir; mantém o valor persistido.
             audioDeliveredBySid.set(sid, Array.isArray(v) ? 0 : (v.delivered || 0));
+            // Cursor DURÁVEL de "ouvido": back-compat -> se o formato antigo não tem `heard`,
+            // assume heard = delivered (o antigo tratava entrega como consumo). Só o áudio
+            // acumulado ANTES desta versão herda isso; o novo passa a exigir ack real.
+            audioHeardBySid.set(sid, Array.isArray(v) ? 0 : (v.heard != null ? v.heard : (v.delivered || 0)));
+        }
+    } catch { }
+}
+
+// PROMOÇÃO in-process (secundário -> primário): a memória desta fork é um PREFIXO congelado no
+// boot dela (secundários não geram áudio — forwardam /speak ao primário). O disco tem a verdade
+// que o primário MORTO persistiu. Recarrega do disco antes de servir hello/ack — adota o
+// histórico/seq quando o disco está à frente e é RAISE-only no heard — p/ (a) o clamp de
+// markPlayed ver o ÚLTIMO seq real (senão um ack legítimo do cliente é descartado = replay
+// duplicado) e (b) o novo primário persistir o histórico COMPLETO (senão o persist truncaria).
+function reloadAudioStateFromDisk() {
+    try {
+        const map = readAudioStateMap();
+        for (const [sid, v] of Object.entries(map)) {
+            if (Array.isArray(v) || !v) continue;
+            const items = Array.isArray(v.items) ? v.items : [];
+            if (!items.length) continue;
+            if ((v.seq || 0) >= (audioSeqBySid.get(sid) || 0)) {   // disco à frente-ou-igual -> adota a visão do disco
+                audioHistoryBySid.set(sid, items);
+                audioSeqBySid.set(sid, v.seq || 0);
+                audioTurnBySid.set(sid, v.turn || audioTurnBySid.get(sid) || 1);
+                audioDeliveredBySid.set(sid, v.delivered || 0);
+            }
+            audioHeardBySid.set(sid, Math.max(audioHeardBySid.get(sid) || 0, v.heard != null ? v.heard : 0));   // heard NUNCA regride
         }
     } catch { }
 }
@@ -2431,6 +2489,20 @@ async function handleRequest(req, res) {
         return sendJson(res, { ok: true, activeSid });
     }
 
+    if (req.method === "POST" && path === "/played") {
+        // O iframe confirmou que TOCOU um item até o fim -> avança o cursor DURÁVEL de
+        // "ouvido". É o ÚNICO ponto que consome a fila de verdade (entrega != ouvido).
+        // A história vive no PRIMÁRIO; um secundário que receba isto encaminha p/ lá.
+        const body = await readBody(req);
+        const sid = body && body.sid ? String(body.sid) : "";
+        const seq = body && Number.isFinite(body.seq) ? Math.floor(body.seq) : 0;
+        if (sid && seq > 0) {
+            if (primaryFork) markPlayed(sid, seq);
+            else forwardToPrimary("/played", { sid, seq });
+        }
+        return sendJson(res, { ok: true });
+    }
+
     if (req.method === "POST" && path === "/applied") {
         try {
             const st = readUpdateState();
@@ -2727,6 +2799,7 @@ async function reclaimPrimaryIfOrphaned(reason, force = false) {
             servers.set(id, rebuilt);
             if (!primaryServerEntry) primaryServerEntry = rebuilt;
         }
+        reloadAudioStateFromDisk();   // promovido: adota o áudio DURÁVEL do disco (o primário morto persistiu além do meu prefixo) ANTES de servir hello/ack
         log(`reclaimPrimary: promoted to primary on ${canonical} (${reason})`);
         broadcast({ type: "worker", state: "loading", msg: "Reassumindo motor de voz…" });
         ensureWorker();
