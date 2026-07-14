@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">copilot-memory</h1>
-        <span class="chip" title="versão publicada">v1.3.0</span>
+        <span class="chip" title="versão publicada">v1.4.0</span>
       </div>
       <p class="doc-hero__lede">O <strong>copilot-memory</strong> dá ao agente uma memória que dura além da sessão, <strong>escopada por projeto</strong>. Ele injeta o contexto certo no começo de cada conversa (decisões, convenções, pendências), deixa você buscar e salvar conhecimento, e <strong>destila</strong> o que deu certo em skills reusáveis. É um <strong>cliente puro</strong> do servidor de memória <code>native-java</code>: descobre o daemon, reusa se estiver no ar e, se não estiver, <strong>baixa e sobe o servidor</strong> — verificando a assinatura antes de rodar. Toda a memória fica na sua máquina.</p>
       <div class="doc-hero__cta">
@@ -68,6 +68,10 @@
         <li class="hl__item">
           <h3 class="hl__title">Sobe o servidor sozinho</h3>
           <p class="hl__body">Sem daemon e sem servidor instalado, o plugin baixa a release pública, <strong>confere o sha256</strong> e sobe o servidor. Se já existe, apenas reusa. Requer Java 21.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Um painel pra ver tudo</h3>
+          <p class="hl__body">Um canvas lateral mostra, ao vivo, a saúde do daemon, o escopo do projeto (com a <strong>escada</strong> que resolveu o <code>project_id</code>), os documentos e skills recentes e a telemetria de recall.</p>
         </li>
       </ul>
     </header>
@@ -114,6 +118,13 @@
           <aside class="note note--warn"><span class="note__mark" aria-hidden="true">!</span><p>Instalar o plugin autoriza esse download na ausência de um servidor — é parte esperada do setup. Para desligar, defina <code>COPILOT_MEMORY_AUTOPROVISION=0</code>: o plugin então só reusa um daemon já existente.</p></aside>
         </section>
 
+        <section class="doc-section" id="painel">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#painel" aria-label="Link para O painel (canvas)">#</a>O painel (canvas)</h2>
+          <p>Chame <code>memory_dashboard</code> (ou abra &quot;Memory&quot; na seção de canvas do app) para ver a memória do projeto num painel lateral, ao vivo e com auto-refresh. Ele não muda nada — é só leitura.</p>
+          <ul class="doc-list"><li><strong>Saúde do daemon</strong> — online, offline ou degradado, com a URL e a versão do servidor.</li><li><strong>Escopo</strong> — o <code>project_id</code> e a *escada* que o resolveu (declarado → git remote → repo base → caminho → nome), destacando qual venceu e avisando quando o escopo é frágil.</li><li><strong>Documentos e skills</strong> — os itens recentes e as skills (ativas e candidatas) do projeto, além de uma busca escopada.</li><li><strong>Telemetria de recall</strong> — quantos recalls, quantos ponteiros injetados, quantas buscas de corpo e o *hit-rate* ponteiro→fetch.</li></ul>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Com o daemon offline, o painel oferece um botão para provisionar o servidor — o mesmo caminho consentido do <code>memory_setup</code>. O painel aparece depois de reiniciar o app uma vez (o hook espelha o plugin para as extensões do app).</p></aside>
+        </section>
+
         <section class="doc-section" id="como-funciona">
           <h2 class="doc-h2"><a class="doc-anchor" href="#como-funciona" aria-label="Link para Como funciona">#</a>Como funciona</h2>
           <ul class="doc-list"><li><strong>Descoberta</strong> — lê o registro do daemon (<code>~/.mcp-memory/run/daemon.json</code>), faz um health-check e reusa a URL. Offline, degrada com aviso.</li><li><strong>Escopo</strong> — resolve o <code>project_id</code> pelo <code>.memory/project.json</code> ou pelo git, e carimba toda leitura/escrita com ele.</li><li><strong>Recall</strong> — nos hooks de início de sessão e de cada pergunta, compõe o contexto (ponteiro para skills, inline para fatos) e injeta.</li><li><strong>Escrita e skills</strong> — <code>memory_save</code> guarda conhecimento; o ciclo <code>save_skill → promote → invalidate</code> cura as skills reusáveis.</li></ul>
@@ -156,8 +167,8 @@
             </li>
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
-              <span class="tree__role">Entrypoint: 13 tools + 2 hooks (recall, memória, skills, destilador, setup, init).</span>
-              <span class="tree__size">38 KB</span>
+              <span class="tree__role">Entrypoint: 14 tools + painel (canvas) + 2 hooks (recall, memória, skills, destilador, setup, init, dashboard).</span>
+              <span class="tree__size">40 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">hooks.json</code>
@@ -167,12 +178,12 @@
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
               <span class="tree__role">Metadados do plugin + marcador de hooks.</span>
-              <span class="tree__size">966 B</span>
+              <span class="tree__size">971 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">README.md</code>
               <span class="tree__role">Documentação vinda do repositório de origem.</span>
-              <span class="tree__size">9.0 KB</span>
+              <span class="tree__size">10 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/client.mjs</code>
@@ -188,6 +199,11 @@
               <code class="tree__name">lib/daemon.mjs</code>
               <span class="tree__role">Fala com o daemon apartado (fora da sessão).</span>
               <span class="tree__size">2.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/dashboard.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">22 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/digest.mjs</code>
@@ -273,6 +289,10 @@
             <summary>Onde mora o código do servidor?</summary>
             <p>No projeto <code>native-java</code> (mcp-memory-server), publicado como release pública. Esta vitrine guarda só o plugin cliente; o servidor é baixado do repositório oficial de releases, verificado por sha256.</p>
           </details>
+          <details class="faq">
+            <summary>Tem uma tela para ver o estado da memória?</summary>
+            <p>Tem. O <code>memory_dashboard</code> abre um painel lateral (canvas) com a saúde do daemon, o escopo do projeto e a escada que resolveu o <code>project_id</code>, os documentos e skills recentes e a telemetria de recall. É só leitura e aparece depois de reiniciar o app uma vez.</p>
+          </details>
         </section>
       </article>
 
@@ -286,6 +306,7 @@
             <li><a href="#recall">Recall em dois níveis</a></li>
             <li><a href="#destilador">O destilador de aprendizado</a></li>
             <li><a href="#provisionamento">Sobe o servidor sozinho</a></li>
+            <li><a href="#painel">O painel (canvas)</a></li>
             <li><a href="#como-funciona">Como funciona</a></li>
             <li><a href="#instalar">Instalar</a></li>
             <li><a href="#estrutura">Estrutura</a></li>
@@ -293,7 +314,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.3.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.4.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
