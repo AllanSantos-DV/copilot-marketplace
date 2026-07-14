@@ -1,0 +1,16 @@
+{
+  "engine": "vxk",
+  "title": "Linha do tempo — ciclo da água",
+  "slug": "linha-tempo",
+  "badge": "VXK",
+  "accent": "#3fa9ff",
+  "intro": "As etapas do ciclo em sequência. Clique num evento para detalhes; o playhead percorre o tempo.",
+  "nodes": [
+    { "type": "timeline", "x0": -300, "x1": 300, "y": 0, "duration": 4, "color": "#3fa9ff", "events": [
+      { "t": 0.05, "label": "Evaporação",   "info": "O Sol aquece a água, que vira vapor e sobe." },
+      { "t": 0.37, "label": "Condensação",  "info": "O vapor esfria lá em cima e forma as nuvens." },
+      { "t": 0.66, "label": "Precipitação", "info": "As gotículas crescem e caem como chuva." },
+      { "t": 0.95, "label": "Escoamento",   "info": "A água volta aos rios e ao mar — e o ciclo recomeça." }
+    ] }
+  ]
+}

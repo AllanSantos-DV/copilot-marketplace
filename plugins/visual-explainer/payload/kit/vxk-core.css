@@ -1,0 +1,21 @@
+:root{ --vxk-bg:#0b0f1a; --vxk-panel:#131a2b; --vxk-line:#243049; --vxk-txt:#e7ecf6; --vxk-muted:#9aa7c2; --vxk-accent:#5b8cff; }
+html,body{margin:0;height:100%;background:var(--vxk-bg);color:var(--vxk-txt);font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif}
+#vxk-root,.vxk-wrap{height:100%}
+.vxk-wrap{display:flex;flex-direction:column;overflow:hidden}
+.vxk-header{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--vxk-line);background:linear-gradient(180deg,#111830,#0d1424)}
+.vxk-header h1{font-size:15px;margin:0;font-weight:650}
+.vxk-tag{margin-left:auto;font-size:11px;color:var(--vxk-muted);border:1px solid var(--vxk-line);padding:4px 10px;border-radius:999px}
+.vxk-main{display:flex;flex:1;min-height:0}
+.vxk-stage{flex:1;position:relative;background:radial-gradient(1000px 500px at 45% 25%,#141d33,#0a0e18)}
+.vxk-stage > canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+.vxk-stage > canvas:active{cursor:grabbing}
+.vxk-hint{position:absolute;top:10px;left:12px;font-size:11px;color:var(--vxk-muted);background:rgba(10,14,24,.66);padding:5px 9px;border:1px solid var(--vxk-line);border-radius:8px;pointer-events:none}
+.vxk-aside{width:300px;border-left:1px solid var(--vxk-line);background:var(--vxk-panel);padding:16px 18px;overflow:auto}
+.vxk-aside h2{font-size:14px;margin:0 0 6px;display:flex;align-items:center;gap:8px}
+.vxk-sw{width:12px;height:12px;border-radius:3px;background:var(--vxk-accent);flex:none}
+.vxk-aside p{font-size:13px;line-height:1.55;color:var(--vxk-muted);margin:0}
+.vxk-footer{display:flex;align-items:center;gap:10px;padding:11px 18px;border-top:1px solid var(--vxk-line);background:#0f1524;flex-wrap:wrap}
+.vxk-footer button{all:unset;cursor:pointer;padding:7px 13px;border-radius:8px;font-size:13px;font-weight:600;background:var(--vxk-accent);color:#fff}
+.vxk-footer button.ghost{background:transparent;border:1px solid var(--vxk-line);color:var(--vxk-txt)}
+.vxk-ctl{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--vxk-muted)}
+.vxk-footer input[type=range]{accent-color:var(--vxk-accent)}

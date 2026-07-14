@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">voice-chat</h1>
-        <span class="chip" title="versão publicada">v1.3.5</span>
+        <span class="chip" title="versão publicada">v1.5.9</span>
       </div>
       <p class="doc-hero__lede">O <strong>voice-chat</strong> transforma o terminal numa conversa: você fala, o motor <strong><code>vox-engine</code></strong> transcreve, o agente responde e uma voz neural em pt-BR lê o resumo de volta. Fala e voz — <strong>STT e TTS</strong> — passam pelo <strong>mesmo e único</strong> motor, na sua máquina, e a extensão <strong>cuida dele sozinha</strong>: instala se faltar, atualiza se estiver velho e usa quando está em dia. Nenhum áudio sai do seu computador.</p>
       <div class="doc-hero__cta">
@@ -146,9 +146,44 @@
             <div class="tree__head"><span class="prompt__glyph" aria-hidden="true">⌁</span> plugins/voice-chat/</div>
             <ul class="tree__list">
             <li class="tree__row">
+              <code class="tree__name">_ed25519_ref.py</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">7.3 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">extension.mjs</code>
+              <span class="tree__role">Extensão in-app: hooks e tools da sessão viva do agente.</span>
+              <span class="tree__size">127 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">iframe.html</code>
+              <span class="tree__role">Canvas: painel de UI carregado pelo app GUI.</span>
+              <span class="tree__size">63 KB</span>
+            </li>
+            <li class="tree__row">
               <code class="tree__name">plugin.json</code>
               <span class="tree__role">Metadados do plugin + marcador de canvas (extensions). O runtime completo (extensão + worker de voz) vem do repositório copilot-voice, entregue pelo copilot plugin install.</span>
-              <span class="tree__size">693 B</span>
+              <span class="tree__size">632 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">requirements.txt</code>
+              <span class="tree__role">Dependências Python do worker de voz.</span>
+              <span class="tree__size">308 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">voice_worker.py</code>
+              <span class="tree__role">Worker de voz local (STT / Whisper).</span>
+              <span class="tree__size">83 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">vox_sdk.py</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">68 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">vox_stream.py</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">38 KB</span>
             </li>
             </ul>
           </div>
@@ -207,10 +242,10 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.3.5</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.5.9</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
-            <div class="meta__row"><dt>origem</dt><dd>github · AllanSantos-DV/copilot-voice</dd></div>
+            <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
             <div class="meta__row"><dt>tipo</dt><dd><span class="pill">canvas</span></dd></div>
             <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>Copilot App (desktop) com o GitHub Copilot SDK</li><li>Windows 10/11 (o motor usa named pipe e instalador <code>.ps1</code>)</li><li>Python 3.11+ no PATH (o motor cria o próprio venv)</li><li>Node 18.2+ (runtime da extensão)</li><li>Microfone e saída de áudio</li></ul></dd></div>
             <div class="meta__row"><dt>tags</dt><dd><ul class="tags tags--meta"><li>voice</li><li>voz</li><li>tts</li><li>stt</li><li>whisper</li><li>canvas</li></ul></dd></div>
@@ -219,7 +254,7 @@
     </div>
 
     <nav class="pager" aria-label="Outros plugins">
-      <span></span>
+      <a class="pager__link pager__link--prev" href="../visual-explainer/"><span class="pager__dir">← anterior</span><span class="pager__name">visual-explainer</span></a>
       <a class="pager__all" href="../../#registry">todos os plugins</a>
       <a class="pager__link pager__link--next" href="../action-bridge/"><span class="pager__dir">próximo →</span><span class="pager__name">action-bridge</span></a>
     </nav>

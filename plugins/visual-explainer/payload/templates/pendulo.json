@@ -1,0 +1,11 @@
+{
+  "engine": "vxk",
+  "title": "Pêndulo simples — oscilação",
+  "slug": "pendulo",
+  "badge": "VXK",
+  "accent": "#5b8cff",
+  "intro": "Um pêndulo oscilando por ação da gravidade. Clique no peso para ver detalhes; ajuste a velocidade.",
+  "nodes": [
+    { "type": "pendulum", "label": "Peso", "pivotX": 0, "pivotY": -150, "length": 220, "amp": 0.7, "speed": 1.25, "r": 20, "color": "#5b8cff", "info": "O peso oscila pela gravidade. O período depende do comprimento da haste — não da massa do peso." }
+  ]
+}

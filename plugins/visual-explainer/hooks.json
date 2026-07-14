@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "hooks": {
+    "SessionStart": [
+      { "type": "command", "command": "node boot.mjs", "timeout": 25 }
+    ]
+  }
+}

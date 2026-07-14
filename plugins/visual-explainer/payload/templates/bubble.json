@@ -1,0 +1,11 @@
+{
+  "engine": "vxk",
+  "title": "Bubble Sort — ordenação por bolha",
+  "slug": "bubble-sort",
+  "badge": "VXK",
+  "accent": "#3fddb3",
+  "intro": "O algoritmo compara pares vizinhos e vai 'borbulhando' o maior valor para o fim. Clique numa barra para ver valor e posição; ajuste a velocidade ou reinicie.",
+  "nodes": [
+    { "type": "barArray", "n": 14, "stepEvery": 0.26, "barW": 26, "gap": 8, "maxH": 230, "color": "#3fddb3" }
+  ]
+}
