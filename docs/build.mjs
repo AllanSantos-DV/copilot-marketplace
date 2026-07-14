@@ -30,7 +30,7 @@ const PAGES_DIR = join(HERE, "p");
 // Ordem editorial da vitrine (o que abre a página e a ordem de navegação prev/next).
 // Plugins fora da lista caem depois, na ordem do manifesto. É a ÚNICA curadoria de ordem
 // feita aqui — todo o resto vem do manifesto + docs/content, então a vitrine nunca desatualiza.
-const ORDER = ["visual-explainer", "voice-chat", "action-bridge", "copilot-mobile", "copilot-remote", "mcp-bridge", "canvas-sync"];
+const ORDER = ["copilot-memory", "visual-explainer", "voice-chat", "action-bridge", "copilot-mobile", "copilot-remote", "mcp-bridge", "canvas-sync"];
 
 const SITE = "https://allansantos-dv.github.io/copilot-marketplace";
 const REGISTER_CMD = "copilot plugin marketplace add AllanSantos-DV/copilot-marketplace";
