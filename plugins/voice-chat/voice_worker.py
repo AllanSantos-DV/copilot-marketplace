@@ -214,6 +214,16 @@ def set_selected_mic(dev):
 # os índices do PortAudio não são estáveis entre re-inits (re-scan num pino trocaria o mic).
 HUB = None
 _com_tls = threading.local()   # CoInitializeEx uma vez por thread (não re-inicia a cada chamada)
+# Serializa TODO re-scan do PortAudio (Pa_Terminate/Pa_Initialize) contra a ENUMERAÇÃO
+# (query_devices/default.device) — que roda SEM o hub._lock no mic_monitor e no loop de
+# comandos. Sem isso, um Pa_Terminate (libera a tabela de devices) concorrente com um
+# query_devices no meio do loop = use-after-free -> segfault, JUSTO no "bluetooth caiu".
+_PA_LOCK = threading.Lock()
+_MIC_STALL_S = 1.5   # stream 'ativo' sem NENHUM callback por mais que isto = device morto (host APIs que não viram .active=False)
+
+
+def _now():
+    return time.monotonic()
 
 
 def _default_follow_should_reinit(selected_mic, cur_id, last_id):
@@ -290,16 +300,40 @@ def _reinit_portaudio():
     except Exception as exc:
         log(f"portaudio reinit failed (import): {exc}")
         return False
+    with _PA_LOCK:   # exclui enumeração concorrente (mic_monitor/list_mics/detect_mic) durante terminate+init
+        try:
+            sd._terminate()
+        except Exception:
+            pass   # já terminado / estado parcial: segue para reinicializar
+        try:
+            sd._initialize()
+            return True
+        except Exception as exc:
+            log(f"portaudio reinit failed: {exc}")
+            return False
+
+
+def _open_input_stream(open_fn, selected, on_fallback, log_fn):
+    """Abre o InputStream no device SELECIONADO; se ele estiver indisponível (mic
+    removido / bateria do bluetooth acabou), CAI para o padrão do Windows (device=None)
+    em vez de propagar o erro — o sintoma que o usuário via era justamente um erro de
+    ABERTURA de stream ("Error opening InputStream ... PA error code ...").
+
+    Devolve (stream, fell_back:bool). ``open_fn(device)`` abre e devolve o stream
+    (levanta em falha); ``on_fallback()`` é chamado quando trocamos para o padrão (p/
+    resetar o pino e re-scanear o PortAudio). Se o PRÓPRIO padrão também falhar, RE-levanta
+    — aí é honesto (não há microfone algum disponível), sem mascarar em silêncio."""
+    if selected is None:
+        return open_fn(None), False          # já é o padrão do Windows
     try:
-        sd._terminate()
-    except Exception:
-        pass   # já terminado / estado parcial: segue para reinicializar
-    try:
-        sd._initialize()
-        return True
-    except Exception as exc:
-        log(f"portaudio reinit failed: {exc}")
-        return False
+        return open_fn(selected), False      # tenta o mic selecionado (pino)
+    except Exception as exc:                  # noqa: BLE001 — QUALQUER falha do device -> cai pro padrão
+        try:
+            log_fn(f"mic selecionado ({selected}) indisponível: {exc}; voltando ao padrão do Windows")
+        except Exception:
+            pass
+        on_fallback()                         # reset SELECTED_MIC=None + reinit PortAudio p/ ver o default
+        return open_fn(None), True            # padrão do Windows; se ISTO falhar, propaga (erro honesto)
 
 WAKE_PHRASES = [p.strip() for p in
                 os.environ.get("VOICE_WAKE_PHRASES", "escuta jarvis").split("|")
@@ -1160,8 +1194,9 @@ class AudioHub:
       - else wake mode on                    -> wake.feed(block)
     Because the stream is opened/closed only on genuine transitions (and stays
     open across the wake<->record hand-off), starting push-to-talk while wake is
-    listening is a pure flag flip — ZERO PortAudio calls on the hand-off — which
-    is what eliminates the two-simultaneous-streams hang that SIGTERM'd the
+    listening is a pure flag flip — no stream OPEN/CLOSE on the hand-off (a cheap
+    non-draining Pa_IsStreamActive state check may run, but never an open/close) —
+    which is what eliminates the two-simultaneous-streams hang that SIGTERM'd the
     extension. All open/close calls happen under _lock from request handlers
     only when the device is otherwise idle, never main-thread-blocking mid-decode."""
 
@@ -1177,9 +1212,11 @@ class AudioHub:
         self.capture_sid = ""
         self._mon_thread = None
         self._lock = threading.Lock()
+        self._last_cb = 0.0   # monotonic do último callback de áudio (detecta stream 'ativo' mas morto)
         self._last_default_id = _default_capture_id()   # baseline p/ seguir o padrão do sistema
 
     def _callback(self, indata, frames, time_info, status):  
+        self._last_cb = _now()   # heartbeat: um device vivo entrega blocos continuamente (mesmo em silêncio)
         block = indata[:, 0].copy()
         if self._rec:
             self._rec_obj.feed(block, status)
@@ -1208,20 +1245,87 @@ class AudioHub:
 
     def _ensure_open(self):
         if self._stream is not None:
-            return
+            # Device removido no MEIO (ex.: bateria do bluetooth acabou). Dois sinais de MORTE:
+            #  (a) o PortAudio aborta o stream -> `.active` vira False; MAS alguns host APIs do
+            #  Windows mantêm `.active`=True e só PARAM de entregar blocos -> (b) sem callback há
+            #  > _MIC_STALL_S. Qualquer um dos dois = morto -> descarta e reabre (fallback ao padrão).
+            try:
+                active = bool(getattr(self._stream, "active", True))
+            except Exception:
+                active = False
+            stalled = (self._last_cb > 0.0 and (_now() - self._last_cb) > _MIC_STALL_S)
+            if active and not stalled:
+                return
+            self._ensure_closed(dead=True)
         import sounddevice as sd
         self._adopt_or_follow_default()
-        self._stream = sd.InputStream(
-            samplerate=SAMPLE_RATE, channels=1, dtype="float32",
-            blocksize=WAKE_BLOCK, callback=self._callback,
-            device=SELECTED_MIC)
-        self._stream.start()
 
-    def _ensure_closed(self):
+        def _open(dev):
+            s = sd.InputStream(
+                samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+                blocksize=WAKE_BLOCK, callback=self._callback, device=dev)
+            try:
+                s.start()
+            except Exception:
+                try:
+                    s.close()   # não vaza o stream nativo se start() falhar (device sumiu na janela open->start; em modo padrão não há reinit p/ varrer)
+                except Exception:
+                    pass
+                raise
+            return s
+
+        self._stream, fell_back = _open_input_stream(
+            _open, SELECTED_MIC, self._reinit_for_default_fallback, log)
+        self._last_cb = _now()   # baseline: um stream recém-aberto não conta como 'stalled' até faltar callback
+        if fell_back:
+            abandoned = SELECTED_MIC   # o pino que MORREU (ainda não resetado) — vai no evento p/ o extension não pisar numa reseleção
+            set_selected_mic(None)     # descarta o pino SÓ DEPOIS que o padrão abriu de fato (numa queda total a escolha é preservada)
+            self._notify_mic_fallback(abandoned)
+
+    def _reinit_for_default_fallback(self):
+        """Pré-abertura do fallback: re-scaneia o PortAudio p/ device=None resolver o padrão
+        ATUAL do Windows (o selecionado sumiu). NÃO descarta o pino — isso só ocorre se o
+        padrão ABRIR de fato (senão, numa queda TOTAL, a escolha do usuário é preservada)."""
+        if _reinit_portaudio():
+            self._last_default_id = _default_capture_id()
+
+    def _notify_mic_fallback(self, from_index=None):
+        """Avisa a UI (não-fatal): o seletor volta p/ 'Padrão do Windows' (mics.current
+        = None) e um evento 'mic-fallback' informa o motivo. `from` = o índice que MORREU,
+        p/ o extension limpar o pino persistido SÓ se ainda for esse (não pisar numa
+        reseleção do usuário sob flapping do device). Best-effort — nunca levanta, e mesmo
+        que 'mic-fallback' não seja repassado, o 'mics' já corrige o seletor."""
+        try:
+            emit({"event": "mic-fallback", "to": "default", "from": from_index})
+        except Exception:
+            pass
+        try:
+            emit({"event": "mics", **list_mics()})
+        except Exception:
+            pass
+
+    def _ensure_closed(self, dead=False):
         if self._stream is None:
             return
         try:
-            self._stream.stop()
+            if not dead:
+                # AUTO-detecta MORTE p/ QUALQUER caller (reopen/stop_record/set_wake/set_monitor,
+                # não só o _ensure_open): se o device sumiu, stop() DRENA e pode TRAVAR sob o
+                # hub._lock -> BRICA o worker (o loop de stdin fica preso). Só drena com stop()
+                # um stream comprovadamente VIVO; um morto/stalled é ABORTADO (descarta na hora).
+                try:
+                    active = bool(getattr(self._stream, "active", True))
+                except Exception:
+                    active = False
+                stalled = (self._last_cb > 0.0 and (_now() - self._last_cb) > _MIC_STALL_S)
+                dead = (not active) or stalled
+            if dead:
+                try:
+                    self._stream.abort()
+                except Exception:
+                    pass
+            else:
+                self._stream.stop()
             self._stream.close()
         except Exception as exc:
             log(f"hub stream close error: {exc}")
@@ -1269,8 +1373,20 @@ class AudioHub:
         with self._lock:
             self._wake.suspend()        
             self._rec = True
-            self._ensure_open()         
-            self._rec_obj.begin()
+            try:
+                self._ensure_open()         
+                self._rec_obj.begin()
+            except Exception:
+                # abrir falhou (nem o padrão do Windows abriu): NÃO deixa o hub preso em
+                # _rec=True — senão o refresh_and_reopen (auto-recuperação de 3s) recusa p/
+                # sempre (guard `if self._rec`) e o hub fica mudo até um stop/start manual.
+                self._rec = False
+                if self._wake_on:
+                    try:
+                        self._wake.resume()
+                    except Exception:
+                        pass
+                raise
 
     def stop_record(self):
         with self._lock:
@@ -1415,10 +1531,11 @@ def detect_mic():
     microfone utilizável — a UI então bloqueia a gravação e mostra a causa."""
     try:
         import sounddevice as sd
-        if SELECTED_MIC is not None:
-            d = sd.query_devices(SELECTED_MIC, kind="input")
-        else:
-            d = sd.query_devices(kind="input")
+        with _PA_LOCK:   # exclui um Pa_Terminate concorrente (reinit) durante a enumeração
+            if SELECTED_MIC is not None:
+                d = sd.query_devices(SELECTED_MIC, kind="input")
+            else:
+                d = sd.query_devices(kind="input")
         if not d or int(d.get("max_input_channels", 0)) < 1:
             return False, "", "Nenhum microfone de entrada disponível."
         return True, str(d.get("name", "") or ""), ""
@@ -1434,16 +1551,17 @@ def list_mics():
     except Exception as exc:
         return {"devices": [], "current": SELECTED_MIC, "default": None, "error": str(exc)}
     default_in = None
-    try:
-        dd = sd.default.device
-        default_in = int(dd[0]) if hasattr(dd, "__getitem__") else int(dd)
-    except Exception:
-        default_in = None
     out, seen = [], set()
-    try:
-        devs = sd.query_devices()
-    except Exception as exc:
-        return {"devices": [], "current": SELECTED_MIC, "default": default_in, "error": str(exc)}
+    with _PA_LOCK:   # exclui um Pa_Terminate concorrente (reinit) durante a enumeração
+        try:
+            dd = sd.default.device
+            default_in = int(dd[0]) if hasattr(dd, "__getitem__") else int(dd)
+        except Exception:
+            default_in = None
+        try:
+            devs = sd.query_devices()
+        except Exception as exc:
+            return {"devices": [], "current": SELECTED_MIC, "default": default_in, "error": str(exc)}
     for i, d in enumerate(devs):
         if int(d.get("max_input_channels", 0)) < 1:
             continue

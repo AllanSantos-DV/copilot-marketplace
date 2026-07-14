@@ -41,7 +41,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.5.10";
+const CURRENT_VERSION = "1.5.11";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -1223,6 +1223,18 @@ function onWorkerEvent(ev) {
         case "mics":
             lastMics = { devices: ev.devices || [], current: ev.current ?? null, default: ev.default ?? null };
             broadcast({ type: "mics", ...lastMics });
+            break;
+        case "mic-fallback":
+            // o mic selecionado sumiu (ex.: bluetooth descarregou) e o worker voltou ao padrão
+            // do Windows sozinho. LIMPA o pino PERSISTIDO — senão o próximo spawn re-envia o
+            // índice morto (VOICE_MIC_DEVICE) e, como os índices do PortAudio deslocam quando
+            // um device some, poderia casar OUTRO microfone vivo e capturar o errado calado.
+            // MAS só limpa se ainda for o índice que MORREU (ev.from): sob flapping (BT cai->volta
+            // e o user re-seleciona antes do evento chegar) não pisa na reseleção nova.
+            if (settings.micDevice != null && (ev.from == null || settings.micDevice === ev.from)) {
+                settings.micDevice = null; saveSettings().catch(() => { });
+            }
+            broadcast({ type: "mic-fallback", to: ev.to || "default" });
             break;
         case "voices":
             // Catálogo do motor (fonte única). ok:false / lista vazia é repassado como
