@@ -4,7 +4,9 @@
 // e a telemetria local. Cliente-puro: nunca sobe o servidor (exceto quando o usuário clica em
 // "Provisionar", que delega a provision.ensureServer — o mesmo caminho consentido do memory_setup).
 import { createServer } from "node:http";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import { discover } from "./daemon.mjs";
 import { MemoryClient } from "./client.mjs";
 import { tryResolveProjectId, projectIdStrength, isFragileScope, resolveFallbackProjectId, fallbackStrength } from "./projectId.mjs";
@@ -22,6 +24,30 @@ const clampText = (s, n) => {
     s = String(s || "").replace(/\s+/g, " ").trim();
     return s.length > n ? s.slice(0, n - 1) + "…" : s;
 };
+
+// Diretório de estado local (mesma convenção da telemetria) + porta preferida do painel, persistida
+// para sobreviver a reloads (ver ensureServer). Tudo best-effort: falha silenciosa → porta efêmera.
+function stateDir() {
+    return process.env.COPILOT_MEMORY_TELEMETRY_DIR || join(homedir(), ".copilot-memory");
+}
+function portFile() {
+    return join(stateDir(), "dashboard-port.json");
+}
+function readPreferredPort() {
+    try {
+        const o = JSON.parse(readFileSync(portFile(), "utf8"));
+        const p = o && Number(o.port);
+        return Number.isInteger(p) && p > 1024 && p < 65536 ? p : null;
+    } catch {
+        return null;
+    }
+}
+function writePreferredPort(port) {
+    try {
+        mkdirSync(stateDir(), { recursive: true });
+        writeFileSync(portFile(), JSON.stringify({ port }), "utf8");
+    } catch { /* best-effort */ }
+}
 
 // Telemetria de consumo (consumption.jsonl) → agregados escopados ao projeto. Best-effort: arquivo
 // ausente/corrompido → zeros. Correlaciona ponteiros injetados (recall) com buscas de corpo (fetch).
@@ -179,10 +205,15 @@ export class MemoryDashboard {
     }
 
     // Sobe (uma vez) o HTTP server local que serve o painel. Memoiza a promise em voo.
+    // Prefere uma porta ESTÁVEL persistida: após um reload da extensão (processo novo, server novo),
+    // a webview já aberta — que faz fetch RELATIVO à mesma origem — volta a responder sozinha no
+    // próximo poll, sem "Failed to fetch". Só há um painel por vez (canvas last-writer-wins) e o
+    // processo antigo morre antes, então a porta preferida costuma estar livre; se estiver ocupada,
+    // cai para uma porta efêmera e a persiste (converge no próximo reload).
     async ensureServer() {
         if (this._server) return this.url;
         if (this._serverPromise) return this._serverPromise;
-        this._serverPromise = new Promise((resolve, reject) => {
+        const listenOn = (port) => new Promise((resolve, reject) => {
             const server = createServer(async (req, res) => {
                 try { await this._route(req, res); }
                 catch (e) { res.statusCode = 500; res.end(String(e?.message || e)); }
@@ -191,12 +222,17 @@ export class MemoryDashboard {
             const onOk = () => {
                 server.removeListener("error", onErr);
                 this._server = server;
-                this.url = `http://127.0.0.1:${server.address().port}/`;
+                const p = server.address().port;
+                this.url = `http://127.0.0.1:${p}/`;
+                writePreferredPort(p);
                 resolve(this.url);
             };
             server.once("error", onErr);
-            server.listen(0, "127.0.0.1", onOk);
-        }).catch((e) => { this._serverPromise = null; throw e; });
+            server.listen(port, "127.0.0.1", onOk);
+        });
+        const preferred = readPreferredPort();
+        this._serverPromise = (preferred ? listenOn(preferred).catch(() => listenOn(0)) : listenOn(0))
+            .catch((e) => { this._serverPromise = null; throw e; });
         return this._serverPromise;
     }
 
@@ -321,6 +357,7 @@ const PAGE_HTML = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"
   ];
   const TEMPLATE=JSON.stringify({version:"1",project:{name:"<nome>",client:"<cliente|opcional>",team:"<time|opcional>"},metadata:{defaults:{project_id:"<owner>/<projeto>"},branches:{"feat/*":{type:"feature"},"fix/*":{type:"bugfix"},"main":{type:"production"}}},user:{identifyBy:"git-email"}},null,2);
   let busy=false;
+  let reconnecting=false;
 
   function ladder(strength){
     const order=RUNGS.map(r=>r[0]); const ai=order.indexOf(strength);
@@ -422,8 +459,15 @@ const PAGE_HTML = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"
   }
 
   async function load(){
-    try{ const r=await fetch('/api/data'); const s=await r.json(); render(s); }
-    catch(e){ $('app').innerHTML='<div class="card"><span class="empty">falha ao carregar: '+esc(e.message)+'</span></div>'; }
+    try{ const r=await fetch('/api/data'); const s=await r.json(); render(s); reconnecting=false; }
+    catch(e){
+      // Servidor reiniciou (reload da extensão)? A porta é estável, então o próximo poll costuma
+      // reconectar sozinho. Mostra um estado calmo em vez de um erro cru, sem apagar o cabeçalho.
+      reconnecting=true;
+      $('app').innerHTML='<div class="card"><span class="empty">reconectando ao painel…</span></div>';
+      $('pill').className='pill'; $('pillt').textContent='…';
+      $('dmeta').textContent='o servidor do painel reiniciou — reconectando…';
+    }
   }
   async function doSearch(){
     const q=$('q'); if(!q||!q.value.trim())return; const box=$('results');
