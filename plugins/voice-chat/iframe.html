@@ -490,7 +490,7 @@ function hideLoading() {
   progressBar.style.transform = "scaleX(0)";
 }
 
-async function post(path, body) {
+async function post(path, body, silent) {
   const payload = JSON.stringify({ ...(body || {}), sid: SID });
   let lastErr;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -504,7 +504,7 @@ async function post(path, body) {
       return await r.json().catch(() => ({}));
     } catch (e) { lastErr = e; }
   }
-  showBanner("Falha de comunicação: " + (lastErr && lastErr.message));
+  if (!silent) showBanner("Falha de comunicação: " + (lastErr && lastErr.message));
 }
 
 function startRec() {
@@ -574,6 +574,7 @@ let newCount = 0;
 let histMax = 30;
 let playQueue = [];        // itens (por referência) enfileirados p/ autoplay
 let playing = false;       // um item do histórico está tocando
+let playingSeq = null;     // seq do item ATUALMENTE tocando (capturado no play-start); o ack de "ouvido" usa ISTO, imune a um hello que remapeie hist/curIdx no meio
 let previewPlaying = false;// preview de voz (settings): toca 1x, fora do histórico
 let currentAudioUrl = null;
 
@@ -608,6 +609,7 @@ function playAt(i) {
   replayBtn.disabled = !it.audio;
   if (it.audio) {
     playing = true;
+    playingSeq = (typeof it.seq === "number") ? it.seq : null;   // seq DO ITEM que começou a tocar; o ack lê ISTO (não hist[curIdx], que um hello no meio pode remapear)
     pauseBtn.disabled = false; setPauseBtn(true);
     phase = "speaking"; reflectPhase();
     audio.src = base + it.audio + "?t=" + Date.now();
@@ -644,28 +646,56 @@ function onAudioItem(item) {
   updateHistUi();
   pumpAudio();
 }
-// Reconstrói o histórico ao (re)abrir; autotoca só a cauda ainda não ouvida.
+// PURA (testável): decide como reconciliar o histórico quando chega um `hello` (reabertura
+// OU reconexão SSE no meio da fala). Se um item está TOCANDO, mantém ele tocando —
+// re-mapeia curIdx pelo id do item em voo e enfileira só a cauda NÃO-ouvida ALÉM do que
+// toca (nunca reenfileira/reseta o item em voo; senão o ack pegaria o seq errado e o
+// heard avançaria além de um item não ouvido = o bug de falover que o gate pegou).
+function reconcileOnHello(state, ah) {
+  const items = Array.isArray(ah.items) ? ah.items.slice() : [];
+  const from = ah.playFromSeq || (items.length ? items[items.length - 1].seq + 1 : 1);
+  if (state.playing && state.playingId != null) {
+    const idx = items.findIndex((it) => it.id === state.playingId);
+    const curIdx = idx >= 0 ? idx : (items.length ? items.length - 1 : -1);
+    // Item em voo AINDA tocando mas já PODADO do histórico (rajada > cap durante a fala): idx<0.
+    // Fallback p/ (from-1) — assim a cauda NÃO-ouvida [from..] AINDA é enfileirada, não descartada
+    // (Infinity descartaria tudo). O áudio em voo segue no <audio> até o `ended` (acka seu seq).
+    const playingSeqNow = idx >= 0 ? items[idx].seq : (from - 1);
+    const playQueue = items.filter((it) => it.seq >= from && it.seq > playingSeqNow && it.audio);
+    return { hist: items, curIdx, playQueue, keepPlaying: true };
+  }
+  const curIdx = items.length ? items.length - 1 : -1;
+  const playQueue = items.filter((it) => it.seq >= from && it.audio);
+  return { hist: items, curIdx, playQueue, keepPlaying: false };
+}
+// Reconstrói o histórico ao (re)abrir; autotoca só a cauda ainda não ouvida. Um `hello` no
+// MEIO de uma reprodução (reconexão/failover) NÃO interrompe nem reseta o item em voo.
 function applyAudioHistory(ah) {
   if (!ah) return;
   histMax = ah.max || histMax;
-  hist = Array.isArray(ah.items) ? ah.items.slice() : [];
-  reviewing = false; newCount = 0; playQueue = [];
-  curIdx = hist.length ? hist.length - 1 : -1;
+  const playingId = (playing && curIdx >= 0 && hist[curIdx]) ? hist[curIdx].id : null;
+  const r = reconcileOnHello({ playing, playingId }, ah);
+  hist = r.hist;
+  curIdx = r.curIdx;
+  reviewing = false; newCount = 0;
+  playQueue = r.playQueue;
+  if (r.keepPlaying) {
+    // segue tocando o item atual; ao terminar, o `ended` acka playingSeq e pumpAudio puxa a cauda.
+    updateHistUi();
+    return;
+  }
   if (curIdx >= 0) {
     showItemText(hist[curIdx]);
     currentAudioUrl = hist[curIdx].audio || null;
     replayBtn.disabled = !hist[curIdx].audio; pauseBtn.disabled = true; setPauseBtn(true);
   }
-  const from = ah.playFromSeq || (hist.length ? hist[hist.length - 1].seq + 1 : 1);
-  const tail = hist.filter((it) => it.seq >= from && it.audio);
-  for (const it of tail) playQueue.push(it);
   updateHistUi();
   pumpAudio();
 }
 function stopPlayback() {   // corta o que toca e cancela o autoplay (controle manual/gravação)
   playQueue = [];
   try { audio.pause(); } catch (e) {}
-  playing = false; previewPlaying = false;
+  playing = false; previewPlaying = false; playingSeq = null;   // item cortado NÃO é "ouvido": nunca acka
 }
 function goPrev() {
   if (curIdx <= 0) return;
@@ -709,6 +739,12 @@ function setPauseBtn(playing) {
 }
 audio.addEventListener("ended", () => {
   if (previewPlaying) { previewPlaying = false; pumpAudio(); return; }
+  // ACK de reprodução: usa o seq CAPTURADO no play-start (playingSeq), imune a um hello que
+  // remapeie hist/curIdx no meio. Só quando um item do histórico terminou de TOCAR (não
+  // preview, não erro, não pause/stop). Monotônico no servidor (replay de item antigo = no-op).
+  const acked = playingSeq;
+  playingSeq = null;
+  if (typeof acked === "number") { post("/played", { seq: acked }, true).catch(() => {}); }
   onPlaybackEnded();
 });
 prevBtn.addEventListener("click", (e) => { e.preventDefault(); goPrev(); });
