@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">copilot-memory</h1>
-        <span class="chip" title="versão publicada">v1.4.0</span>
+        <span class="chip" title="versão publicada">v1.5.0</span>
       </div>
       <p class="doc-hero__lede">O <strong>copilot-memory</strong> dá ao agente uma memória que dura além da sessão, <strong>escopada por projeto</strong>. Ele injeta o contexto certo no começo de cada conversa (decisões, convenções, pendências), deixa você buscar e salvar conhecimento, e <strong>destila</strong> o que deu certo em skills reusáveis. É um <strong>cliente puro</strong> do servidor de memória <code>native-java</code>: descobre o daemon, reusa se estiver no ar e, se não estiver, <strong>baixa e sobe o servidor</strong> — verificando a assinatura antes de rodar. Toda a memória fica na sua máquina.</p>
       <div class="doc-hero__cta">
@@ -72,6 +72,10 @@
         <li class="hl__item">
           <h3 class="hl__title">Um painel pra ver tudo</h3>
           <p class="hl__body">Um canvas lateral mostra, ao vivo, a saúde do daemon, o escopo do projeto (com a <strong>escada</strong> que resolveu o <code>project_id</code>), os documentos e skills recentes e a telemetria de recall.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Muda o escopo sem perder a memória</h3>
+          <p class="hl__body">Ao declarar um <code>project_id</code> novo, o plugin detecta a memória do escopo antigo e <strong>migra com a sua aprovação</strong> — reatribui sem re-processar, e avisa quando há risco de deixar memória órfã.</p>
         </li>
       </ul>
     </header>
@@ -167,8 +171,8 @@
             </li>
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
-              <span class="tree__role">Entrypoint: 14 tools + painel (canvas) + 2 hooks (recall, memória, skills, destilador, setup, init, dashboard).</span>
-              <span class="tree__size">40 KB</span>
+              <span class="tree__role">Entrypoint: 15 tools + painel (canvas) + 2 hooks (recall, memória, skills, destilador, setup, init, dashboard, migração).</span>
+              <span class="tree__size">45 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">hooks.json</code>
@@ -178,12 +182,12 @@
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
               <span class="tree__role">Metadados do plugin + marcador de hooks.</span>
-              <span class="tree__size">971 B</span>
+              <span class="tree__size">1.0 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">README.md</code>
               <span class="tree__role">Documentação vinda do repositório de origem.</span>
-              <span class="tree__size">10 KB</span>
+              <span class="tree__size">11 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/client.mjs</code>
@@ -203,7 +207,7 @@
             <li class="tree__row">
               <code class="tree__name">lib/dashboard.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">22 KB</span>
+              <span class="tree__size">24 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/digest.mjs</code>
@@ -216,6 +220,11 @@
               <span class="tree__size">2.7 KB</span>
             </li>
             <li class="tree__row">
+              <code class="tree__name">lib/migrate.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.6 KB</span>
+            </li>
+            <li class="tree__row">
               <code class="tree__name">lib/projectConfig.mjs</code>
               <span class="tree__role"></span>
               <span class="tree__size">3.8 KB</span>
@@ -223,7 +232,7 @@
             <li class="tree__row">
               <code class="tree__name">lib/projectId.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">7.2 KB</span>
+              <span class="tree__size">8.9 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/provision.mjs</code>
@@ -293,6 +302,10 @@
             <summary>Tem uma tela para ver o estado da memória?</summary>
             <p>Tem. O <code>memory_dashboard</code> abre um painel lateral (canvas) com a saúde do daemon, o escopo do projeto e a escada que resolveu o <code>project_id</code>, os documentos e skills recentes e a telemetria de recall. É só leitura e aparece depois de reiniciar o app uma vez.</p>
           </details>
+          <details class="faq">
+            <summary>Se eu declarar um project_id novo, perco a memória antiga?</summary>
+            <p>Não. Ao declarar um <code>.memory/project.json</code>, o plugin detecta a memória carimbada com o escopo anterior e oferece migrá-la para o novo id, via reatribuição sem re-processar (o conteúdo é preservado). A migração nunca é automática: ele previsualiza e só aplica com a sua confirmação, e avisa quando o escopo antigo é compartilhado (git) para não deixar a memória órfã para colegas.</p>
+          </details>
         </section>
       </article>
 
@@ -314,7 +327,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.4.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.5.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>

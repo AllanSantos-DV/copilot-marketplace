@@ -7,7 +7,7 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { discover } from "./daemon.mjs";
 import { MemoryClient } from "./client.mjs";
-import { tryResolveProjectId, projectIdStrength, isFragileScope } from "./projectId.mjs";
+import { tryResolveProjectId, projectIdStrength, isFragileScope, resolveFallbackProjectId, fallbackStrength } from "./projectId.mjs";
 import { projectConfigPath, loadProjectConfig } from "./projectConfig.mjs";
 import { consumptionLogPath } from "./consumption.mjs";
 import { TYPE_ACTIVE, TYPE_CANDIDATE } from "./skill.mjs";
@@ -76,6 +76,7 @@ export class MemoryDashboard {
             recent: [],
             skills: { active: [], candidate: [] },
             telemetry: { recalls: 0, pointersInjected: 0, fetches: 0, hitRate: null, lastRecallAt: null },
+            staleScope: null,
             canProvision: !!this._provision,
         };
 
@@ -128,6 +129,25 @@ export class MemoryDashboard {
                         }
                     } catch { /* tipo sem resultados */ }
                 }
+
+                // Escopo OBSOLETO: há memória sob o id de fallback (o que o projeto teria sem o
+                // .memory/project.json) diferente do id atual? Sinaliza para migração aprovada.
+                try {
+                    const from = resolveFallbackProjectId(workdir);
+                    if (from && from !== pid) {
+                        const r = await client.list({ limit: 200, metadata: { project_id: from } });
+                        const count = ((r && r.data) || []).length;
+                        if (count > 0) {
+                            snap.staleScope = {
+                                fromId: from,
+                                toId: pid,
+                                count,
+                                capped: count >= 200,
+                                shared: /^git-/.test(fallbackStrength(workdir)),
+                            };
+                        }
+                    }
+                } catch { /* best-effort */ }
             }
         }
         return snap;
@@ -343,6 +363,18 @@ const PAGE_HTML = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"
     return h+'</div>';
   }
 
+  function staleCard(s){
+    const st=s.staleScope; if(!st) return '';
+    let h='<div class="card"><h2>Escopo obsoleto</h2>';
+    h+='<div class="warn"><b>'+st.count+(st.capped?'+':'')+' documento(s)</b> ainda sob o escopo antigo:';
+    h+='<div style="margin:6px 0"><span class="id">de:&nbsp;&nbsp;</span> '+esc(st.fromId)+'</div>';
+    h+='<div style="margin:6px 0"><span class="id">para:</span> <span style="color:var(--mint)">'+esc(st.toId)+'</span></div>';
+    h+='Para movê-los, peça ao agente: <code>memory_migrate_scope</code> (ele previsualiza; só migra com a sua confirmação).';
+    if(st.shared) h+='<div style="margin-top:8px;color:var(--amber)">⚠️ O escopo antigo é compartilhado (git) — migrar pode deixar a memória órfã para quem não tem o <code>.memory/project.json</code>.</div>';
+    h+='</div>';
+    return h+'</div>';
+  }
+
   function teleCard(s){
     const t=s.telemetry;
     let h='<div class="card"><h2>Telemetria de recall</h2><div class="grid">';
@@ -383,7 +415,7 @@ const PAGE_HTML = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"
 
   function render(s){
     setPill(s);
-    $('app').innerHTML = scopeCard(s)+teleCard(s)+searchCard(s)+docsCard(s)+skillsCard(s);
+    $('app').innerHTML = scopeCard(s)+staleCard(s)+teleCard(s)+searchCard(s)+docsCard(s)+skillsCard(s);
     const go=$('go'),q=$('q');
     if(go){ go.onclick=doSearch; }
     if(q){ q.addEventListener('keydown',e=>{if(e.key==='Enter')doSearch();}); }

@@ -158,3 +158,35 @@ export function isFragileScope(workspacePath) {
     const s = projectIdStrength(workspacePath);
     return s === "path" || s === "name" || s === "none";
 }
+
+// Resolve o project_id de FALLBACK: a mesma escada, mas IGNORANDO o passo 0 (o .memory/project.json
+// declarado). É o escopo que o projeto teria SEM a declaração — usado para localizar memórias
+// carimbadas com o id ANTERIOR (antes de o usuário declarar um id estável), para poder migrá-las.
+// Não lança: retorna null se nada resolver.
+export function resolveFallbackProjectId(workspacePath) {
+    const dir = workspacePath && String(workspacePath).trim() ? String(workspacePath).trim() : null;
+    if (!dir) return null;
+    const norm = normalizeGitRemote(gitRemoteOriginUrl(dir));
+    if (norm) return norm;
+    const base = gitRepoBase(dir);
+    if (base) {
+        try { const abs = pathResolve(base); if (abs && abs.trim()) return abs; } catch { /* cai adiante */ }
+    }
+    try { const abs = pathResolve(dir); if (abs && abs.trim()) return abs; } catch { /* cai adiante */ }
+    const name = basename(dir);
+    if (name && name.trim()) return name;
+    return null;
+}
+
+// Força do escopo de FALLBACK (nunca "declared"): git-remote | git-base | path | name | none.
+// Distingue um escopo antigo COMPARTILHADO (git-*) — cuja migração pode deixar a memória órfã para
+// quem não tem o .memory/project.json — de um FRÁGIL (path/name), local à máquina e seguro de migrar.
+export function fallbackStrength(workspacePath) {
+    const dir = workspacePath && String(workspacePath).trim() ? String(workspacePath).trim() : null;
+    if (!dir) return "none";
+    if (normalizeGitRemote(gitRemoteOriginUrl(dir))) return "git-remote";
+    if (gitRepoBase(dir)) return "git-base";
+    try { if (pathResolve(dir)) return "path"; } catch { /* ignore */ }
+    if (basename(dir)) return "name";
+    return "none";
+}

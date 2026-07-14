@@ -6,13 +6,14 @@
 // inteligência de escopo/hierarquia (project_id no topo; skills/tools/metadata abaixo; só
 // skills globais em home) e a composição do recall são do SERVIDOR — o plugin nunca decide isso.
 //
-// Exporta { tools (14), canvases (painel), hooks (onSessionStart/onUserPromptSubmitted) }: memória
+// Exporta { tools (15), canvases (painel), hooks (onSessionStart/onUserPromptSubmitted) }: memória
 // escopada (status/search/recent/get/save), recall passivo two-tier, ciclo de skill (guide/save/promote/
-// invalidate/list), o destilador de aprendizado (distill) e o painel visual (memory_dashboard).
+// invalidate/list), o destilador (distill), o painel visual (memory_dashboard) e a migração de escopo
+// aprovada (memory_migrate_scope).
 // NB: o import de joinSession é DINÂMICO (dentro do guard no fim) — assim importar { tools, hooks }
 // num harness de smoke não exige resolver @github/copilot-sdk/extension (que só existe no host).
 import { discover } from "./lib/daemon.mjs";
-import { tryResolveProjectId, isFragileScope } from "./lib/projectId.mjs";
+import { tryResolveProjectId, isFragileScope, resolveFallbackProjectId, fallbackStrength } from "./lib/projectId.mjs";
 import { configMetadata, projectConfigPath } from "./lib/projectConfig.mjs";
 import { shouldOfferScaffold, markAsked, scaffoldGuidance } from "./lib/scaffold.mjs";
 import { existsSync as existsSyncSafe } from "node:fs";
@@ -25,6 +26,7 @@ import { buildDigest } from "./lib/digest.mjs";
 import { redact } from "./lib/redact.mjs";
 import { recordDistillation, sessionDistilled, fingerprint, findFingerprint } from "./lib/ledger.mjs";
 import { ensureServer, autoProvisionEnabled, resolveJava } from "./lib/provision.mjs";
+import { previewMigration, migrateScope } from "./lib/migrate.mjs";
 import { MemoryDashboard, DASHBOARD_CANVAS_ID, DASHBOARD_INSTANCE_ID, DASHBOARD_TITLE } from "./lib/dashboard.mjs";
 
 // Provisionamento em background disparado no máximo 1× por processo (não repete a cada hook).
@@ -156,7 +158,84 @@ export const tools = [
                 } catch (e) {
                     return "Erro ao criar o arquivo: " + (e?.message || e);
                 }
-                return `✅ Criado ${path} com project_id="${projectId}". A partir de agora a memória deste projeto é escopada de forma estável (independe do caminho da pasta).`;
+                // Detecção de escopo OBSOLETO: há memória carimbada com o id anterior (o fallback,
+                // sem a declaração)? Se sim, SINALIZA — nunca migra sozinho (migração exige aprovação
+                // explícita via memory_migrate_scope). Best-effort: nunca derruba a criação do arquivo.
+                let migrateHint = "";
+                try {
+                    const from = resolveFallbackProjectId(wd);
+                    if (from && from !== projectId) {
+                        const c = await connect(wd);
+                        if (c.ok) {
+                            const pv = await previewMigration(c.client, from, projectId, { limit: 200 });
+                            if (pv.count > 0) {
+                                const shared = /^git-/.test(fallbackStrength(wd));
+                                migrateHint =
+                                    `\n\n⚠️ Há ${pv.count}${pv.capped ? "+" : ""} documento(s) sob o escopo antigo "${from}". ` +
+                                    `Para movê-los ao novo, rode memory_migrate_scope (previsualiza; confirm:true aplica).` +
+                                    (shared ? ` Atenção: o escopo antigo é COMPARTILHADO (git) — migrar pode deixar a memória órfã para quem não tem o .memory/project.json.` : "");
+                            }
+                        }
+                    }
+                } catch { /* sinalização best-effort */ }
+                return `✅ Criado ${path} com project_id="${projectId}". A partir de agora a memória deste projeto é escopada de forma estável (independe do caminho da pasta).` + migrateHint;
+            },
+        },
+
+        {
+            name: "memory_migrate_scope",
+            description:
+                "Migra (reatribui) documentos de um project_id ANTIGO para o NOVO via PATCH metadata-only — " +
+                "sem re-chunkar/re-embedar. SEM confirm=true apenas PREVISUALIZA (conta + amostra) e NÃO altera nada. " +
+                "Padrões: fromProjectId = o escopo que o projeto teria sem o .memory/project.json; toProjectId = o " +
+                "project_id atual. Nunca move lições globais (só docs carimbados exatamente com fromProjectId). " +
+                "Avisa quando o escopo antigo é compartilhado (git), pois migrar pode deixar a memória órfã.",
+            parameters: {
+                type: "object",
+                properties: {
+                    fromProjectId: { type: "string", description: "Escopo antigo (padrão: o id de fallback sem o .memory/project.json)" },
+                    toProjectId: { type: "string", description: "Escopo novo (padrão: o project_id atual resolvido)" },
+                    confirm: { type: "boolean", description: "true APLICA a migração; ausente/false só previsualiza" },
+                },
+                additionalProperties: false,
+            },
+            handler: async (args) => {
+                const wd = toolCwd();
+                const c = await connect(wd);
+                if (!c.ok) return `🧠 Memória offline: ${c.reason}`;
+                const to = String((args && args.toProjectId) || c.projectId || "").trim();
+                const fallback = resolveFallbackProjectId(wd);
+                const from = String((args && args.fromProjectId) || fallback || "").trim();
+                if (!from || !to) return "Não consegui determinar os escopos. Passe fromProjectId e toProjectId explicitamente.";
+                if (from === to) return `Escopos iguais ("${from}") — nada a migrar.`;
+
+                const pv = await previewMigration(c.client, from, to, { limit: 200 });
+                if (pv.error) return "Erro ao previsualizar: " + pv.error;
+                if (pv.count === 0) return `Nenhum documento sob o escopo antigo "${from}". Nada a migrar.`;
+
+                // Alerta de órfão só quando o "from" é de fato o escopo git-compartilhado deste workspace.
+                const shared = from === fallback && /^git-/.test(fallbackStrength(wd));
+
+                if (!(args && args.confirm)) {
+                    const sample = pv.sample
+                        .map((s, i) => `  ${i + 1}. [${s.id}] ${s.name || s.type || ""}${s.text ? " · " + s.text : ""}`)
+                        .join("\n");
+                    return (
+                        `Prévia da migração (nada foi alterado):\n` +
+                        `  de:   ${from}\n` +
+                        `  para: ${to}\n` +
+                        `  docs: ${pv.count}${pv.capped ? "+" : ""}\n` +
+                        (sample ? sample + "\n" : "") +
+                        (shared ? `\n⚠️ O escopo antigo é COMPARTILHADO (git). Migrar pode deixar a memória órfã para quem não tem o .memory/project.json.\n` : "") +
+                        `\nRevise. Para APLICAR, rode de novo com confirm:true.`
+                    );
+                }
+
+                const res = await migrateScope(c.client, from, to, {});
+                if (!res.ok && res.reason) return `❌ Migração falhou: ${res.reason} (migrados até aqui: ${res.migrated}).`;
+                let msg = `✅ Migração concluída: ${res.migrated} documento(s) movido(s) de "${from}" para "${to}".`;
+                if (res.failed) msg += ` ${res.failed} falharam (${res.errors.slice(0, 3).map((e) => e.id).join(", ")}${res.errors.length > 3 ? "…" : ""}).`;
+                return msg;
             },
         },
 

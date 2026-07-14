@@ -27,6 +27,12 @@ de escopo/hierarquia e a composição do recall são do **servidor** — o plugi
   `.memory/project.json` nem git remote), o plugin sugere **uma única vez** (por workspace) que o agente
   analise a estrutura e crie o `.memory/project.json` (tool `memory_init_project`). Se recusar ou se a
   pasta não for um projeto, ele **não insiste** (marca global em `~/.copilot-memory/`, não suja a pasta).
+- **Migração de escopo aprovada** (`lib/migrate.mjs`, tool `memory_migrate_scope`): declarar um
+  `project_id` novo muda o escopo **daqui pra frente** — a memória antiga fica carimbada com o id anterior.
+  O plugin **detecta** isso (no `memory_init_project` e no painel) e oferece migrar via `PATCH` metadata-only
+  (não re-embeda). **Nunca migra sozinho**: previsualiza e só aplica com `confirm:true`. Move só os docs do
+  escopo antigo (lições globais ficam), e avisa quando o escopo antigo é **git** (migrar pode deixar a
+  memória órfã para quem não tem o `.memory/project.json`).
 - **Cliente REST** (`lib/client.mjs`): contratos lidos do código do servidor —
   `search`, `context`, `compose`, `documents` (CRUD), `recent`, `feedback`/`PATCH` (lifecycle),
   `health`. O escopo vai sempre como `metadata.project_id`.
@@ -57,7 +63,8 @@ plugin não recria nada disso.
 | `memory_status` | Daemon vivo? URL/versão + `project_id` do projeto aberto. Não altera nada. |
 | `memory_dashboard` | Abre o **painel (canvas)** lateral: saúde do daemon, escopo (com a escada do `project_id`), documentos recentes, skills e telemetria de recall. Só leitura. |
 | `memory_setup` | Provisiona o servidor se ele não existir: baixa a release (verificada por sha256), sobe e aguarda anunciar; se já existir, reusa. Bootstrap inicial. Requer Java 21. |
-| `memory_init_project` | Cria o `.memory/project.json` (project_id estável e portável) analisando a estrutura do projeto. `skip:true` registra "não sugerir aqui". Não sobrescreve. |
+| `memory_init_project` | Cria o `.memory/project.json` (project_id estável e portável) analisando a estrutura do projeto. `skip:true` registra "não sugerir aqui". Não sobrescreve. Ao criar, **sinaliza** se há memória sob o escopo antigo (para migrar). |
+| `memory_migrate_scope` | Reatribui documentos de um `project_id` antigo para o novo via PATCH metadata-only (não re-embeda). **Sem `confirm:true` só previsualiza**; nunca move lições globais; avisa quando o escopo antigo é git (risco de órfão). |
 | `memory_search` | Busca semântica **escopada** na memória do projeto. |
 | `memory_recent` | Lista os documentos mais recentes do projeto (escopado). |
 | `memory_get` | Recupera o conteúdo completo de um documento por id (drill-down do ponteiro). |
@@ -87,7 +94,7 @@ gatilho do recall** (a skill volta como ponteiro), então ela precisa carregar o
 plugin.json        metadados + "extensions":["."] + hooks
 hooks.json         SessionStart → node boot.mjs (espelha o plugin p/ ~/.copilot/extensions via canvas-sync)
 boot.mjs           bootstrap do canvas-sync (padrão da vitrine)
-extension.mjs      entrypoint: joinSession({ tools, canvases, hooks }) — 14 tools + painel + 2 hooks
+extension.mjs      entrypoint: joinSession({ tools, canvases, hooks }) — 15 tools + painel + 2 hooks
 lib/daemon.mjs     discovery + health (cliente-puro)
 lib/provision.mjs  auto-provisionamento do server (bootstrap: baixa+verifica+sobe; fail-open)
 lib/projectId.mjs  resolver worktree-safe (.memory/project.json → git → path; força do escopo)
@@ -101,7 +108,8 @@ lib/digest.mjs     digest evidence-first da sessão (getMessages)
 lib/redact.mjs     redação de segredos/PII antes de destilar
 lib/ledger.mjs     ledger anti-duplicação temporal + recorrência
 lib/consumption.mjs telemetria client-side ponteiro→fetch
-lib/dashboard.mjs  painel (canvas): server local SDK-free + snapshot (health/escopo/docs/skills/telemetria)
+lib/dashboard.mjs  painel (canvas): server local SDK-free + snapshot (health/escopo/docs/skills/telemetria/escopo obsoleto)
+lib/migrate.mjs    migração de escopo aprovada (previewMigration + migrateScope: list→PATCH, idempotente)
 ```
 
 ## Painel (canvas)

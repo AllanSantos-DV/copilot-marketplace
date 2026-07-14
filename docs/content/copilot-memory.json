@@ -6,7 +6,8 @@
     { "title": "Recall em dois níveis", "body": "Skills voltam como **ponteiro** (nome + descrição + id) e o agente abre o corpo só quando precisa; fatos voltam **inline**, prontos para usar. Menos ruído, mais contexto." },
     { "title": "Aprende com a sessão", "body": "Depois de um marco verificado (teste passou, você confirmou), o destilador transforma o que foi validado em **skills candidatas** — com a evidência citada, e promoção só com o seu aval." },
     { "title": "Sobe o servidor sozinho", "body": "Sem daemon e sem servidor instalado, o plugin baixa a release pública, **confere o sha256** e sobe o servidor. Se já existe, apenas reusa. Requer Java 21." },
-    { "title": "Um painel pra ver tudo", "body": "Um canvas lateral mostra, ao vivo, a saúde do daemon, o escopo do projeto (com a **escada** que resolveu o `project_id`), os documentos e skills recentes e a telemetria de recall." }
+    { "title": "Um painel pra ver tudo", "body": "Um canvas lateral mostra, ao vivo, a saúde do daemon, o escopo do projeto (com a **escada** que resolveu o `project_id`), os documentos e skills recentes e a telemetria de recall." },
+    { "title": "Muda o escopo sem perder a memória", "body": "Ao declarar um `project_id` novo, o plugin detecta a memória do escopo antigo e **migra com a sua aprovação** — reatribui sem re-processar, e avisa quando há risco de deixar memória órfã." }
   ],
   "sections": [
     {
@@ -140,13 +141,14 @@
     { "q": "O plugin fica lento se o servidor demora?", "a": "Não trava a sessão. O recall tem um teto de tempo e cai para uma busca escopada mais barata se a composição demora; se estourar o teto, ele injeta nada e segue. Os hooks nunca derrubam a sua conversa." },
     { "q": "Como desligo o download automático do servidor?", "a": "Defina `COPILOT_MEMORY_AUTOPROVISION=0`. O plugin então apenas reusa um daemon que já esteja rodando e degrada se não houver — sem baixar nem subir nada." },
     { "q": "Onde mora o código do servidor?", "a": "No projeto `native-java` (mcp-memory-server), publicado como release pública. Esta vitrine guarda só o plugin cliente; o servidor é baixado do repositório oficial de releases, verificado por sha256." },
-    { "q": "Tem uma tela para ver o estado da memória?", "a": "Tem. O `memory_dashboard` abre um painel lateral (canvas) com a saúde do daemon, o escopo do projeto e a escada que resolveu o `project_id`, os documentos e skills recentes e a telemetria de recall. É só leitura e aparece depois de reiniciar o app uma vez." }
+    { "q": "Tem uma tela para ver o estado da memória?", "a": "Tem. O `memory_dashboard` abre um painel lateral (canvas) com a saúde do daemon, o escopo do projeto e a escada que resolveu o `project_id`, os documentos e skills recentes e a telemetria de recall. É só leitura e aparece depois de reiniciar o app uma vez." },
+    { "q": "Se eu declarar um project_id novo, perco a memória antiga?", "a": "Não. Ao declarar um `.memory/project.json`, o plugin detecta a memória carimbada com o escopo anterior e oferece migrá-la para o novo id, via reatribuição sem re-processar (o conteúdo é preservado). A migração nunca é automática: ele previsualiza e só aplica com a sua confirmação, e avisa quando o escopo antigo é compartilhado (git) para não deixar a memória órfã para colegas." }
   ],
   "files": {
     "plugin.json": "Metadados do plugin + marcador de hooks.",
     "hooks.json": "SessionStart → node boot.mjs (espelhamento via canvas-sync).",
     "boot.mjs": "Bootstrap padrão da vitrine (garante o canvas-sync).",
-    "extension.mjs": "Entrypoint: 14 tools + painel (canvas) + 2 hooks (recall, memória, skills, destilador, setup, init, dashboard).",
-    "lib/": "Módulos: discovery, escopo (project_id + .memory/project.json), cliente REST, recall two-tier, skills, destilador (digest + redação + registro), auto-provisionamento e o painel (canvas)."
+    "extension.mjs": "Entrypoint: 15 tools + painel (canvas) + 2 hooks (recall, memória, skills, destilador, setup, init, dashboard, migração).",
+    "lib/": "Módulos: discovery, escopo (project_id + .memory/project.json + fallback), cliente REST, recall two-tier, skills, destilador (digest + redação + registro), auto-provisionamento, painel (canvas) e migração de escopo aprovada."
   }
 }
