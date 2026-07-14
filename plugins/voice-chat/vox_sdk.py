@@ -44,11 +44,12 @@ import types
 import zipfile
 import shutil
 import urllib.request
+from typing import Literal
 
 # ---------------------------------------------------------------------------
 # CONFIG canônica — fonte única (os MESMOS valores no SDK Node irmão).
 # ---------------------------------------------------------------------------
-SDK_VERSION = "1.0.0"
+SDK_VERSION = "1.2.0"
 
 RELEASES_API = ("https://api.github.com/repos/AllanSantos-DV/"
                 "copilot-marketplace/releases")
@@ -72,6 +73,7 @@ def _install_root() -> str:
 INSTALL_ROOT = _install_root()
 INSTALLED_PYTHON = os.path.join(INSTALL_ROOT, "venv", "Scripts", "python.exe")
 INSTALLED_PYTHONW = os.path.join(INSTALL_ROOT, "venv", "Scripts", "pythonw.exe")
+INSTALLED_DICTATE = os.path.join(INSTALL_ROOT, "venv", "Scripts", "vox-dictate.exe")
 DAEMON_LOG = os.path.join(INSTALL_ROOT, "logs", "daemon.log")
 DAEMON_BOOT_LOG = os.path.join(INSTALL_ROOT, "logs", "daemon-boot.log")
 
@@ -91,9 +93,74 @@ INSTALL_TIMEOUT_MS = 1800000       # 30 min: 1ª install baixa deps (wheels CUDA
 MAX_JSON = 4 * 1024 * 1024
 MAX_AUDIO = 512 * 1024 * 1024
 
+# ---------------------------------------------------------------------------
+# SUPERFÍCIE DE CAPACIDADES — tipos permitidos que o cliente importa (autocomplete)
+# em vez de garimpar no código-fonte. Estas constantes ESPELHAM o daemon
+# (``vox_engine.core.profiles``/``hardware``/``audio_encode`` + ``daemon.inference``);
+# o teste anti-drift (tests/test_sdk_capabilities_parity.py) TRAVA a paridade — se o
+# daemon mudar e o SDK não, o CI quebra. Para o estado REAL desta máquina em runtime
+# (perfil→modelo resolvido, formatos servíveis, vozes), use ``VoxClient.capabilities()``.
+# ---------------------------------------------------------------------------
+ProfileName = Literal["dictation", "translator", "transcription", "transcription_hq"]
+ModelName = Literal["base", "small", "turbo", "large-v3"]
+Priority = Literal["interactive", "batch"]
+AudioFormat = Literal["pcm", "wav", "opus", "vorbis", "mp3"]
+
+PROFILES: tuple[str, ...] = ("dictation", "translator", "transcription", "transcription_hq")
+PROFILE_PURPOSE: dict[str, str] = {
+    "dictation": "ditado / trecho curto — velocidade (streaming)",
+    "translator": "tradução — qualidade",
+    "transcription": "arquivo completo — rápido (padrão; mesmo motor do ditado)",
+    "transcription_hq": "arquivo completo — qualidade máxima (áudio difícil/ruidoso)",
+}
+MODELS: tuple[str, ...] = ("base", "small", "turbo", "large-v3")
+PRIORITIES: tuple[str, ...] = ("interactive", "batch")
+DEFAULT_PRIORITY = "interactive"
+AUDIO_FORMATS: tuple[str, ...] = ("pcm", "wav", "opus", "vorbis", "mp3")
+DEFAULT_AUDIO_FORMAT = "pcm"
+
+
+class Capabilities:
+    """Retrato TIPADO do que o motor oferece NESTA máquina — uma chamada
+    (:meth:`VoxClient.capabilities`) e o cliente sabe tudo, sem hardcode. Combina o
+    handshake em RUNTIME (``info``: perfil→modelo já resolvido pro hardware, modelos
+    residentes/permitidos, formatos servíveis, vozes) com as listas ESTÁTICAS conhecidas
+    do SDK (``*_known``/``priorities``) — o padrão de mercado (typed + discovery).
+
+    Classe simples (NÃO ``@dataclass``) de propósito: o SDK é vendorável e pode ser
+    carregado standalone via ``importlib`` sem registrar em ``sys.modules``; um
+    ``@dataclass`` sob ``from __future__ import annotations`` resolve as anotações via
+    ``sys.modules[__module__]`` e QUEBRA nesse cenário. Um ``__init__`` explícito é imune."""
+
+    def __init__(self, *, version=None, provider=None, hardware=None, profiles=None,
+                 models_resident=None, models_allowed=None, models_known=MODELS,
+                 audio_formats_available=None, audio_formats_known=AUDIO_FORMATS,
+                 priorities=PRIORITIES, voices=None, default_voice=None):
+        self.version = version
+        self.provider = provider
+        self.hardware = hardware
+        self.profiles = profiles if profiles is not None else {}       # runtime: nome -> {model,...}
+        self.models_resident = models_resident if models_resident is not None else []
+        self.models_allowed = models_allowed if models_allowed is not None else []
+        self.models_known = models_known                                # estático (superset)
+        self.audio_formats_available = (audio_formats_available
+                                        if audio_formats_available is not None else [])
+        self.audio_formats_known = audio_formats_known                  # estático (superset)
+        self.priorities = priorities                                    # estático
+        self.voices = voices if voices is not None else []
+        self.default_voice = default_voice
+
+    def __repr__(self) -> str:
+        return (f"Capabilities(version={self.version!r}, provider={self.provider!r}, "
+                f"profiles={list(self.profiles)}, models_resident={self.models_resident})")
+
+
 __all__ = [
     "SDK_VERSION", "DEFAULT_PIPE", "PUBKEYS", "RELEASES_API", "TAG_PREFIX",
     "INSTALLER_ASSET", "SIG_ASSET",
+    "PROFILES", "PROFILE_PURPOSE", "MODELS", "PRIORITIES", "DEFAULT_PRIORITY",
+    "AUDIO_FORMATS", "DEFAULT_AUDIO_FORMAT", "Capabilities",
+    "ProfileName", "ModelName", "Priority", "AudioFormat",
     "VoxClient", "VoxEngineError", "ProtocolError",
     "verify_installer", "encode_message", "read_message", "make_recv_exact",
     "parse_version", "is_newer", "latest_release", "installed_version",
@@ -422,15 +489,82 @@ class VoxClient:
         h, _ = self._request({"cmd": "info", "req_id": self._next_rid()}, timeout=timeout)
         return h
 
+    def capabilities(self, timeout: float = 5.0) -> Capabilities:
+        """Retrato TIPADO das capacidades desta máquina (uma chamada → cliente sabe tudo).
+
+        Faz o handshake ``info`` e devolve um :class:`Capabilities`: perfis já resolvidos
+        pro hardware (``transcription``→turbo, ``transcription_hq``→large-v3 na GPU), modelos
+        residentes/permitidos, formatos de áudio servíveis + as listas estáticas conhecidas.
+        É a forma nativa de descoberta — o cliente não hardcoda nem lê o código-fonte."""
+        h = self.info(timeout=timeout)
+        # Coerção defensiva de TIPO (não só falsy): um daemon degradado/hostil pode mandar
+        # ``models`` como lista etc. — degradamos para vazio em vez de quebrar/devolver lixo.
+        def _d(v):
+            return v if isinstance(v, dict) else {}
+
+        def _l(v):
+            return v if isinstance(v, list) else []
+        return Capabilities(
+            version=h.get("version"),
+            provider=h.get("provider"),
+            hardware=h.get("hardware") if isinstance(h.get("hardware"), dict) else None,
+            profiles=_d(h.get("profiles")),
+            models_resident=sorted(_d(h.get("models")).keys()),
+            models_allowed=_l(h.get("allowed_models")),
+            audio_formats_available=_l(h.get("encode_formats")),
+            voices=_l(h.get("tts_voices")),
+            default_voice=h.get("default_voice"),
+        )
+
     def transcribe(self, audio, lang: str = "", session: str = "default",
-                   priority: str = "interactive", timeout: float = 120.0) -> str:
+                   priority: str = "interactive", profile: "str | None" = None,
+                   model: "str | None" = None, timeout: float = 120.0) -> str:
         """Transcreve ``audio`` (float32 16k mono: bytes, ndarray ou iterável) e
         devolve o texto. Levanta :class:`VoxEngineError` se o motor não retornar
-        ``result``."""
+        ``result``.
+
+        ``profile`` ('dictation'|'translator') deixa o daemon escolher o modelo pelo
+        hardware — ``translator`` usa large-v3 na GPU (turbo no CPU) para tradução de
+        qualidade; ``dictation`` (default do daemon) usa turbo. ``model`` força um
+        modelo específico (ex.: 'large-v3'), tendo precedência sobre o profile."""
         pcm = _to_pcm_bytes(audio)
-        h, _ = self._request({"cmd": "transcribe", "req_id": self._next_rid(),
-                              "session": session, "lang": lang or "",
-                              "priority": priority}, pcm, timeout=timeout)
+        header: dict = {"cmd": "transcribe", "req_id": self._next_rid(),
+                        "session": session, "lang": lang or "",
+                        "priority": priority}
+        if profile is not None:
+            header["profile"] = profile
+        if model is not None:
+            header["model"] = model
+        h, _ = self._request(header, pcm, timeout=timeout)
+        if h.get("event") == "result":
+            return (h.get("text") or "").strip()
+        raise VoxEngineError(
+            f"motor retornou {h.get('event')}/{h.get('code')}: {h.get('message') or ''}")
+
+    def transcribe_file(self, audio, lang: str = "", session: str = "default",
+                        priority: str = "interactive", profile: "str | None" = None,
+                        model: "str | None" = None, timeout: float = 300.0) -> str:
+        """Transcreve um áudio COMPLETO (gravação inteira) e devolve o texto TODO.
+
+        Diferente de :meth:`transcribe` (que assume um trecho curto <30s, o caso do
+        ditado streaming), esta trilha manda o áudio inteiro e o motor SEGMENTA no
+        servidor (VAD nos vales de silêncio / janela fixa), transcrevendo tudo sem o teto
+        de ~30s do Whisper. É o caso "gateway com o áudio pronto" (batch/arquivo).
+
+        ``timeout`` é maior (batch). Sem ``model``/``profile``, usa o profile
+        ``transcription`` = **turbo** (rápido, mesmo motor do ditado, zero VRAM nova).
+        Qualidade máxima p/ áudio difícil/ruidoso: ``profile='transcription_hq'`` ou
+        ``model='large-v3'`` (sobe lazy sob demanda).
+        Levanta :class:`VoxEngineError` se o motor não retornar ``result``."""
+        pcm = _to_pcm_bytes(audio)
+        header: dict = {"cmd": "transcribe_file", "req_id": self._next_rid(),
+                        "session": session, "lang": lang or "",
+                        "priority": priority}
+        if profile is not None:
+            header["profile"] = profile
+        if model is not None:
+            header["model"] = model
+        h, _ = self._request(header, pcm, timeout=timeout)
         if h.get("event") == "result":
             return (h.get("text") or "").strip()
         raise VoxEngineError(
@@ -461,6 +595,107 @@ class VoxClient:
     def encode_formats(self, timeout: float = 5.0) -> "list[str]":
         """Formatos de saída de TTS servíveis pelo daemon (capability discovery)."""
         return list(self.info(timeout=timeout).get("encode_formats") or ["pcm"])
+
+    def translate(self, audio, from_lang: "str | None" = None, to_lang: str = "pt",
+                  session: str = "default", whisper_model: "str | None" = None,
+                  priority: str = "interactive", speak: bool = False,
+                  dub_voice: "str | None" = None, dub_sid: int = 0, dub_fmt: str = "pcm",
+                  timeout: float = 120.0):
+        """Traduz ``audio`` (float32 16k mono) -> texto no idioma ``to_lang`` e, com
+        ``speak=True``, também a VOZ dublada no idioma-alvo (Fase B).
+
+        Retorno (depende SÓ de ``speak``/``dub_fmt`` deste request):
+
+        - ``speak=False`` -> ``dict`` (header do resultado: ``text``/``source_text``/
+          ``src_lang``/``tgt_lang``/…) — compat total com a Fase A.
+        - ``speak=True, dub_fmt="pcm"`` -> ``(header, samples)``: ``samples`` é um
+          ``numpy.ndarray`` float32 quando numpy existe (senão os ``bytes`` PCM crus);
+          ``ndarray`` vazio se o daemon marcou ``dub_skipped``.
+        - ``speak=True, dub_fmt!="pcm"`` -> ``(header, bytes)`` já codificados.
+
+        A voz de dublagem é escolhida pelo idioma-ALVO no daemon (NÃO é a voz do
+        ``cmd tts``); ``dub_voice`` só força uma alternativa compatível com o alvo."""
+        pcm = _to_pcm_bytes(audio)
+        header: dict = {"cmd": "translate", "req_id": self._next_rid(),
+                        "session": session, "to_lang": to_lang, "priority": priority}
+        if from_lang is not None:                 # presente (mesmo "") = explícito
+            header["from_lang"] = from_lang
+        if whisper_model is not None:
+            header["whisper_model"] = whisper_model
+        if speak:
+            header["speak"] = True
+            if dub_voice:
+                header["dub_voice"] = dub_voice
+            if dub_sid:
+                header["dub_sid"] = dub_sid
+            if dub_fmt and dub_fmt != "pcm":
+                header["dub_fmt"] = dub_fmt
+        h, audio_out = self._request(header, pcm, timeout=timeout)
+        if not speak:
+            return h                              # compat: só o header (dict)
+        if dub_fmt and dub_fmt != "pcm":
+            return h, audio_out                   # bytes codificados, sem interpretar
+        if _np is not None:
+            samples = _np.frombuffer(audio_out, dtype="<f4") if audio_out else _np.zeros(0, _np.float32)
+            return h, samples
+        return h, audio_out                       # numpy ausente ⇒ bytes PCM crus
+
+    def translate_text(self, text: str, from_lang: str, to_lang: str = "pt", *,
+                       session: str = "default", priority: str = "interactive",
+                       speak: bool = False, dub_voice: "str | None" = None,
+                       dub_sid: int = 0, dub_fmt: str = "pcm", timeout: float = 120.0):
+        """Traduz TEXTO -> texto no idioma ``to_lang`` (pula o STT: o chamador JÁ
+        transcreveu a fala) e, com ``speak=True``, também a VOZ dublada (Fase B).
+
+        ``from_lang`` é OBRIGATÓRIO — o Argos NÃO auto-detecta idioma de TEXTO. Retorno
+        idêntico ao :meth:`translate` (depende SÓ de ``speak``/``dub_fmt``):
+
+        - ``speak=False`` -> ``dict`` (só o header do resultado);
+        - ``speak=True, dub_fmt="pcm"`` -> ``(header, samples)`` (``numpy.ndarray``
+          float32 quando numpy existe, senão ``bytes`` PCM crus; vazio se ``dub_skipped``);
+        - ``speak=True, dub_fmt!="pcm"`` -> ``(header, bytes)`` já codificados."""
+        header: dict = {"cmd": "translate_text", "req_id": self._next_rid(),
+                        "session": session, "text": text, "from_lang": from_lang,
+                        "to_lang": to_lang, "priority": priority}
+        if speak:
+            header["speak"] = True
+            if dub_voice:
+                header["dub_voice"] = dub_voice
+            if dub_sid:
+                header["dub_sid"] = dub_sid
+            if dub_fmt and dub_fmt != "pcm":
+                header["dub_fmt"] = dub_fmt
+        h, audio_out = self._request(header, timeout=timeout)   # sem payload de áudio
+        if not speak:
+            return h                              # compat: só o header (dict)
+        if dub_fmt and dub_fmt != "pcm":
+            return h, audio_out                   # bytes codificados, sem interpretar
+        if _np is not None:
+            samples = _np.frombuffer(audio_out, dtype="<f4") if audio_out else _np.zeros(0, _np.float32)
+            return h, samples
+        return h, audio_out                       # numpy ausente ⇒ bytes PCM crus
+
+    def prepare_translation(self, from_lang: str, to_lang: str,
+                            whisper_model: "str | None" = None, speak: bool = False,
+                            dub_voice: "str | None" = None, dub_sid: int = 0,
+                            timeout: float = 600.0) -> dict:
+        """Baixa/instala o modelo faster-whisper + par(es) Argos ANTES de traduzir (o
+        caminho de inferência nunca baixa). Com ``speak=True`` também faz o warm-up da
+        voz de dublagem do idioma-alvo, FORA do worker — a resposta ``ready`` ganha
+        ``dub_voice/dub_sample_rate/dub_provider/dub_ready``. Bloqueia até ``ready``
+        (ou erro); ``timeout`` folgado (pode baixar centenas de MB na 1ª vez)."""
+        header: dict = {"cmd": "prepare_translation", "req_id": self._next_rid(),
+                        "from_lang": from_lang, "to_lang": to_lang}
+        if whisper_model is not None:
+            header["whisper_model"] = whisper_model
+        if speak:
+            header["speak"] = True
+            if dub_voice:
+                header["dub_voice"] = dub_voice
+            if dub_sid:
+                header["dub_sid"] = dub_sid
+        h, _ = self._request(header, timeout=timeout)
+        return h
 
     def close(self) -> None:
         with self._lock:
@@ -738,7 +973,8 @@ def download_and_run_installer(asset_url: str, sig_url: "str | None" = None, *,
 
 def check_and_update(python_exe: "str | None" = None, *, http_get=None, run=None,
                      latest: "dict | None" = None, pipe: "str | None" = None,
-                     connect=None, lock_dir: "str | None" = None) -> dict:
+                     connect=None, lock_dir: "str | None" = None,
+                     with_translation: bool = True) -> dict:
     """Decide e executa a atualização. Devolve
     ``{'action','installed','latest'}`` com ``action`` ∈
     ``up_to_date|installed|updated|offline_installed|unavailable|failed``.
@@ -748,6 +984,11 @@ def check_and_update(python_exe: "str | None" = None, *, http_get=None, run=None
     ``up_to_date`` (NÃO baixa); ausente/velho ⇒ baixa+verifica+instala; verify/
     download falho ⇒ NÃO roda install.ps1 (usa o existente se houver, senão
     ``failed``); pós-install não importável ⇒ ``failed`` (não sobe lixo).
+
+    ``with_translation`` (padrão True): quando o install.ps1 REALMENTE roda, passa
+    ``-WithTranslation`` — o consumidor já ganha o extra de tradução (faster-whisper
+    + Argos) por padrão. Libs seguem LAZY em runtime; só a POLÍTICA de instalação
+    muda. Passe False para o motor base apenas.
 
     O LOCK de instalação vive DENTRO de ``download_and_run_installer`` (FIX 4), então
     este ponto de entrada público também fica serializado entre processos."""
@@ -763,7 +1004,8 @@ def check_and_update(python_exe: "str | None" = None, *, http_get=None, run=None
     ok = download_and_run_installer(latest["asset_url"], latest.get("sig_url"),
                                     http_get=http_get, run=run, pipe=pipe,
                                     target_version=latest["version"], connect=connect,
-                                    python_exe=python_exe, lock_dir=lock_dir)
+                                    python_exe=python_exe, lock_dir=lock_dir,
+                                    extra_args=(["-WithTranslation"] if with_translation else None))
     if not ok:
         # update é best-effort: sem verify/download/install, usa o existente.
         return {"action": ("offline_installed" if cur else "failed"),
@@ -939,6 +1181,178 @@ def _wait_for_pipe(pipe: str, boot_timeout: float) -> "VoxClient | None":
 
 
 # ---------------------------------------------------------------------------
+# stop_daemon — reciclagem: derruba um daemon rodando para o update valer (e o
+# hook do daemon subir o ditado com a versão nova). Paridade com o SDK Node.
+# ---------------------------------------------------------------------------
+def _pidfile_path(pipe: str) -> str:
+    """Pidfile que o daemon escreve no boot (chaveado pelo pipe; espelha
+    ``__main__._pidfile_path``). sha1(pipe)[:12] — derivação idêntica no daemon."""
+    import hashlib
+    digest = hashlib.sha1(pipe.encode("utf-8")).hexdigest()[:12]
+    return os.path.join(INSTALL_ROOT, "run", f"daemon-{digest}.pid")
+
+
+def _read_pidfile(pipe: str) -> "int | None":
+    try:
+        with open(_pidfile_path(pipe), encoding="utf-8") as f:
+            pid = int(f.read().strip())
+        return pid if pid > 0 else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _daemon_match_regex(pipe: str) -> str:
+    """Regex p/ casar o argumento ``--pipe <pipe>`` como TOKEN ancorado (seguido de
+    espaço/fim), para que ``\\.\\pipe\\vox`` nunca case um ``\\.\\pipe\\vox2`` vizinho."""
+    import re as _re
+    return r"--pipe\s+" + _re.escape(pipe) + r"(\s|$)"
+
+
+def _find_daemon_pid(pipe: str) -> "int | None":
+    """Último recurso p/ daemon LEGADO (sem pidfile, sem pid no info): acha o processo
+    rodando ``-m vox_engine --pipe <pipe>`` (token ANCORADO) e devolve o PID. Windows-only."""
+    try:
+        esc = pipe.replace("'", "''")
+        ps = ("$re = '--pipe\\s+' + [regex]::Escape('" + esc + "') + '(\\s|$)'; "
+              "Get-CimInstance Win32_Process -Filter \"Name='pythonw.exe' OR "
+              "Name='python.exe'\" | Where-Object { $_.CommandLine -like '*vox_engine*' "
+              "-and $_.CommandLine -match $re } | "
+              "Select-Object -First 1 -ExpandProperty ProcessId")
+        r = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                           capture_output=True, text=True, timeout=15)
+        pid = int((r.stdout or "").strip())
+        return pid if pid > 0 else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _daemon_pid_matches(pid: int, pipe: str) -> bool:
+    """True sse ``pid`` É um daemon vox_engine NESTE pipe exato — p/ nunca matar um PID
+    reciclado por um processo alheio (pidfile obsoleto)."""
+    try:
+        esc = pipe.replace("'", "''")
+        ps = ("$re = '--pipe\\s+' + [regex]::Escape('" + esc + "') + '(\\s|$)'; "
+              f"$p = Get-CimInstance Win32_Process -Filter \"ProcessId={int(pid)}\"; "
+              "if ($p -and $p.CommandLine -like '*vox_engine*' -and "
+              "$p.CommandLine -match $re) { 'yes' }")
+        r = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                           capture_output=True, text=True, timeout=15)
+        return (r.stdout or "").strip() == "yes"
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _kill_pid(pid: int) -> None:
+    """Mata o processo ``pid`` e a árvore (taskkill /T /F). Best-effort, nunca levanta."""
+    try:
+        subprocess.run(["taskkill", "/PID", str(int(pid)), "/T", "/F"],
+                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=30)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _daemon_up(pipe: str) -> bool:
+    c = VoxClient.try_connect(pipe, connect_timeout=0.4)
+    if c is None:
+        return False
+    try:
+        c.close()
+    except Exception:  # noqa: BLE001
+        pass
+    return True
+
+
+def _wait_pipe_down(pipe: str, timeout: float, *, is_up, monotonic, sleep) -> bool:
+    deadline = monotonic() + timeout
+    while True:
+        try:
+            up = is_up(pipe)
+        except Exception:  # noqa: BLE001 — erro na sonda ⇒ assume ainda no ar
+            up = True
+        if not up:
+            return True
+        if monotonic() >= deadline:
+            return False
+        sleep(0.5)
+
+
+def stop_daemon(pipe: str = DEFAULT_PIPE, *, pid: "int | None" = None,
+                connect=None, kill=None, is_up=None, read_pidfile=None,
+                find_pid=None, pid_matches=None, monotonic=None, sleep=None,
+                graceful_timeout: float = 8.0, kill_timeout: float = 6.0) -> bool:
+    """Para o daemon do ``pipe`` para reciclar (o update valer + o ditado subir com a
+    versão nova). 1) shutdown GRACIOSO pelo pipe (daemon 0.9.0+); se o daemon responde
+    BUSY (sessão abriu na corrida), ABORTA — nunca mata. 2) espera o pipe cair; 3) fallback
+    KILL por pid: explícito/info (confiável) → pidfile (VERIFICADO) → scan (ancorado+verificado);
+    nunca mata um PID não verificado. 4) espera de novo. True sse o pipe caiu. Nunca levanta."""
+    connect = connect or (lambda pp: VoxClient.try_connect(pp, connect_timeout=1.0))
+    kill = kill or _kill_pid
+    is_up = is_up or _daemon_up
+    read_pidfile = read_pidfile or _read_pidfile
+    find_pid = find_pid or _find_daemon_pid
+    pid_matches = pid_matches or _daemon_pid_matches
+    monotonic = monotonic or time.monotonic
+    sleep = sleep or time.sleep
+
+    learned_pid = pid   # pid explícito é confiável (responsabilidade do chamador)
+    refused_busy = False
+    # 1) shutdown gracioso pelo pipe (+ aprende o pid p/ o fallback).
+    try:
+        c = connect(pipe)
+        if c is not None:
+            try:
+                if learned_pid is None:
+                    try:
+                        learned_pid = (c.info() or {}).get("pid")
+                    except Exception:  # noqa: BLE001
+                        learned_pid = None
+                try:
+                    resp, _ = c._request({"cmd": "shutdown", "req_id": c._next_rid()},
+                                         timeout=2.0)
+                    if isinstance(resp, dict) and resp.get("event") == "busy":
+                        refused_busy = True
+                except Exception:  # noqa: BLE001 — daemon legado: bad_cmd / socket caiu
+                    pass
+            finally:
+                try:
+                    c.close()
+                except Exception:  # noqa: BLE001
+                    pass
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Daemon respondeu BUSY (sessão abriu na corrida) → NÃO mata; o chamador segue servindo.
+    if refused_busy:
+        return False
+
+    # 2) espera a saída graciosa.
+    if _wait_pipe_down(pipe, graceful_timeout, is_up=is_up, monotonic=monotonic, sleep=sleep):
+        return True
+
+    # 3) fallback: mata o processo EXATO (legado ou travado). Verifica pids não confiáveis.
+    kill_pid = learned_pid                         # confiável: explícito ou info.pid
+    if kill_pid is None:
+        from_file = read_pidfile(pipe)             # pidfile: VERIFICA (pode estar obsoleto)
+        if from_file is not None and pid_matches(from_file, pipe):
+            kill_pid = from_file
+    if kill_pid is None:
+        kill_pid = find_pid(pipe)                  # scan: ancorado + auto-verificado
+    if kill_pid is not None:
+        try:
+            kill(kill_pid)
+        except Exception:  # noqa: BLE001
+            pass
+        if _wait_pipe_down(pipe, kill_timeout, is_up=is_up, monotonic=monotonic, sleep=sleep):
+            return True
+    # 4) veredito final.
+    try:
+        return not is_up(pipe)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Máquina de estados: ensure_vox / ensure_vox_detailed.
 # ---------------------------------------------------------------------------
 def _reuse_result(client: "VoxClient", *, auto_update: bool, http_get) -> dict:
@@ -961,11 +1375,12 @@ def _reuse_result(client: "VoxClient", *, auto_update: bool, http_get) -> dict:
 
 
 def ensure_vox_detailed(pipe: "str | None" = None, *, autostart: bool = True,
-                        auto_update: bool = True,
+                        auto_update: bool = True, recycle_stale: bool = True,
                         connect_timeout_ms: "int | None" = None,
                         boot_timeout_ms: "int | None" = None,
                         python_exe: "str | None" = None,
-                        http_get=None, run=None) -> dict:
+                        with_translation: bool = True,
+                        http_get=None, run=None, stop=None) -> dict:
     """Install → update → use, com relatório. Devolve um dict com as MESMAS chaves
     do SDK Node: ``{client, installedVersion, latestVersion, updateAvailable, action}``.
 
@@ -983,6 +1398,7 @@ def ensure_vox_detailed(pipe: "str | None" = None, *, autostart: bool = True,
       3. sobe o daemon instalado e espera o pipe (boot generoso). Falha ⇒ ``failed``.
     """
     pipe = pipe or DEFAULT_PIPE
+    stop = stop or stop_daemon
     connect_timeout = (connect_timeout_ms if connect_timeout_ms is not None
                        else CONNECT_TIMEOUT_MS) / 1000.0
     boot_timeout = (boot_timeout_ms if boot_timeout_ms is not None
@@ -990,10 +1406,48 @@ def ensure_vox_detailed(pipe: "str | None" = None, *, autostart: bool = True,
     result = {"client": None, "installedVersion": None, "latestVersion": None,
               "updateAvailable": False, "action": "unavailable"}
 
-    # ---- (1) reuso: daemon já no ar ----
+    # ---- (1) daemon já no ar: reusar OU reciclar (se velho e ocioso) ----
     client = VoxClient.try_connect(pipe, connect_timeout)
     if client is not None:
-        return _reuse_result(client, auto_update=auto_update, http_get=http_get)
+        running_ver = running_sessions = running_pid = None
+        try:
+            info = client.info() or {}
+            running_ver = info.get("version")
+            running_sessions = info.get("sessions")
+            running_pid = info.get("pid")
+        except Exception:  # noqa: BLE001
+            pass
+        latest = latest_release(http_get=http_get) if auto_update else None
+        latest_ver = latest["version"] if latest else None
+        stale = bool(latest and running_ver and is_newer(latest_ver, running_ver))
+
+        # RECICLA um daemon VELHO para o update valer e o hook do daemon subir o ditado
+        # com a versão nova — só quando é SEGURO: dá p/ subir (autostart), está OCIOSO
+        # (sessions == 0) e o venv arranca (installed != None). ``installed_version`` gera
+        # um subprocesso, então é avaliado POR ÚLTIMO (só quando o resto já qualifica) —
+        # mantém o caminho comum "atual → reusa" sem spawn desnecessário.
+        idle = running_sessions == 0
+        if (stale and recycle_stale and autostart and idle
+                and installed_version(python_exe, run=run) is not None):
+            try:
+                client.close()
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                stopped = stop(pipe, pid=running_pid)
+            except Exception:  # noqa: BLE001 — stop é best-effort; nunca quebra o ensure
+                stopped = False
+            if stopped:
+                client = None   # cai no (2)/(3): instala a última + sobe o daemon novo
+            else:
+                re = VoxClient.try_connect(pipe, connect_timeout)
+                return {"client": re, "installedVersion": running_ver,
+                        "latestVersion": latest_ver, "updateAvailable": True,
+                        "action": "reused"}
+        else:
+            return {"client": client, "installedVersion": running_ver,
+                    "latestVersion": latest_ver, "updateAvailable": stale,
+                    "action": "reused"}
 
     if not autostart:
         result["action"] = "unavailable"
@@ -1018,7 +1472,8 @@ def ensure_vox_detailed(pipe: "str | None" = None, *, autostart: bool = True,
         ok = download_and_run_installer(latest["asset_url"], latest.get("sig_url"),
                                         http_get=http_get, run=run, pipe=pipe,
                                         target_version=latest["version"],
-                                        python_exe=python_exe)
+                                        python_exe=python_exe,
+                                        extra_args=(["-WithTranslation"] if with_translation else None))
         if not ok:
             # verify/download/install/lock falho (fail-closed): usa o existente.
             if cur is None:

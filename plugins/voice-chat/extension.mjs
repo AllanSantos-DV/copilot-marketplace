@@ -41,7 +41,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.5.8";
+const CURRENT_VERSION = "1.5.9";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -53,7 +53,7 @@ const RUNNING_AS_PLUGIN = /[\\/]installed-plugins[\\/]/.test(EXT_DIR);
 const UPDATE_DISABLED = process.env.VOICE_UPDATE_DISABLED === "1" || RUNNING_AS_PLUGIN;
 const UPDATE_THROTTLE_MS = Number(process.env.VOICE_UPDATE_THROTTLE_MS) || 0;
 const UPDATE_STATE_FILE = join(ARTIFACTS, "update-state.json");
-const UPDATABLE_FILES = new Set(["extension.mjs", "voice_worker.py", "vox_sdk.py", "_ed25519_ref.py", "iframe.html", "requirements.txt"]);
+const UPDATABLE_FILES = new Set(["extension.mjs", "voice_worker.py", "vox_sdk.py", "vox_stream.py", "_ed25519_ref.py", "iframe.html", "requirements.txt"]);
 
 // Python interpreters are discovered dynamically (see buildPythonCandidates).
 
@@ -644,7 +644,7 @@ function releaseAssetBase(version) {
 
 // --- Auto-aplicar update (worker/UI a quente; app-restart só se a LÓGICA do extension.mjs mudou) ---
 // Arquivos que o worker (processo filho) carrega: um restart do worker os aplica a quente.
-const WORKER_UPDATE_FILES = new Set(["voice_worker.py", "vox_sdk.py", "_ed25519_ref.py", "requirements.txt"]);
+const WORKER_UPDATE_FILES = new Set(["voice_worker.py", "vox_sdk.py", "vox_stream.py", "_ed25519_ref.py", "requirements.txt"]);
 // A versão é sincronizada dentro do extension.mjs a cada release (gen-manifest), então o FILE
 // muda todo release. Para decidir se a LÓGICA mudou (e o app precisa reimportar o módulo),
 // hasheamos ignorando a linha da versão: release que só troca versão (ou só mexe em worker/UI)
