@@ -1,9 +1,10 @@
 {
-  "tagline": "Uma ponte entre o Copilot no PC e o seu celular — com resumo falado e detecção de drift.",
-  "lede": "O **copilot-mobile** é a extensão in-app mínima que liga sua sessão do Copilot ao app no celular. Ela faz só o que exige a sessão viva: injeta o resumo falado (🔊) a cada turno e avisa quando o celular respondeu turnos que o PC ainda não viu. Pareamento, transporte e configuração ficam no **daemon apartado** (ícone da bandeja).",
+  "tagline": "Uma ponte entre o Copilot no PC e o celular: responda o agente pelo telefone, ouça o resumo falado e detecte drift.",
+  "lede": "O **copilot-mobile** é a extensão in-app que liga sua sessão do Copilot ao app no celular. Ela faz só o que a sessão viva exige: leva as **perguntas do agente** (`ask_user`) para o seu telefone — com o modal nativo do PC como rede de segurança —, injeta o **resumo falado** (🔊) a cada turno e avisa quando o celular respondeu turnos que o PC ainda não viu. Pareamento, transporte e configuração ficam no **daemon apartado** (ícone da bandeja).",
   "highlights": [
+    { "title": "Responda o agente pelo celular", "body": "Com o transporte aberto, cada `ask_user` chega ao telefone e a uma página no PC — você destrava o turno de onde estiver." },
+    { "title": "Modal nativo como rede de segurança", "body": "Com o daemon desligado, a pergunta cai no modal padrão do PC: confiável, nunca escondido. O celular ainda pode responder pela ponte." },
     { "title": "Resumo falado no celular", "body": "Injeta a instrução 🔊 e o daemon transforma essa linha no áudio que toca no telefone." },
-    { "title": "Sem sessão duplicada", "body": "O plano de controle (transporte, pareamento, túnel) mora no daemon — a extensão fica leve e não compete pela sessão." },
     { "title": "Aviso de drift", "body": "Conta os turnos vindos do celular no disco e pede para sincronizar quando o PC fica para trás." }
   ],
   "sections": [
@@ -11,8 +12,8 @@
       "id": "o-que-e",
       "title": "O que é",
       "blocks": [
-        { "type": "p", "text": "O copilot-mobile deixa você continuar uma conversa do Copilot pelo celular. Esta extensão é a parte **mínima** que precisa rodar dentro da sessão do agente; o trabalho pesado — transporte, pareamento, stream e a tela de configuração — vive num **daemon apartado**, sempre ligado, aberto pelo ícone da bandeja." },
-        { "type": "p", "text": "Na prática ela faz duas coisas: garante que cada resposta termine com um resumo falado (que vira áudio no telefone) e detecta quando o celular já respondeu turnos que a sessão do PC ainda não incorporou." },
+        { "type": "p", "text": "O copilot-mobile deixa você continuar uma conversa do Copilot pelo celular. Esta extensão é a parte que precisa rodar **dentro da sessão** do agente; o trabalho pesado — transporte, pareamento, stream e a tela de configuração — vive num **daemon apartado**, sempre ligado, aberto pelo ícone da bandeja." },
+        { "type": "p", "text": "Na **0.3.3** ela ganha a peça que faltava: quando o agente **faz uma pergunta**, você responde pelo telefone. Somado ao resumo falado e ao aviso de drift, dá para acompanhar um turno longo do sofá — e destravar o agente sem voltar ao PC." },
         { "type": "note", "tone": "info", "text": "Registra um **canvas** e usa **hooks**; reinicie o app uma vez após instalar. O daemon é baixado apartado na primeira execução (release buildada, sem build)." }
       ]
     },
@@ -27,10 +28,27 @@
             { "title": "Reinicie o app", "text": "Uma vez, para os hooks e o daemon entrarem." },
             { "title": "Abra o daemon na bandeja", "text": "O ícone da bandeja abre o painel de configuração — funciona mesmo com o app fechado." },
             { "title": "Arme o transporte", "text": "Escolha off / lan / tailscale / public conforme onde o celular vai alcançar o PC." },
-            { "title": "Pareie o celular", "text": "Escaneie o QR do painel no app Android e comece a conversar de qualquer lugar." }
+            { "title": "Pareie o celular", "text": "Escaneie o QR do painel no app Android." },
+            { "title": "Acompanhe e responda", "text": "Ouça o resumo falado e, quando o agente perguntar, responda direto do telefone." }
           ]
         },
-        { "type": "note", "tone": "info", "text": "Enquanto o transporte estiver em **off**, a extensão não injeta o resumo falado — nada vaza sem você armar." }
+        { "type": "note", "tone": "info", "text": "Com o transporte em **off**, a extensão não injeta o resumo falado e mantém as perguntas no modal nativo do PC — nada vaza sem você armar." }
+      ]
+    },
+    {
+      "id": "perguntas-pelo-celular",
+      "title": "Perguntas pelo celular",
+      "blocks": [
+        { "type": "p", "text": "Quando o agente chama `ask_user`, a extensão decide **onde** você responde — uma vez, no início da sessão, lendo o transporte do daemon:" },
+        {
+          "type": "list",
+          "items": [
+            "**Transporte aberto** (lan / tailscale / public) — a pergunta vai para o **celular** e abre uma **página no PC** ao mesmo tempo; a primeira resposta destrava o turno.",
+            "**Transporte fechado** (off / daemon desligado) — fica o **modal nativo do PC**, confiável e nunca escondido. Mesmo assim o celular ainda responde pela ponte.",
+            "**Uma tela por sessão** — cada sessão ganha a sua própria página, então várias sessões abertas não roubam o canvas uma da outra."
+          ]
+        },
+        { "type": "note", "tone": "warn", "text": "A sessão decide onde perguntar **no boot**. Se você armar o transporte depois, o celular já responde; a página no PC, porém, só entra em sessões iniciadas com o transporte já armado — reabra a sessão para ligar as duas telas." }
       ]
     },
     {
@@ -40,12 +58,13 @@
         {
           "type": "list",
           "items": [
-            "**Resumo falado** — a cada turno, injeta a instrução para terminar a resposta com uma linha 🔊; o daemon a transforma em áudio no celular.",
-            "**Drift celular→PC** — o daemon grava os turnos do celular no disco por um runtime separado; a extensão compara as contagens e avisa quando há turnos faltando no chat do PC.",
-            "**Plano de controle no daemon** — transporte, pareamento, SSE e túnel ficam fora da sessão, sempre disponíveis."
+            "**Perguntas roteadas** — com o transporte aberto, a extensão assume o `ask_user`, mostra a página no PC (reabrindo sozinha se ela não surgir) e envia a mesma pergunta ao celular pela sessão viva.",
+            "**Resumo falado** — a cada turno injeta a instrução para terminar a resposta com uma linha 🔊; o daemon a transforma em áudio no celular. Só injeta quando o daemon está armado.",
+            "**Drift celular→PC** — o daemon grava os turnos do celular no disco por um runtime separado; a extensão compara as contagens e avisa quando faltam turnos no chat do PC.",
+            "**Plano de controle no daemon** — transporte, pareamento, stream e túnel ficam fora da sessão, sempre disponíveis; o celular só recebe notificação (FCM) com o transporte aberto."
           ]
         },
-        { "type": "p", "text": "A detecção de drift é **lógica pura e testada** (`drift.mjs`, 17 casos): o chamador passa as contagens, sem I/O escondido — fácil de confiar." }
+        { "type": "p", "text": "As decisões sensíveis são **lógica pura e testada** — a detecção de drift (`drift.mjs`), quando assumir o `ask_user` (`askMode.mjs`) e a reabertura da página (`canvasOpen.mjs`) —, cada uma sem I/O escondido, fácil de confiar." }
       ]
     }
   ],
@@ -56,6 +75,17 @@
   ],
   "faq": [
     { "q": "Onde configuro transporte e pareamento?", "a": "No daemon, pelo ícone da bandeja — ele serve o próprio painel e funciona mesmo com o app fechado." },
-    { "q": "Por que a extensão é tão pequena?", "a": "De propósito: antes ela subia um HTTP server completo e um canvas de config, duplicando o daemon e fazendo cada sessão competir pelo controle. Agora só ficam os dois hooks que dependem da sessão viva." }
-  ]
+    { "q": "E se o agente perguntar com o daemon desligado?", "a": "A pergunta usa o modal nativo do PC, como sempre — nunca fica escondida. Depois que você arma o transporte, o celular também passa a responder." },
+    { "q": "Preciso reabrir a sessão para responder pelo celular?", "a": "Para responder, não: o celular resolve as perguntas de qualquer sessão pela ponte. A página no PC, porém, só liga em sessões iniciadas com o transporte já armado — reabra a sessão para ter as duas telas." },
+    { "q": "Por que transporte e pareamento ficam no daemon?", "a": "Para a extensão não competir pela sessão nem exigir o app aberto. O daemon é o único plano de controle, sempre ligado; a extensão fica só com o que depende da sessão viva." }
+  ],
+  "files": {
+    "extension.mjs": "Entra na sessão viva: injeta voz + drift, roteia o `ask_user` e liga a sessão ao daemon.",
+    "askUserBridge.mjs": "Assume o `ask_user`: leva a pergunta ao celular e à página do PC e resolve a resposta.",
+    "askMode.mjs": "Decisão pura: assumir o `ask_user` ou manter o modal nativo do PC.",
+    "askPage.mjs": "Estado da página de pergunta: rearma a cada resposta para mostrar a próxima.",
+    "canvasOpen.mjs": "Reabertura limitada da página no PC — garante que a pergunta apareça.",
+    "canvasId.mjs": "Um id de canvas por sessão, para sessões concorrentes não colidirem.",
+    "liveLink.mjs": "Liga a sessão viva ao daemon para o celular ser roteado por ela."
+  }
 }
