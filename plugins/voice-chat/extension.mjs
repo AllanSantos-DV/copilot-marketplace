@@ -41,7 +41,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.5.11";
+const CURRENT_VERSION = "1.5.12";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
