@@ -34,6 +34,7 @@ import urllib.request
 import math
 import unicodedata
 from collections import deque
+import vox_sdk
 
 try:
     import truststore
@@ -144,6 +145,10 @@ VOX_PROFILE = os.environ.get("VOICE_VOX_PROFILE", "dictation").strip() or "dicta
 # (evita OOM/wedge). E um timeout no request evita travar o loop de comandos.
 VOX_MAX_FRAME = 64 * 1024 * 1024
 VOX_REQ_TIMEOUT = float(os.environ.get("VOX_REQ_TIMEOUT", "30").strip() or "30")
+# Cushion de conexão da RECONEXÃO (daemon UP, pipe idle stale): ~250ms = ~2-3 tentativas de
+# open a 0.1s no SDK, absorvendo um ERROR_PIPE_BUSY transitório do pipe COMPARTILHADO sem
+# reintroduzir o stall de ~2s. O PROBE de decode (daemon fora) segue 0ms (fast-fail).
+_RECONNECT_CONNECT_MS = 250
 GH_BASE = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
 # Voz de TTS: vazio = usa a voz PADRÃO do motor (default_voice). Não cravamos um nome
 # aqui — o catálogo e o padrão são do vox-engine (fonte única, sem lista local).
@@ -1476,64 +1481,49 @@ def mic_monitor():
         time.sleep(3.0)
 
 
-class VoxEngineError(RuntimeError):
-    """Motor de voz (vox-engine) indisponível ou falhou. NÃO há fallback silencioso
-    para o STT local — o chamador deve reportar o erro ALTO (visível na UI)."""
-
-
-class _PipeWriteError(OSError):
-    """Falha ao ESCREVER o frame no pipe do motor — o request NÃO chegou ao motor
-    (ex.: pipe ocioso ficou stale → [Errno 22]/EINVAL). Distinto de uma falha de
-    LEITURA: só a escrita pode ser reconectada+repetida com segurança (repetir uma
-    leitura reprocessaria um request que o motor JÁ recebeu — ex.: transcribe)."""
+# O motor (via SDK) levanta vox_sdk.VoxEngineError. O worker REEXPORTA essa MESMA classe
+# (não uma própria) — senão o `except VoxEngineError` do worker nunca casaria o erro real
+# do cliente do SDK, matando a reconexão e deixando o STT falhar MUDO (bug pego no gate).
+# Reexportado como nome de módulo p/ os call sites (`raise VoxEngineError(...)`, os testes
+# e `except VoxEngineError`) continuarem iguais, agora unificados com a classe do SDK.
+VoxEngineError = vox_sdk.VoxEngineError
 
 
 class _VoxBridge:
-    """Cliente STDLIB-puro do motor único (vox-engine) via named pipe.
+    """Ponte do worker para o motor único (vox-engine) via SDK VENDORIZADO.
 
-    Substitui o STT local do voice-chat pelo motor compartilhado (perfil
-    ``dictation`` → turbo). Não usa pywin32 (abre o pipe como arquivo), então
-    roda em qualquer python do worker. Se o motor não estiver INSTALADO, baixa o
-    instalador da release pública e o executa (tudo em STDLIB pura: ``urllib``,
-    ``zipfile``, ``tempfile``, ``subprocess`` — não importa ``vox_engine`` nem
-    ``pywin32``); depois sobe o daemon INSTALADO. Em qualquer falha (rede,
-    release ausente, install.ps1 != 0, sem Python 3.11+), ``transcribe``/``info``
-    LEVANTAM :class:`VoxEngineError` — sem fallback silencioso, sem erro mudo
-    (regra do projeto: fallback automático introduz ponto de falha e mascara
-    problema).
+    NÃO reimplementa mais o ciclo de vida do motor (instalar/atualizar/subir/lock):
+    isso é do SDK oficial (``vox_sdk``), a FONTE ÚNICA da verdade. O SDK, no primeiro
+    turno, instala/atualiza e RECICLA um daemon velho e ocioso (derruba+sobe a versão
+    nova, cujo hook do daemon sobe o ditado junto), tudo coordenado por um lock
+    CROSS-CONSUMER (``%LOCALAPPDATA%\\vox-engine\\.install.lock``) que sincroniza
+    voice-chat + Action + Hermes entre si.
+
+    Este wrapper só: (a) delega o boot ao ``ensure_vox_detailed`` (fast-fail no decode
+    via ``ensure_vox`` reuse-only); (b) expõe ``info``/``transcribe``/``synthesize`` no
+    formato que o worker já usa; (c) PRESERVA a auto-reconexão no pipe ocioso stale — o
+    SDK fecha o handle e levanta ``VoxEngineError`` na falha de ESCRITA; o worker
+    reconecta e repete 1x SÓ nesse caso (repetir uma falha de LEITURA reprocessaria um
+    request que o motor já recebeu, ex.: transcribe).
+
+    Erros sobem ALTOS como :class:`VoxEngineError` — sem fallback silencioso, sem STT
+    local (regra do projeto: fallback automático mascara problema e cria ponto de falha).
     """
 
-    # Vitrine pública que hospeda a release do motor (tag vox-engine-v*), espelho
-    # de vox_engine.core.updater — mas 100% stdlib (o worker não importa o motor).
-    # VOX_RELEASES_API permite apontar p/ um espelho/enterprise (e testar a falha
-    # de rede de forma determinística) sem tocar no código.
-    _RELEASES_API = os.environ.get("VOX_RELEASES_API") or (
-        "https://api.github.com/repos/AllanSantos-DV/"
-        "copilot-marketplace/releases")
-    _TAG_PREFIX = "vox-engine-v"
-    _INSTALLER_ASSET = "vox-engine-installer.zip"
-
     def __init__(self, pipe=VOX_PIPE, profile=VOX_PROFILE, status_cb=None):
-        self._pipe_name = pipe
+        self._pipe = pipe
         self._profile = profile
-        self._fh = None
-        self._lock = threading.Lock()        # serializa 1 request/response (framing)
-        self._conn_lock = threading.Lock()   # serializa (re)conexão/spawn/INSTALAÇÃO
-        self._rid = 0
-        self._next_retry = 0.0               # monotonic: cooldown p/ não bater no motor caído
-        self._cooldown = 10.0                # s entre tentativas de spawn quando fora
-        self._status_cb = status_cb          # callback p/ progresso VISÍVEL (instalação lenta)
-        self._last_error = None              # última falha DETALHADA (instalação OU boot do daemon) p/ surfacing ALTO em info()
+        self._session = "voice-chat"
+        self._status_cb = status_cb
+        self._client = None                  # vox_sdk.VoxClient conectado, ou None
+        self._boot_lock = threading.Lock()   # serializa boot/instalação (1 por vez)
+        self._last_error = None              # última falha DETALHADA p/ info() surfaçar ALTO
 
     def _status(self, msg, busy=False):
-        """Sinal de progresso VISÍVEL (ex.: instalação lenta que levaria minutos).
-        Best-effort: sempre loga; se houver callback, emite p/ a UI. Nunca quebra o
-        boot se o callback falhar (blindado) — mas NUNCA fica mudo no log.
-
-        ``busy=True`` marca uma operação LONGA e LEGÍTIMA (install/update do motor, que
-        é silenciosa por minutos): o watchdog do Node NÃO auto-reinicia o worker nessa
-        fase — matar no meio do install orfanaria a árvore do install.ps1 e um respawn
-        iniciaria uma 2ª instalação concorrente (corromperia o venv)."""
+        """Sinal de progresso VISÍVEL (instalação de 1ª vez leva minutos). Best-effort:
+        sempre loga; se houver callback, emite p/ a UI (evento 'loading', NÃO 'error').
+        ``busy=True`` marca uma fase LONGA e legítima (install/update) — o watchdog do
+        Node NÃO auto-reinicia o worker nela (matar no meio orfanaria o instalador)."""
         log(f"vox-engine: {msg}")
         cb = self._status_cb
         if cb is not None:
@@ -1542,819 +1532,156 @@ class _VoxBridge:
             except Exception as exc:   # noqa: BLE001 — status é best-effort
                 log(f"vox-engine: status_cb falhou: {exc}")
 
-    def _close_fh(self):
-        try:
-            if self._fh:
-                self._fh.close()
-        except OSError:
-            pass
-        self._fh = None
+    @property
+    def _connected(self):
+        c = self._client
+        return c is not None and c.connected
 
-    # ---- conexão ----
-    def _open(self):
-        try:
-            self._fh = open(self._pipe_name, "r+b", buffering=0)  # noqa: SIM115
-            # Conectou: LIMPA o erro detalhado e o cooldown. Sem isto, um
-            # ``_last_error`` ANTIGO (de uma instalação/boot que falhou antes)
-            # sobreviveria a uma recuperação bem-sucedida e poderia ser
-            # re-levantado por ``info()`` num drop+cooldown POSTERIOR (erro
-            # enganoso). É o ÚNICO ponto onde ``_fh`` vira válido, então limpar
-            # aqui cobre todos os caminhos de sucesso do ``ensure``.
-            self._last_error = None
-            self._next_retry = 0.0
-            return True
-        except OSError:
-            self._fh = None
-            return False
+    def ensure(self, boot_timeout=60.0, connect_ms=0):
+        """Garante um cliente conectado. NUNCA levanta (True/False).
 
-    # ---- instalação do motor (STDLIB pura; espelha vox_engine.core.updater) ----
-    # O worker roda 3.14 e o venv do motor é 3.13; a ponte é STDLIB-PURA (sem
-    # pywin32, sem importar vox_engine), então a lógica de install/updater do
-    # pacote é INALCANÇÁVEL daqui. Reimplementamos o mínimo em stdlib: baixar o
-    # instalador da vitrine pública e rodar install.ps1 -NoStart.
-    def _installed_pyw(self):
-        """Caminho do pythonw.exe do venv INSTALADO (%LOCALAPPDATA%\\vox-engine)."""
-        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-        return os.path.join(base, "vox-engine", "venv", "Scripts", "pythonw.exe")
-
-    def _installed_python(self):
-        """python.exe (com console) do venv INSTALADO — usado p/ LER a versão do
-        motor (o pythonw.exe não tem stdout de console p/ capturar)."""
-        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-        return os.path.join(base, "vox-engine", "venv", "Scripts", "python.exe")
-
-    def _boot_log_path(self):
-        """Log de boot do daemon (stdout/stderr do import ANTES do --log-file dele).
-        Compartilhado por ``_start_installed_daemon`` (escreve) e ``ensure`` (lê o
-        tail p/ surfaçar ALTO um crash de import quando o pipe nunca aparece)."""
-        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-        return os.path.join(base, "vox-engine", "logs", "daemon-boot.log")
-
-    @staticmethod
-    def _parse_version(v):
-        """'0.1.2' | 'vox-engine-v0.1.2' | 'v0.1.2' -> (0,1,2). Robusto a sufixos."""
-        v = (v or "").strip()
-        if v.startswith(_VoxBridge._TAG_PREFIX):
-            v = v[len(_VoxBridge._TAG_PREFIX):]
-        v = v.lstrip("vV")
-        nums = []
-        for part in v.split("."):
-            digits = ""
-            for ch in part:
-                if ch.isdecimal():   # isdecimal (não isdigit): exclui ²³¹ etc., que
-                    digits += ch      # passam em isdigit() mas quebram int()
-                else:
-                    break
-            nums.append(int(digits) if digits else 0)
-        return tuple(nums) or (0,)
-
-    @staticmethod
-    def _is_newer(candidate, current):
-        """True se ``candidate`` é ESTRITAMENTE maior que ``current``. Normaliza a
-        aridade (zero-pad) p/ que '0.1.0' e '0.1' comparem IGUAIS — senão um
-        ``__version__`` com contagem de partes diferente do tag (3 vs 4) dispararia
-        re-update perpétuo. Mesma régua de ``vox_engine.core.updater.is_newer``."""
-        a = _VoxBridge._parse_version(candidate)
-        b = _VoxBridge._parse_version(current)
-        n = max(len(a), len(b))
-        a = a + (0,) * (n - len(a))
-        b = b + (0,) * (n - len(b))
-        return a > b
-
-    def _http_get(self, url, timeout=60):
-        """GET stdlib com headers do GitHub. LEVANTA em erro de rede/HTTP (nunca
-        retorna mudo) — o chamador converte em VoxEngineError ALTO."""
-        req = urllib.request.Request(url, headers={
-            "User-Agent": "voice-chat-vox-bridge",
-            "Accept": "application/vnd.github+json",
-        })
-        with urllib.request.urlopen(req, timeout=timeout) as r:   # noqa: S310
-            return r.read()
-
-    def _latest_release(self):
-        """Release mais nova do motor na vitrine: {'version','tag','asset_url'} ou
-        None se a API não trouxe NENHUMA release utilizável (tag ``vox-engine-v*``
-        com o asset ``vox-engine-installer.zip``). LEVANTA em erro de rede/parse
-        (não mascara ausência de rede como "sem release")."""
-        data = json.loads(self._http_get(self._RELEASES_API).decode("utf-8"))
-        best = None
-        for rel in data if isinstance(data, list) else []:
-            tag = rel.get("tag_name", "") or ""
-            if not tag.startswith(self._TAG_PREFIX):
-                continue
-            asset_url = None
-            for a in rel.get("assets", []) or []:
-                if a.get("name") == self._INSTALLER_ASSET:
-                    asset_url = a.get("browser_download_url")
-                    break
-            if not asset_url:
-                continue
-            ver = tag[len(self._TAG_PREFIX):]
-            if best is None or self._parse_version(ver) > self._parse_version(best["version"]):
-                best = {"version": ver, "tag": tag, "asset_url": asset_url}
-        return best
-
-    def _installed_version(self, run=None):
-        """Versão do motor INSTALADO (roda o python do venv: ``vox_engine.__version__``).
-        None se não instalado / não legível. NUNCA levanta (best-effort) — versão
-        desconhecida é tratada como "não arriscar upgrade às cegas". ``run`` é
-        injetável p/ teste. Espelha ``vox_engine.core.updater.installed_version``."""
-        run = run or subprocess.run
-        py = self._installed_python()
-        if not py or not os.path.exists(py):
-            return None
-        try:
-            out = run([py, "-c",
-                       "import vox_engine,sys;sys.stdout.write(vox_engine.__version__)"],
-                      capture_output=True, text=True, timeout=30)
-            if getattr(out, "returncode", 0) not in (0, None):
-                return None
-            raw = getattr(out, "stdout", "")
-            v = (raw if isinstance(raw, str) else "").strip()
-            return v or None
-        except Exception as exc:   # noqa: BLE001 — best-effort: sem versão legível
-            log(f"vox-engine: leitura de versão instalada falhou: {exc}")
-            return None
-
-    def _download_and_install(self, asset_url):
-        """Baixa o installer.zip, VERIFICA a assinatura Ed25519 (fail-closed), extrai
-        e roda ``install.ps1 -NoStart`` (a ponte sobe o daemon depois). LEVANTA
-        :class:`VoxEngineError` em QUALQUER falha (download, assinatura inválida, zip
-        corrompido, install.ps1 ausente, timeout, exit != 0 — incl. "nenhum Python
-        3.11+") — nunca retorna mudo. Timeout generoso (1800s): a 1ª instalação baixa
-        deps (incl. wheels CUDA) e pode levar minutos."""
-        try:
-            blob = self._http_get(asset_url, timeout=120)
-        except Exception as exc:   # noqa: BLE001 — rede: erro ALTO
-            raise VoxEngineError(
-                f"falha ao baixar o instalador do motor ({asset_url}): {exc}") from exc
-        # SEGURANÇA (fail-closed): verifica a assinatura Ed25519 do instalador ANTES de
-        # extrair/rodar, via o verificador do vox-SDK vendorizado. Recusa instalar um
-        # binário não assinado/adulterado — nunca executa código remoto não verificado.
-        # A URL do asset .sig é determinística no GitHub (asset_url + ".sig").
-        sig_url = asset_url + ".sig"
-        try:
-            sig = self._http_get(sig_url, timeout=60)
-        except Exception as exc:   # noqa: BLE001 — sem .sig acessível: RECUSA (fail-closed)
-            raise VoxEngineError(
-                f"assinatura do instalador ausente/inacessível ({sig_url}): {exc} — "
-                "instalação RECUSADA (fail-closed)") from exc
-        try:
-            from vox_sdk import verify_installer
-        except Exception as exc:   # noqa: BLE001
-            raise VoxEngineError(
-                f"verificador de assinatura do motor indisponível: {exc}") from exc
-        if not verify_installer(blob, sig):
-            raise VoxEngineError(
-                "assinatura do instalador do motor INVÁLIDA — instalação RECUSADA "
-                "(fail-closed: não executo um binário não verificado)")
-        tmp = tempfile.mkdtemp(prefix="vox-install-")
-        zpath = os.path.join(tmp, self._INSTALLER_ASSET)
-        try:
-            with open(zpath, "wb") as f:
-                f.write(blob)
-            try:
-                with zipfile.ZipFile(zpath) as z:
-                    z.extractall(tmp)
-            except Exception as exc:   # noqa: BLE001 — zip corrompido / download parcial
-                raise VoxEngineError(
-                    f"instalador do motor corrompido (zip inválido): {exc}") from exc
-            install_ps1 = os.path.join(tmp, "install.ps1")
-            if not os.path.exists(install_ps1):
-                raise VoxEngineError(
-                    "instalador do motor inválido: install.ps1 ausente no zip")
-            # -NoStart: a ponte sobe o daemon depois. VOX_INSTALL_EXTRA_ARGS é um
-            # escape hatch (espelha o extra_args do updater): permite -Cpu/-NoBoot
-            # (ex.: máquina sem rede p/ CUDA, ou testes sem registrar autostart).
-            # Passado como ARGV separado (sem shell) — sem injeção.
-            extra = (os.environ.get("VOX_INSTALL_EXTRA_ARGS") or "").split()
-            args = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-                    "-File", install_ps1, "-NoStart", *extra]
-            # A saída do install.ps1 vai para um ARQUIVO (não para pipes de
-            # capture_output) e o stdin é FECHADO (DEVNULL). Motivo: install.ps1
-            # gera uma árvore de netos (py.exe/venv/pip). Com capture_output, o
-            # stdin do worker (um pipe VIVO ligado ao host) é HERDADO pelos netos
-            # e um deles (ex.: a checagem "py -3.13 -c ...") pode BLOQUEAR nesse
-            # pipe; além disso o write-end do pipe de stdout herdado adia o EOF do
-            # communicate() → deadlock que trava a instalação por minutos. Arquivo
-            # + DEVNULL elimina os dois: sem pipe p/ herdar, sem espera por EOF; e
-            # ainda persiste o log p/ lermos o tail em caso de falha (LOUD).
-            out_path = os.path.join(tmp, "install-output.log")
-            # Timeout generoso (1800s) — a 1ª instalação baixa deps (incl. wheels
-            # CUDA) e leva minutos. VOX_INSTALL_TIMEOUT permite ajustar (link lento)
-            # e deixa o caminho de timeout TESTÁVEL (o gate baixa p/ poucos seg).
-            to = self._install_timeout()
-            timed_out = False
-            proc = None
-            try:
-                with open(out_path, "wb") as outf:
-                    proc = subprocess.Popen(
-                        args, stdin=subprocess.DEVNULL, stdout=outf,
-                        stderr=subprocess.STDOUT, close_fds=True)
-                    rc = proc.wait(timeout=to)
-            except subprocess.TimeoutExpired:
-                # Mata a ÁRVORE INTEIRA (powershell + py/venv/pip): matar só o
-                # powershell-pai deixaria netos órfãos mutando a pasta do motor, e um
-                # retry depois iniciaria uma 2ª instalação concorrente (corromperia o
-                # venv a meio caminho).
-                timed_out = True
-                self._kill_tree(proc)
-                rc = -1
-            except Exception as exc:   # noqa: BLE001 — powershell ausente, wait etc.
-                # Se o processo JÁ subiu, NÃO deixa a árvore órfã em NENHUM erro
-                # (defense-in-depth além do timeout) — senão um retry poderia iniciar
-                # uma 2ª instalação sobre um venv meio-escrito.
-                if proc is not None:
-                    self._kill_tree(proc)
-                raise VoxEngineError(f"falha ao executar install.ps1: {exc}") from exc
-            # outf JÁ fechado aqui (e a árvore morta em timeout/erro) → lemos o tail
-            # sem contenda de handle no Windows e sem neto órfão segurando o arquivo.
-            if timed_out:
-                raise VoxEngineError(
-                    f"instalação do motor excedeu {int(to)}s "
-                    "(deps/CUDA muito lentas): " + self._read_tail(out_path, 800))
-            if rc != 0:
-                raise VoxEngineError(
-                    f"install.ps1 falhou (código {rc}): "
-                    + self._read_tail(out_path, 800))
-            return True
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
-
-    @staticmethod
-    def _kill_tree(proc):
-        """Mata o processo do install E TODA a árvore de netos (py/venv/pip).
-
-        No Windows, ``proc.kill()`` derruba só o processo raiz (powershell); os
-        netos que o install.ps1 gerou (py.exe, o python do venv, pip) ficam
-        ÓRFÃOS e continuam mutando ``%LOCALAPPDATA%\\vox-engine``. Um retry
-        posterior poderia então iniciar uma 2ª instalação CONCORRENTE sobre um
-        venv meio-escrito. ``taskkill /F /T`` (ferramenta nativa do Windows, sem
-        dep nova) derruba a árvore inteira a partir da raiz — que no timeout ainda
-        está viva, logo a árvore está intacta e é alcançável pelo PID pai.
-        Best-effort com fallbacks; NUNCA levanta (o chamador já vai levantar o
-        VoxEngineError do timeout)."""
-        pid = getattr(proc, "pid", None)
-        if pid is not None:
-            try:
-                subprocess.run(
-                    ["taskkill", "/F", "/T", "/PID", str(pid)],
-                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL, timeout=30)
-            except Exception:   # noqa: BLE001 — fallback abaixo
-                pass
-        try:
-            proc.kill()
-        except Exception:   # noqa: BLE001
-            pass
-        try:
-            proc.wait(timeout=10)   # reap: evita zumbi/handle preso
-        except Exception:   # noqa: BLE001
-            pass
-
-    @staticmethod
-    def _read_tail(path, n):
-        """Lê o final (n chars) do log do install.ps1 p/ compor o erro LOUD."""
-        try:
-            with open(path, "rb") as f:
-                data = f.read()
-            return data.decode("utf-8", "replace").strip()[-n:]
-        except Exception:   # noqa: BLE001
-            return "(sem saída capturada)"
-
-    @staticmethod
-    def _install_timeout():
-        """Timeout (s) do install.ps1 a partir de VOX_INSTALL_TIMEOUT, com fallback
-        SEGURO p/ 1800. Rejeita nan/inf/<=0: ``float()`` aceita 'nan'/'inf', que
-        passariam pelo ``except (TypeError, ValueError)`` e depois QUEBRARIAM o
-        ``proc.wait(timeout=…)`` (OverflowError/ValueError) DEPOIS do processo já
-        estar no ar — reabrindo o risco de árvore órfã. Normaliza lixo → 1800."""
-        raw = os.environ.get("VOX_INSTALL_TIMEOUT")
-        if not raw:
-            return 1800.0
-        try:
-            to = float(raw)
-        except (TypeError, ValueError):
-            return 1800.0
-        if not math.isfinite(to) or to <= 0:
-            return 1800.0
-        return to
-
-    def _update_stamp_path(self):
-        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-        return os.path.join(base, "vox-engine", ".voice-chat-update.json")
-
-    def _recent_update_attempt(self, version):
-        """True se ESTE alvo de versão já foi tentado há pouco (dentro do cooldown).
-        Evita re-rodar o instalador (minutos) a cada cold boot quando um update
-        falha, e mata qualquer loop de versão. NUNCA levanta."""
-        try:
-            try:
-                cooldown = float(os.environ.get("VOX_UPDATE_RETRY_COOLDOWN_S", "10800"))
-            except (TypeError, ValueError):
-                cooldown = 10800.0
-            with open(self._update_stamp_path(), "r", encoding="utf-8") as f:
-                data = json.load(f)
-            return (data.get("version") == version
-                    and (time.time() - float(data.get("ts", 0))) < cooldown)
-        except Exception:   # noqa: BLE001 — sem stamp/ilegível/env inválido: não é recente
-            return False
-
-    def _mark_update_attempt(self, version):
-        """Marca que tentamos ESTE alvo AGORA (antes de rodar o instalador), p/ o
-        cooldown de ``_recent_update_attempt``. NUNCA levanta."""
-        try:
-            with open(self._update_stamp_path(), "w", encoding="utf-8") as f:
-                json.dump({"version": version, "ts": time.time()}, f)
-        except Exception as exc:   # noqa: BLE001 — best-effort
-            log(f"vox-engine: não gravou stamp de update: {exc}")
-
-    def _pipe_up(self):
-        """Sonda barata: o daemon está no ar AGORA? Abre+fecha o pipe sem reter o
-        handle persistente (não mexe em ``self._fh``). Um pipe que existe mas está
-        OCUPADO (todas as instâncias em uso) conta como VIVO (``ERROR_PIPE_BUSY``) —
-        senão um daemon saturado leria como "fora" e o pip mexeria no venv por cima.
-        Usado p/ NÃO mexer no venv com um daemon vivo (.pyd/.dll TRAVADOS no Windows)."""
-        try:
-            fh = open(self._pipe_name, "r+b", buffering=0)   # noqa: SIM115
-            fh.close()
-            return True
-        except OSError as exc:
-            return getattr(exc, "winerror", None) == 231   # ERROR_PIPE_BUSY = vivo
-
-    def _acquire_lock(self, lock_path, wait=False, timeout=None):
-        """Lock de MOTOR entre processos (voice-chat + copilot-mobile + vários
-        workers): cria um arquivo EXCLUSIVO. Retorna o fd (int) se pegou; ``"busy"``
-        se outro processo o mantém (adiar); ``None`` se o lock não pôde ser criado por
-        outro motivo (segue SEM lock, best-effort). ``wait=True`` espera (até
-        ``timeout`` s) outro install/spawn terminar; ``wait=False`` tenta 1x (fast-fail
-        no decode). Reclama lock obsoleto (> timeout de install). NUNCA levanta."""
-        if timeout is None:
-            timeout = self._install_timeout() + 120
-        deadline = time.monotonic() + max(0.0, timeout)
-        next_beat = time.monotonic() + 3.0
-        while True:
-            try:
-                st = os.stat(lock_path)
-                if time.time() - st.st_mtime > (self._install_timeout() + 120):
-                    os.remove(lock_path)
-            except Exception:   # noqa: BLE001 — stat/remove: caminho inválido/ausente
-                pass
-            try:
-                fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                try:
-                    os.write(fd, str(os.getpid()).encode())
-                except OSError:
-                    pass
-                return fd
-            except FileExistsError:
-                if not wait or time.monotonic() >= deadline:
-                    return "busy"
-                if time.monotonic() >= next_beat:
-                    # Outro consumidor (voice-chat/copilot-mobile) segura o lock enquanto
-                    # instala/sobe o motor. Espera LEGÍTIMA e longa (até ~install_timeout+
-                    # 120s): emite um heartbeat VIVO (NÃO-busy) p/ o watchdog do Node NÃO
-                    # confundir com um wedge e reiniciar este worker à toa (reiniciar só
-                    # re-bloqueia). Se ESTE worker morrer, o heartbeat cessa e o self-heal
-                    # volta a valer. Só no caminho de espera (wait=True: boot); o decode
-                    # (wait=False) sai na hora sem heartbeat.
-                    self._status("Aguardando outro processo terminar a instalação do motor…")
-                    next_beat = time.monotonic() + 5.0
-                time.sleep(0.5)
-            except (OSError, ValueError) as exc:   # ValueError: null-byte no caminho
-                log(f"vox-engine: lock de motor indisponível ({exc}); segue sem lock")
-                return None
-
-    def _release_lock(self, fd, lock_path):
-        if not isinstance(fd, int):
-            return
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-        try:
-            os.remove(lock_path)
-        except OSError:
-            pass
-
-    def _run_update(self, latest, cur):
-        """Instala a versão nova (JÁ sob o lock de motor do chamador em
-        ``_start_installed_daemon``). Re-checa a versão (outro processo pode ter
-        atualizado enquanto esperávamos o lock). NUNCA levanta — um update que falha
-        NÃO derruba o motor v{cur} que funciona."""
-        cur2 = self._installed_version() or cur
-        if not self._is_newer(latest["version"], cur2):
-            return   # outro processo já atualizou
-        self._mark_update_attempt(latest["version"])   # 1 tentativa por alvo (anti-loop)
-        self._status(f"Atualizando o motor de voz v{cur2} → v{latest['version']}…", busy=True)
-        try:
-            self._download_and_install(latest["asset_url"])
-        except Exception as exc:   # noqa: BLE001 — update falhou, mas v{cur2} funciona
-            log(f"vox-engine: atualização p/ v{latest['version']} falhou "
-                f"(segue na v{cur2}): {exc}")
-            self._status(f"Não foi possível atualizar (segue na v{cur2}).")
-            return
-        self._status(f"Motor de voz atualizado para v{latest['version']}. Iniciando…")
-
-    def _maybe_update(self, pyw):
-        """Motor JÁ instalado: se a release for mais nova, atualiza in-place ANTES de
-        subir o daemon. BEST-EFFORT e blindado por várias guardas — NUNCA levanta e
-        NUNCA derruba um motor que funciona:
-
-        - versão instalada ilegível → mantém (não arrisca upgrade às cegas);
-        - alvo já tentado há pouco → adia (cooldown; mata loop e limita brick-risk);
-        - daemon subiu no meio-tempo (outro consumidor) → conecta e usa (NÃO instala
-          sobre .pyd/.dll travados no Windows);
-        - a instalação/atualização E o spawn do daemon correm sob um LOCK ENTRE
-          PROCESSOS (em ``_start_installed_daemon``) — nunca pip concorrente, e ninguém
-          sobe o daemon sobre um venv sendo reescrito.
-
-        Só é alcançado no caminho de BOOT com o daemon FORA (``ensure`` já falhou o
-        connect), respeitando a regra canônica "se já está no ar, só conecta"."""
-        try:
-            latest = self._latest_release()
-        except Exception as exc:   # noqa: BLE001 — offline/parse: usa o motor instalado
-            log(f"vox-engine: checagem de atualização falhou (segue no instalado): {exc}")
-            return
-        if not latest:
-            return
-        cur = self._installed_version()
-        if not cur:
-            log("vox-engine: versão instalada desconhecida; mantém o motor atual")
-            return
-        if not self._is_newer(latest["version"], cur):
-            return
-        if self._recent_update_attempt(latest["version"]):
-            log(f"vox-engine: update p/ v{latest['version']} já tentado há pouco; adiando")
-            return
-        if self._pipe_up():
-            log("vox-engine: daemon subiu durante a checagem; usando o que está no ar")
-            return
-        self._run_update(latest, cur)
-
-    def _ensure_installed(self):
-        """Garante o motor INSTALADO E ATUALIZADO antes de subir o daemon.
-
-        - AUSENTE: sinaliza progresso VISÍVEL (instalação é lenta) e baixa+roda o
-          instalador da release pública. LEVANTA :class:`VoxEngineError` em qualquer
-          falha (sem rede, sem release, install.ps1 != 0, pyw ainda ausente) — NUNCA
-          retorna False mudo.
-        - PRESENTE: checa a release e, se houver versão mais nova, atualiza in-place
-          (``_maybe_update`` — best-effort: um update que falha NÃO derruba o motor
-          que já funciona).
-
-        Só é alcançado no caminho de BOOT com o daemon FORA (``ensure`` já tentou
-        conectar e falhou), SOB o lock de motor entre processos de
-        ``_start_installed_daemon`` (que também cobre o spawn do daemon)."""
-        pyw = self._installed_pyw()
-        if os.path.exists(pyw):
-            self._maybe_update(pyw)   # atualiza se a release for mais nova (best-effort)
-            return True
-        self._status("Instalando o motor de voz pela primeira vez "
-                     "(pode levar alguns minutos)…", busy=True)
-        try:
-            rel = self._latest_release()
-        except Exception as exc:   # noqa: BLE001 — rede/parse: erro ALTO (não mudo)
-            raise VoxEngineError(
-                f"não foi possível consultar as releases do motor: {exc}") from exc
-        if rel is None:
-            raise VoxEngineError(
-                f"nenhuma release do motor ('{self._TAG_PREFIX}*' com "
-                f"'{self._INSTALLER_ASSET}') encontrada em {self._RELEASES_API}")
-        self._status(f"Baixando e instalando o motor v{rel['version']} "
-                     "(pode incluir wheels CUDA)…", busy=True)
-        self._download_and_install(rel["asset_url"])   # levanta VoxEngineError em falha
-        if not os.path.exists(pyw):
-            raise VoxEngineError(
-                f"o instalador terminou mas o motor não apareceu ({pyw} ausente): "
-                "instalação incompleta")
-        self._status("Motor de voz instalado. Iniciando o daemon…")
-        return True
-
-    def _spawn_daemon(self):
-        """Sobe o processo do daemon (destacado, sem janela), capturando o boot
-        (crash de import ANTES do ``--log-file`` do daemon) num log de boot. LEVANTA
-        em falha síncrona de lançamento. Seam separada p/ testar a lógica de
-        lock/decisão de ``_start_installed_daemon`` sem tocar em subprocess/FS real."""
-        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-        root = os.path.join(base, "vox-engine")
-        log_path = os.path.join(root, "logs", "daemon.log")
-        boot_log = self._boot_log_path()
-        os.makedirs(os.path.dirname(log_path), exist_ok=True)
-        flags = 0x00000008 | 0x08000000  # DETACHED_PROCESS | CREATE_NO_WINDOW
-        bf = open(boot_log, "ab")   # noqa: SIM115
-        try:
-            subprocess.Popen([self._installed_pyw(), "-m", "vox_engine", "--pipe",
-                              self._pipe_name, "--log-file", log_path],
-                             creationflags=flags, close_fds=True,
-                             stdin=subprocess.DEVNULL, stdout=bf, stderr=bf)
-        finally:
-            bf.close()
-
-    def _start_installed_daemon(self, allow_install=True):
-        """Sobe o daemon INSTALADO sob um LOCK DE MOTOR entre processos que serializa
-        INSTALL/UPDATE **e** o SPAWN do daemon: ninguém sobe o daemon (que trava
-        .pyd/.dll do venv) enquanto outro consumidor reescreve o venv com pip, e
-        ninguém instala enquanto outro sobe/roda o daemon.
-
-        - BOOT (``allow_install``): ESPERA o lock (roda em thread de background) e
-          INSTALA/ATUALIZA o motor sob ele (pode LEVANTAR :class:`VoxEngineError`,
-          surfacing ALTO da falha de instalação).
-        - DECODE (``allow_install=False``): NUNCA instala e NÃO espera o lock — se um
-          install está em curso, retorna False na hora (não sobe por cima, não trava
-          o thread de áudio).
-
-        Se, ao pegar o lock, o daemon já estiver no ar (autostart/outro consumidor),
-        NÃO sobe um 2º — deixa ``ensure`` conectar."""
-        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-        lock_path = os.path.join(base, "vox-engine", ".voice-chat-engine.lock")
-        try:
-            # Máquina ZERADA: o dir do motor ainda não existe (o install.ps1 o cria).
-            # Sem isto, ``_acquire_lock`` cairia em FileNotFoundError → None (SEM lock)
-            # e dois consumidores instalariam concorrente na 1ª vez (corrompe o venv).
-            os.makedirs(os.path.dirname(lock_path), exist_ok=True)
-        except OSError:
-            pass
-        fd = self._acquire_lock(lock_path, wait=allow_install)
-        if fd == "busy":
-            log("vox-engine: motor sendo instalado/iniciado por outro processo; adiando")
-            return False
-        try:
-            if allow_install:
-                self._ensure_installed()   # instala/atualiza SOB o lock (levanta em falha)
-            if not os.path.exists(self._installed_pyw()):
-                return False
-            if self._pipe_up():
-                return True   # subiu enquanto esperávamos o lock: deixa ensure() conectar
-            try:
-                self._spawn_daemon()
-                return True
-            except Exception as exc:   # NUNCA erro mudo (OSError/NameError…)
-                log(f"vox-engine: falha ao subir daemon instalado: {exc}")
-                # BOOT: falha síncrona de lançamento vira erro ALTO (info() reporta a
-                # causa real). DECODE: contrato é fast-fail QUIETO (não trava o áudio).
-                if allow_install:
-                    raise VoxEngineError(
-                        f"falha ao iniciar o daemon do motor: {exc}") from exc
-                return False
-        finally:
-            self._release_lock(fd, lock_path)
-
-    def ensure(self, boot_timeout=60.0):
-        """Garante conexão SEM segurar o lock de request e SEM erro mudo.
-
-        Retorna True/False (nunca levanta). Respeita um cooldown: quando o motor
-        está fora, não fica re-spawnando nem esperando ``boot_timeout`` a cada
-        chamada — fast-fail até ``_next_retry``. Só o boot (boot_timeout>0)
-        aguarda o daemon subir E instala o motor ausente (baixando a release); o
-        caminho de decode usa boot_timeout=0, NUNCA instala, e um acquire
-        NÃO-bloqueante: se o boot estiver segurando o conn_lock (ex.: instalando),
-        retorna False na hora (não trava o thread de decode/wake — MED-2). Uma
-        falha de INSTALAÇÃO ou de BOOT do daemon não some: fica em
-        ``self._last_error`` p/ ``info()`` levantar a mensagem detalhada (erro
-        ALTO na UI)."""
-        if self._fh is not None:
+        - ``boot_timeout > 0`` (BOOT): delega ao SDK ``ensure_vox_detailed`` — instala/
+          atualiza/RECICLA e sobe o daemon (o hook do ditado sobe junto). Serializado e
+          com progresso VISÍVEL (a instalação é silenciosa por minutos).
+        - ``boot_timeout <= 0`` (DECODE fast-fail): só REUSA se o pipe já está no ar
+          (``autostart``/``auto_update``/``recycle_stale`` desligados) — NUNCA instala
+          nem bloqueia o thread de decode/wake; acquire NÃO-bloqueante (se o boot está
+          segurando o lock instalando, retorna False na hora). ``connect_ms`` controla o
+          timeout de conexão: 0 no PROBE de decode (daemon fora -> fast-fail, sem stall de
+          ~2s), mas um CUSHION pequeno na RECONEXÃO (daemon UP -> absorve ERROR_PIPE_BUSY
+          transitório do pipe compartilhado)."""
+        if self._connected:
             return True
         if boot_timeout <= 0:
-            if not self._conn_lock.acquire(blocking=False):
+            if not self._boot_lock.acquire(blocking=False):
                 return False
-        else:
-            self._conn_lock.acquire()
-        try:
-            if self._fh is not None:
-                return True
-            if boot_timeout > 0.0:
-                # Estágio VISÍVEL (loga + evento 'loading' NÃO-busy): o connect é o
-                # ponto onde o worker pode PRENDER (open() de um named pipe ocupado).
-                # Deixar isto no log dá "o estágio exato em que travou"; e como NÃO é
-                # busy, o watchdog do Node pode auto-reiniciar se o open() enroscar.
-                self._status("Conectando ao motor de voz…")
-            if self._open():
-                return True
-            if time.monotonic() < self._next_retry:
-                return False                       # cooldown: não bate no motor caído
-            # Só o caminho de BOOT (boot_timeout>0) instala o motor ausente — a
-            # instalação leva minutos e NÃO pode bloquear o thread de decode/wake.
-            attempt_install = boot_timeout > 0.0
-            if attempt_install:
-                self._last_error = None             # tentativa nova: limpa erro anterior
             try:
-                started = self._start_installed_daemon(allow_install=attempt_install)
-            except VoxEngineError as exc:           # FALHA DE INSTALAÇÃO/LANÇAMENTO → erro ALTO
-                # Guarda a mensagem detalhada (tail do install.ps1, ou causa do
-                # lançamento) p/ info() reportar em vez do genérico "indisponível".
-                # NÃO fica mudo: info() levanta isto.
-                self._last_error = exc
-                log(f"vox-engine: subida do motor falhou: {exc}")
-                self._next_retry = time.monotonic() + self._cooldown
-                return False
-            except Exception as exc:               # blindagem total (sem erro mudo)
-                log(f"vox-engine ensure erro: {exc}")
-                started = False
-            if not started:
-                self._next_retry = time.monotonic() + self._cooldown
-                return False
-            deadline = time.time() + max(0.0, boot_timeout)
-            next_beat = time.time() + 3.0
-            while time.time() < deadline:
-                if self._open():
+                if self._connected:
                     return True
-                now = time.time()
-                if now >= next_beat:
-                    # Heartbeat de PROGRESSO enquanto o daemon recém-subido ainda não
-                    # abriu o pipe (import/CUDA frio leva alguns s). Mantém o watchdog
-                    # do Node vendo progresso (NÃO-busy, mas VIVO) p/ NÃO confundir uma
-                    # subida legítima com um wedge — e mostra "aguardando (Ns)".
-                    waited = int(boot_timeout - (deadline - now))
-                    self._status(f"Aguardando o motor de voz responder… ({waited}s)")
-                    next_beat = now + 5.0
-                time.sleep(0.5)
-            # Daemon SUBIU mas o pipe NUNCA apareceu: quase sempre um crash de import
-            # ANTES do --log-file do daemon (o "sem log nenhum" da outra máquina).
-            # Surfaçamos o tail do daemon-boot.log (que capturamos justamente p/ isso)
-            # como erro ALTO — só no boot; o decode fica quieto (fast-fail).
-            if attempt_install:
-                tail = self._read_tail(self._boot_log_path(), 800)
-                self._last_error = VoxEngineError(
-                    f"o daemon do motor iniciou mas não respondeu no pipe em "
-                    f"{boot_timeout:.0f}s (provável crash de import). "
-                    f"daemon-boot.log: {tail}")
-            self._next_retry = time.monotonic() + self._cooldown
-            return False
-        finally:
-            self._conn_lock.release()
-
-    # ---- protocolo (framed: [u32 json_len][u32 audio_len][json][audio]) ----
-    def _read_exact(self, fh, n):
-        """Lê n bytes de UM handle específico (passado explicitamente). Nunca
-        relê self._fh — assim uma thread leitora abandonada fica presa no SEU
-        pipe e não migra p/ um pipe reconectado (HIGH-1)."""
-        # bytearray + extend: append amortizado O(1). Com `buf = b""; buf += chunk`
-        # cada chunk rerealoca+copia o acumulado -> O(n²) num frame de áudio/TTS multi-MB.
-        buf = bytearray()
-        while len(buf) < n:
-            chunk = fh.read(n - len(buf))
-            if not chunk:
-                raise EOFError("pipe fechado")
-            buf.extend(chunk)
-        return bytes(buf)
-
-    def _request(self, header, audio=b"", timeout=VOX_REQ_TIMEOUT):
-        """Envia 1 frame e lê a resposta com TETO de tamanho e TIMEOUT.
-
-        A leitura roda numa thread separada presa ao handle ``fh`` capturado
-        aqui; o chamador faz join(timeout). Se o motor travar no meio do frame,
-        o loop de comandos NÃO congela — vira erro ALTO (VoxEngineError), nunca
-        wedge mudo. Header de tamanho absurdo é rejeitado sem ler o corpo."""
-        fh = self._fh
-        if fh is None:
-            raise EOFError("pipe fechado")
-        jb = json.dumps(header).encode("utf-8")
-        try:
-            fh.write(struct.pack(">II", len(jb), len(audio)) + jb + audio)
-            fh.flush()
-        except OSError as exc:
-            # Falha de ESCRITA: o request NÃO chegou ao motor (pipe ocioso stale →
-            # [Errno 22]/EINVAL). Marca distintamente p/ _request_resilient repetir SÓ
-            # este caso (seguro: nada foi processado). Uma falha de LEITURA cai em
-            # out["err"] (abaixo) como OSError comum e NÃO vira isto — então não é
-            # repetida, evitando reprocessar um transcribe que o motor já recebeu.
-            raise _PipeWriteError(f"escrita no pipe falhou: {exc}") from exc
-        out = {}
-
-        def _read_reply():
+                self._client = vox_sdk.ensure_vox(
+                    self._pipe, autostart=False, auto_update=False,
+                    recycle_stale=False, with_translation=False,
+                    connect_timeout_ms=connect_ms)
+                return self._connected
+            except Exception as exc:   # noqa: BLE001 — fast-fail NUNCA levanta
+                log(f"vox-engine ensure(fast) erro: {exc}")
+                return False
+            finally:
+                self._boot_lock.release()
+        with self._boot_lock:
+            if self._connected:
+                return True
+            self._status("Conectando ao motor de voz…")
             try:
-                head = self._read_exact(fh, 8)
-                jl, al = struct.unpack(">II", head)
-                if jl > VOX_MAX_FRAME or al > VOX_MAX_FRAME:
-                    raise ValueError(f"frame absurdo do motor (jl={jl}, al={al})")
-                body = self._read_exact(fh, jl)
-                audio_out = self._read_exact(fh, al) if al else b""
-                out["resp"] = (json.loads(body.decode("utf-8")), audio_out)
-            except Exception as exc:   # noqa: BLE001 — vira VoxEngineError no chamador
-                out["err"] = exc
+                res = vox_sdk.ensure_vox_detailed(
+                    self._pipe, autostart=True, auto_update=True,
+                    recycle_stale=True, with_translation=True,
+                    boot_timeout_ms=int(max(0.0, boot_timeout) * 1000))
+            except Exception as exc:   # noqa: BLE001 — blindagem total: vira _last_error/False
+                self._last_error = VoxEngineError(f"falha ao subir o motor: {exc}")
+                log(f"vox-engine: subida do motor falhou: {exc}")
+                return False
+            self._client = res.get("client")
+            action = res.get("action")
+            if self._connected:
+                self._last_error = None
+                iv = res.get("installedVersion")
+                self._status(f"Motor de voz pronto (v{iv or '?'}; ação={action}).")
+                return True
+            self._last_error = VoxEngineError(
+                f"motor de voz (vox-engine) indisponível (ação={action})")
+            return False
 
-        rt = threading.Thread(target=_read_reply, daemon=True)
-        rt.start()
-        rt.join(timeout)
-        if rt.is_alive():
-            # Motor travado no meio do frame. NÃO chamamos .close() (fechar com um
-            # read() pendente noutra thread BLOQUEIA no lock interno do objeto e
-            # travaria o loop — era o wedge). A thread leitora fica presa NO SEU
-            # próprio ``fh`` (capturado acima), então nunca lê de um pipe novo, e
-            # morre quando esse handle fechar. Soltamos só a referência viva.
-            if self._fh is fh:
-                self._fh = None
-            raise EOFError(f"timeout ({timeout:.0f}s) aguardando resposta do motor")
-        if "err" in out:
-            raise out["err"]
-        return out["resp"]
+    @staticmethod
+    def _is_send_failure(exc):
+        """True se a falha foi de ESCRITA (o request NÃO chegou ao motor — pipe ocioso
+        ficou stale, ex.: [Errno 22]/EINVAL após ~40min). SÓ isso pode ser reconectado+
+        repetido com segurança; repetir uma falha de LEITURA reprocessaria um request que
+        o motor JÁ recebeu. O SDK marca a falha de escrita com o PREFIXO "falha ao enviar
+        ao motor". Ancorar no PREFIXO (não substring solta) evita classificar como ESCRITA
+        um erro pós-resposta cujo {message} do daemon contenha a frase por acaso."""
+        return str(exc).startswith("falha ao enviar ao motor")
 
-    def _request_resilient(self, header, audio=b"", timeout=VOX_REQ_TIMEOUT):
-        """1 request com AUTO-RECONEXÃO. Um named pipe OCIOSO por muito tempo fica
-        STALE: a PRÓXIMA escrita falha com OSError ([Errno 22]/EINVAL — medido no
-        debug.log após ~67min ocioso) e o request nem chega ao motor. Como
-        info/transcribe/tts são idempotentes, descartamos o handle morto, reabrimos
-        e repetimos UMA vez — o idle→falar fica transparente, em vez de um erro ALTO
-        que PERDE o áudio (bug real: TTS falhava ao voltar numa sessão ociosa). Só a
-        falha de ESCRITA (:class:`_PipeWriteError`, request não processado) dispara o
-        retry — uma falha de LEITURA NÃO, pois o motor já pode ter processado (repetir
-        um transcribe reprocessaria). 1x só (se a reconexão não resolver, sobe ALTO)."""
+    def _reconnect_fast(self):
+        """Descarta o handle morto e reconecta SEM instalar (o daemon segue no ar; só o
+        handle ocioso ficou stale). Usa um CUSHION de conexão pequeno (não o 0ms do probe
+        de decode): a reconexão acontece com o daemon UP, então ~250ms (~2-3 tentativas de
+        open a 0.1s no SDK) absorve um ERROR_PIPE_BUSY transitório do pipe COMPARTILHADO
+        (voice-chat + Action + Hermes) sem reintroduzir o stall de ~2s. True se reconectou."""
+        c = self._client
+        if c is not None:
+            try:
+                c.close()
+            except Exception:   # noqa: BLE001
+                pass
+        self._client = None
+        return self.ensure(boot_timeout=0.0, connect_ms=_RECONNECT_CONNECT_MS)
+
+    def _call(self, op, boot_timeout=0.0):
+        """Garante o cliente (boot ou fast-fail) e roda ``op(client)``. Numa falha de
+        ESCRITA (pipe stale), reconecta e repete 1x SÓ. Qualquer outra falha (leitura/
+        framing/timeout/indisponível) sobe ALTA sem retry — sem loop, sem erro mudo."""
+        if not self.ensure(boot_timeout=boot_timeout):
+            raise self._last_error or VoxEngineError("motor de voz (vox-engine) indisponível")
+        client = self._client
+        if client is None:
+            raise VoxEngineError("conexão com o motor caiu")
         try:
-            return self._request(header, audio, timeout)
-        except _PipeWriteError as exc:
-            self._close_fh()
-            log(f"vox-engine: pipe caiu ({exc}); reconectando e repetindo 1x")
-            if not self.ensure(boot_timeout=0.0):
-                raise
-            return self._request(header, audio, timeout)
+            return op(client)
+        except VoxEngineError as exc:
+            # O SDK fecha a conexão em QUALQUER falha. REPETE agora SÓ na de ESCRITA
+            # (idempotente-seguro: o frame comprovadamente NÃO chegou ao motor). Leitura/
+            # timeout/"conexão caiu" NÃO repete (o motor pode ter processado -> duplicaria),
+            # mas DESCARTA o cliente morto p/ a PRÓXIMA chamada RECONECTAR (reuse-only) —
+            # nunca fica preso num handle morto (evita mudo permanente até restart; achado
+            # de robustez do dono do SDK). Um daemon que recicle graciosamente (ack+fecha)
+            # cai na trilha de ESCRITA no próximo request e reconecta+repete transparente.
+            if self._is_send_failure(exc) and self._reconnect_fast():
+                nc = self._client
+                if nc is None:
+                    raise
+                return op(nc)
+            self._client = None
+            raise
 
     def info(self, boot_timeout=60.0):
-        """{model, provider, stt_ready, ...} do motor, ou levanta VoxEngineError.
-
-        Se o motor não subiu, levanta a mensagem DETALHADA capturada em ``ensure``
-        (tail do install.ps1: "nenhum Python 3.11+…"; falha de lançamento; ou o
-        tail do daemon-boot.log num crash de import) em vez do genérico
-        "indisponível" — o erro chega ALTO e ÚTIL na UI."""
-        if not self.ensure(boot_timeout=boot_timeout):
-            raise self._last_error or VoxEngineError(
-                "motor de voz (vox-engine) indisponível")
-        with self._lock:
-            if self._fh is None:
-                raise VoxEngineError("conexão com o motor caiu")
-            try:
-                self._rid += 1
-                h, _ = self._request_resilient({"cmd": "info", "req_id": str(self._rid)})
-                return h
-            except Exception as exc:   # QUALQUER falha de framing → erro ALTO (sem mudo)
-                self._close_fh()
-                raise VoxEngineError(f"falha ao consultar o motor: {exc}") from exc
+        """{model, provider, version, stt_ready, ...} do motor, ou levanta VoxEngineError
+        com a mensagem DETALHADA capturada no boot (erro ALTO e ÚTIL na UI)."""
+        try:
+            return self._call(lambda c: c.info(), boot_timeout=boot_timeout)
+        except VoxEngineError:
+            raise
+        except Exception as exc:   # noqa: BLE001 — QUALQUER coisa → ALTO (sem mudo)
+            raise VoxEngineError(f"falha ao consultar o motor: {exc}") from exc
 
     def transcribe(self, seg, language):
-        """seg (float32 16k numpy) -> texto (str). LEVANTA :class:`VoxEngineError`
-        em qualquer falha — sem fallback silencioso, sem erro mudo. Fast-fail
-        (boot_timeout=0): não trava o thread de decode esperando o daemon subir."""
-        if not self.ensure(boot_timeout=0.0):
-            raise VoxEngineError("motor de voz (vox-engine) indisponível")
-        with self._lock:
-            if self._fh is None:
-                raise VoxEngineError("conexão com o motor caiu")
-            try:
-                self._rid += 1
-                pcm = np.ascontiguousarray(seg, dtype="<f4").tobytes()
-                h, _ = self._request_resilient({"cmd": "transcribe", "req_id": str(self._rid),
-                                      "session": "voice-chat", "lang": language or "",
-                                      "profile": self._profile}, pcm)
-            except Exception as exc:   # OSError/EOFError/ValueError/struct.error/numpy… → ALTO
-                self._close_fh()   # reconecta na próxima chamada
-                raise VoxEngineError(f"falha ao falar com o motor: {exc}") from exc
-            if h.get("event") == "result":
-                return (h.get("text") or "").strip()
-            raise VoxEngineError(
-                f"motor retornou {h.get('event')}/{h.get('code')}: {h.get('message') or ''}")
+        """seg (float32 16k numpy) -> texto (str). Fast-fail (boot_timeout=0): não instala
+        nem trava o thread de decode. LEVANTA :class:`VoxEngineError` em qualquer falha —
+        sem fallback silencioso. Perfil ``dictation`` (turbo) escolhido pelo motor."""
+        return self._call(
+            lambda c: c.transcribe(seg, lang=language or "", session=self._session,
+                                   profile=self._profile),
+            boot_timeout=0.0)
 
     def synthesize(self, text, voice=None, speed=1.0):
-        """(texto) -> (samples float32 numpy, sample_rate:int) via {cmd:"tts"} do
-        motor único (o mesmo daemon que faz o STT). LEVANTA :class:`VoxEngineError` em
-        qualquer falha — sem fallback silencioso, sem erro mudo. Fast-fail
-        (boot_timeout=0): não instala/espera o daemon subir aqui (o boot do STT já
-        cuida disso). A voz é passada por NOME quando definida; se ``voice`` for vazio,
-        o motor usa a sua voz padrão (``default_voice``). O motor carrega/baixa a voz
-        sozinho e reusa as vozes já baixadas."""
-        if not self.ensure(boot_timeout=0.0):
-            raise VoxEngineError("motor de voz (vox-engine) indisponível")
-        with self._lock:
-            if self._fh is None:
-                raise VoxEngineError("conexão com o motor caiu")
-            try:
-                self._rid += 1
-                header = {"cmd": "tts", "req_id": str(self._rid),
-                          "session": "voice-chat", "text": text,
-                          "speed": float(speed or 1.0)}
-                if voice:
-                    header["voice"] = voice
-                # TTS de um resumo curto é rápido, mas damos folga (texto maior):
-                h, audio = self._request_resilient(header, b"", timeout=max(VOX_REQ_TIMEOUT, 120.0))
-                if h.get("event") == "tts_audio":
-                    sr = int(h.get("sample_rate") or 22050)
-                    # frombuffer DENTRO do try: um byte-count não múltiplo de 4 vira
-                    # VoxEngineError (contrato da classe), não um ValueError cru.
-                    samples = (np.frombuffer(audio, dtype="<f4").copy()
-                               if audio else np.zeros(0, dtype=np.float32))
-                    return samples, sr
-            except Exception as exc:   # OSError/EOFError/ValueError/struct.error/numpy… → ALTO
-                self._close_fh()   # reconecta na próxima chamada
-                raise VoxEngineError(f"falha ao sintetizar no motor: {exc}") from exc
-            raise VoxEngineError(
-                f"motor retornou {h.get('event')}/{h.get('code')}: {h.get('message') or ''}")
+        """(texto) -> (samples float32 numpy, sample_rate:int) via {cmd:"tts"} do motor
+        único. Fast-fail. Voz por NOME quando definida; vazio => voz padrão do motor.
+        LEVANTA :class:`VoxEngineError` em qualquer falha — sem fallback mudo."""
+        h, samples = self._call(
+            lambda c: c.tts(text, voice=voice or "", speed=float(speed or 1.0),
+                            session=self._session, timeout=max(VOX_REQ_TIMEOUT, 120.0)),
+            boot_timeout=0.0)
+        sr = int(h.get("sample_rate") or 22050)
+        return samples, sr
 
     def close(self):
-        try:
-            if self._fh:
-                self._fh.close()
-        except OSError:
-            pass
-        self._fh = None
+        c = self._client
+        self._client = None
+        if c is not None:
+            try:
+                c.close()
+            except Exception:   # noqa: BLE001
+                pass
 
 
 def main():
