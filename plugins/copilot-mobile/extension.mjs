@@ -21,6 +21,9 @@ import { join } from "node:path";
 import { readFileSync, appendFileSync, mkdirSync } from "node:fs";
 import { decidePhoneDrift, driftAgentContext } from "./drift.mjs";
 import { ensureDaemonInstalled } from "./bootstrap.mjs";
+import { LiveLink } from "./liveLink.mjs";
+import { AskUserBridge } from "./askUserBridge.mjs";
+import { decideAskUserOverride } from "./askMode.mjs";
 
 const SELF_SESSION_ID = process.env.SESSION_ID || "";
 const DAEMON_HOME = process.env.COPILOT_DAEMON_HOME || join(homedir(), ".copilot-mobile-daemon");
@@ -47,6 +50,15 @@ function daemonArmed() {
     const r = JSON.parse(readFileSync(RUNTIME_FILE, "utf8"));
     return !!r && typeof r.mode === "string" && r.mode !== "off";
   } catch { return false; }
+}
+
+// The daemon's current transport mode string ("off"/"local"/"lan"/"tailscale"/"public"/…), or "" when
+// the daemon isn't running/readable. Drives the ask_user override decision (askMode.decideAskUserOverride).
+function daemonMode() {
+  try {
+    const r = JSON.parse(readFileSync(RUNTIME_FILE, "utf8"));
+    return typeof r?.mode === "string" ? r.mode : "";
+  } catch { return ""; }
 }
 
 // Parsed user.message count + last user text from a session's on-disk event log — the AUTHORITATIVE
@@ -77,8 +89,27 @@ function diskUserStats(sid) {
 let appHeadUsers = -1;
 let appHeadPending = 0;
 
+// ask_user override — registered ONLY when a transport is OPEN at boot (askMode.decideAskUserOverride).
+// ROOT-CAUSE FIX: the SDK decides tool overrides only at joinSession boot and a custom override can't
+// delegate back to the native tool. The old code registered the override UNCONDITIONALLY, so with the
+// daemon OFF (no phone, no open transport) the native PC modal was suppressed, the synthetic question
+// died in the daemon's empty broadcast, and the flaky PC canvas was the only fallback ⇒ the question was
+// HIDDEN and the turn hung until the user cancelled. Now: transport OPEN ⇒ override (canvas + phone);
+// transport CLOSED ("off"/absent) ⇒ keep the NATIVE ask_user (the standard PC modal, reliable, never
+// hidden). When native, the phone can STILL answer: the runtime's own user_input.requested is streamed to
+// the daemon (session.on below) and a phone answer resolves it via rpc.ui.handlePendingUserInput
+// (liveLink._runCommand). NOTE: joinSession decides the tool set ONCE at boot and the SDK can't swap it
+// live, so a session that boots with the daemon OFF stays on native for its life — arming later keeps it
+// answerable (native modal + phone via handlePendingUserInput) but does NOT auto-upgrade to the canvas
+// UX; reopen/clear the session to boot it armed. The 🔊 voice instruction stays gated on daemonArmed().
+const bootMode = daemonMode();
+const overrideAsk = decideAskUserOverride({ mode: bootMode });
+const askBridge = overrideAsk ? new AskUserBridge({ log: dbg, sessionId: SELF_SESSION_ID }) : null;
+dbg(`ask_user override=${overrideAsk} (bootMode="${bootMode}")`);
+
 const session = await joinSession({
-  tools: [],
+  tools: askBridge ? [askBridge.tool()] : [],
+  canvases: askBridge ? [askBridge.canvas()] : [],
   hooks: {
     onUserPromptSubmitted: async (input) => {
       const parts = [];
@@ -93,6 +124,8 @@ const session = await joinSession({
     },
   },
 });
+if (askBridge) askBridge.setSession(session);
+// askBridge is null when native (transport closed at boot); every use below is guarded by `if (askBridge)`.
 
 // Maintain the app head count from the live stream (user-origin turns only), then take the baseline.
 // joinSession's session uses event-name-keyed listeners: session.on("user.message", cb).
@@ -107,6 +140,31 @@ try {
 } catch (e) { dbg("baseline getEvents failed: " + (e?.message || e)); }
 
 dbg(`bridge ready: session=${SELF_SESSION_ID || "(none)"} baselineHeadUsers=${appHeadUsers} armed=${daemonArmed()}`);
+
+// Live-session routing: expose THIS live session (same runtime as the app) to the standalone daemon
+// so the phone is routed through it instead of a rival disk-resume runtime. Total fallback — if the
+// daemon is absent/unreachable this is a quiet no-op and the session behaves exactly as before.
+const liveSessionId = session.sessionId || SELF_SESSION_ID;
+if (liveSessionId) {
+  try {
+    const liveLink = new LiveLink({ sessionId: liveSessionId, runtimeFile: RUNTIME_FILE, session, log: dbg });
+    // Wire the ask_user override both ways: it emits the question to the phone THROUGH the liveLink,
+    // and a phone answer (liveLink cmd "answer") resolves the override's blocked handler.
+    if (askBridge) { askBridge.setLiveLink(liveLink); liveLink.setAskBridge(askBridge); }
+    // Stream EVERY live runtime event to the daemon (in addition to the user.message counter above).
+    // Also release any open override question if the turn is aborted/errors, so it never dangles.
+    session.on((raw) => {
+      try { liveLink.pushEvent(raw); } catch {}
+      if (askBridge) { const t = raw?.type || raw?.eventType; if (t === "abort" || t === "session.error") askBridge.abortAll(); }
+    });
+    liveLink.connect();
+    // Best-effort clean detach when the session/app process goes away (the dropped SSE also signals it).
+    const bye = () => { try { liveLink.stop(); } catch {} try { askBridge?.abortAll(); } catch {} };
+    process.once("exit", bye);
+    process.once("SIGTERM", bye);
+    process.once("SIGINT", bye);
+  } catch (e) { dbg("liveLink init error: " + (e?.message || e)); }
+}
 
 // First-run provisioning of the standalone daemon (download prebuilt + tray autostart). Detached and
 // idempotent: returns fast once installed, never blocks the turn, serialized across forks by a lock.

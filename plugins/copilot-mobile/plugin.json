@@ -1,6 +1,6 @@
 {
   "name": "copilot-mobile",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Bridge do copilot-mobile: provisiona o daemon apartado na 1ª execução (baixa a release buildada, sem build), injeta o 🔊 (resumo falado) e detecta drift celular→PC na sessão viva. Pareamento, transporte e painel de configuração ficam no daemon (ícone da bandeja).",
   "author": {
     "name": "Allan Santos",
@@ -9,18 +9,8 @@
   "homepage": "https://github.com/AllanSantos-DV/copilot-mobile",
   "repository": "https://github.com/AllanSantos-DV/copilot-mobile",
   "license": "MIT",
-  "keywords": [
-    "copilot-mobile",
-    "daemon",
-    "mobile",
-    "bridge",
-    "remote",
-    "voz",
-    "pt-BR"
-  ],
+  "keywords": ["copilot-mobile", "daemon", "mobile", "bridge", "remote", "voz", "pt-BR"],
   "category": "productivity",
-  "extensions": [
-    "."
-  ],
+  "extensions": ["."],
   "hooks": "hooks.json"
 }
