@@ -33,8 +33,9 @@ import { readPersistedCwd, persistCwd } from "./lib/sessionCwd.mjs";
 // Provisionamento em background disparado no máximo 1× por processo (não repete a cada hook).
 let provisionKicked = false;
 
-// Sessão do host (capturada no joinSession) — dá às tools acesso ao histórico via getMessages().
-// No harness de smoke, __setHostSession injeta a sessão de teste.
+// Sessão do host (capturada no joinSession) — dá às tools acesso ao histórico via getEvents()
+// (host/produção) ou getMessages() (smoke via createSession). No harness de smoke, __setHostSession
+// injeta a sessão de teste.
 let hostSession = null;
 export function __setHostSession(s) { hostSession = s; }
 
@@ -452,12 +453,21 @@ export const tools = [
                 additionalProperties: false,
             },
             handler: async (args, invocation) => {
-                if (!hostSession || typeof hostSession.getMessages !== "function") {
-                    return "Destilação indisponível: histórico da sessão não acessível (o plugin precisa estar carregado pelo host para ler getMessages).";
+                // A session do joinSession (HOST/produção) expõe getEvents(); a de createSession (usada
+                // nos smokes) expõe getMessages(). Ambos retornam SessionEvent[] no MESMO formato. O
+                // distill roda no host, então preferimos getEvents(); getMessages fica de fallback para
+                // robustez cross-runtime. (Descoberto por dogfooding: o .d.ts anuncia só getMessages,
+                // mas o runtime do host tem getEvents — como o askUserBridge do copilot-mobile já usa.)
+                const readHistory =
+                    (hostSession && typeof hostSession.getEvents === "function") ? () => hostSession.getEvents()
+                    : (hostSession && typeof hostSession.getMessages === "function") ? () => hostSession.getMessages()
+                    : null;
+                if (!readHistory) {
+                    return "Destilação indisponível: a session do host não expõe getEvents/getMessages (plugin não carregado pelo host?).";
                 }
                 let msgs;
                 try {
-                    msgs = await hostSession.getMessages();
+                    msgs = await readHistory();
                 } catch (e) {
                     return "Não foi possível ler a sessão: " + (e?.message || e);
                 }
@@ -537,12 +547,17 @@ export const tools = [
                 // Duplicação temporal (ledger): a mesma lição já foi destilada antes?
                 const fp = fingerprint(c.projectId, args.name, args.description);
                 const prior = findFingerprint(fp);
-                // Dedup PRÉVIO — guardrail: NÃO sobrescreve. Só avisa.
+                // Dedup PRÉVIO — guardrail: NÃO sobrescreve, só avisa. Busca SEM minScore: passar
+                // minScore faz o servidor entrar num modo de score NÃO-normalizado (BM25/híbrido,
+                // escala ~0..N) em vez do cosine 0..1 — validado ao vivo (sem minScore=0.63; com
+                // minScore=17.9/85.9 pra mesma dupla). Aplicamos o corte no CLIENTE sobre o cosine:
+                // só >=0.90 é duplicata REAL. Assim skills do mesmo domínio (ex.: várias sobre o SDK
+                // do Copilot) não se bloqueiam entre si por vocabulário compartilhado.
                 try {
-                    const sim = await c.client.search(`${args.name}\n${args.description}`, { topK: 3, metadata: { project_id: c.projectId }, minScore: 0.85 });
-                    const dupe = (sim.results || [])[0];
+                    const sim = await c.client.search(`${args.name}\n${args.description}`, { topK: 3, metadata: { project_id: c.projectId } });
+                    const dupe = (sim.results || []).find((r) => Number(r.score) >= 0.90);
                     if (dupe) {
-                        return `⚠️ Já existe memória muito similar (score ${(Number(dupe.score) || 0).toFixed(2)}) [${dupe.documentId}]. NÃO sobrescrevi. Revise com memory_get; para substituir, invalide a antiga (memory_invalidate_skill) e recrie.`;
+                        return `⚠️ Já existe skill muito similar (cosine ${(Number(dupe.score) || 0).toFixed(2)}) [${dupe.documentId}]. NÃO sobrescrevi. Revise com memory_get; para substituir, invalide a antiga (memory_invalidate_skill) e recrie.`;
                     }
                 } catch { /* dedup best-effort */ }
                 if (prior) {
