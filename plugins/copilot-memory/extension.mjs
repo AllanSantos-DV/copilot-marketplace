@@ -28,6 +28,7 @@ import { recordDistillation, sessionDistilled, fingerprint, findFingerprint } fr
 import { ensureServer, autoProvisionEnabled, resolveJava } from "./lib/provision.mjs";
 import { previewMigration, migrateScope } from "./lib/migrate.mjs";
 import { MemoryDashboard, DASHBOARD_CANVAS_ID, DASHBOARD_INSTANCE_ID, DASHBOARD_TITLE } from "./lib/dashboard.mjs";
+import { readPersistedCwd, persistCwd } from "./lib/sessionCwd.mjs";
 
 // Provisionamento em background disparado no máximo 1× por processo (não repete a cada hook).
 let provisionKicked = false;
@@ -44,11 +45,17 @@ let dashboard = null;
 // ToolInvocation do SDK NÃO expõe cwd. A extensão roda como processo filho forkado e normalmente
 // herda o cwd da sessão — mas para blindar contra um host que forke com cwd diferente (o que faria
 // as TOOLS resolverem o project_id ERRADO em silêncio, enquanto os hooks acertariam), capturamos o
-// workingDirectory dos hooks e as tools preferem esse valor, caindo para process.cwd() só até o
-// primeiro hook disparar (o que sempre ocorre antes de qualquer tool call).
-let sessionCwd = null;
+// workingDirectory dos hooks e as tools preferem esse valor. No boot semeamos com o último cwd
+// PERSISTIDO desta sessão — assim, após um reload da extensão, o painel/tools já resolvem o escopo
+// certo sem esperar o 1º hook (evita mostrar ~/.copilot/raiz git por alguns segundos). Só cai para
+// process.cwd() se não houver nada persistido.
+const SELF_SESSION_ID = process.env.SESSION_ID || "";
+let sessionCwd = readPersistedCwd(SELF_SESSION_ID);
 function rememberCwd(wd) {
-    if (wd && typeof wd === "string" && wd.trim()) sessionCwd = wd.trim();
+    if (wd && typeof wd === "string" && wd.trim()) {
+        sessionCwd = wd.trim();
+        persistCwd(SELF_SESSION_ID, sessionCwd);
+    }
 }
 function toolCwd() {
     return sessionCwd || process.cwd();
