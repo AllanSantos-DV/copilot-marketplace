@@ -6,9 +6,9 @@
 // inteligência de escopo/hierarquia (project_id no topo; skills/tools/metadata abaixo; só
 // skills globais em home) e a composição do recall são do SERVIDOR — o plugin nunca decide isso.
 //
-// Exporta { tools (11), hooks (onSessionStart/onUserPromptSubmitted) }: memória escopada
-// (status/search/recent/get/save), recall passivo two-tier, ciclo de skill (guide/save/promote/
-// invalidate/list) e o destilador de aprendizado (distill).
+// Exporta { tools (14), canvases (painel), hooks (onSessionStart/onUserPromptSubmitted) }: memória
+// escopada (status/search/recent/get/save), recall passivo two-tier, ciclo de skill (guide/save/promote/
+// invalidate/list), o destilador de aprendizado (distill) e o painel visual (memory_dashboard).
 // NB: o import de joinSession é DINÂMICO (dentro do guard no fim) — assim importar { tools, hooks }
 // num harness de smoke não exige resolver @github/copilot-sdk/extension (que só existe no host).
 import { discover } from "./lib/daemon.mjs";
@@ -25,6 +25,7 @@ import { buildDigest } from "./lib/digest.mjs";
 import { redact } from "./lib/redact.mjs";
 import { recordDistillation, sessionDistilled, fingerprint, findFingerprint } from "./lib/ledger.mjs";
 import { ensureServer, autoProvisionEnabled, resolveJava } from "./lib/provision.mjs";
+import { MemoryDashboard, DASHBOARD_CANVAS_ID, DASHBOARD_INSTANCE_ID, DASHBOARD_TITLE } from "./lib/dashboard.mjs";
 
 // Provisionamento em background disparado no máximo 1× por processo (não repete a cada hook).
 let provisionKicked = false;
@@ -33,6 +34,9 @@ let provisionKicked = false;
 // No harness de smoke, __setHostSession injeta a sessão de teste.
 let hostSession = null;
 export function __setHostSession(s) { hostSession = s; }
+
+// Painel visual (canvas) do host — instanciado no joinSession (guard); null em smoke/testes.
+let dashboard = null;
 
 // workingDirectory autoritativo. Os hooks recebem input.workingDirectory (BaseHookInput), mas a
 // ToolInvocation do SDK NÃO expõe cwd. A extensão roda como processo filho forkado e normalmente
@@ -205,6 +209,24 @@ export const tools = [
                     `projeto aberto: ${cwd}`,
                     `project_id: ${c.projectId ?? "(não resolvido — sem git remote/caminho)"}`,
                 ].join("\n");
+            },
+        },
+
+        {
+            name: "memory_dashboard",
+            description:
+                "Abre o painel visual da memória no canvas lateral: saúde do daemon, escopo do projeto (com a " +
+                "escada de resolução do project_id), documentos recentes, skills e telemetria de recall. Só leitura.",
+            parameters: { type: "object", properties: {}, additionalProperties: false },
+            handler: async () => {
+                if (!hostSession || !dashboard) return "Painel indisponível nesta sessão (host não conectado).";
+                try {
+                    await dashboard.ensureServer();
+                    await hostSession.rpc.canvas.open({ canvasId: DASHBOARD_CANVAS_ID, instanceId: DASHBOARD_INSTANCE_ID });
+                    return "🧠 Painel de memória aberto no canvas lateral.";
+                } catch (e) {
+                    return "Não consegui abrir o painel: " + (e?.message || e);
+                }
             },
         },
 
@@ -612,8 +634,23 @@ export const hooks = {
 // Entry do host: só junta à sessão quando NÃO está em modo smoke/teste (evita joinSession no import,
 // permitindo importar { tools, hooks } num harness isolado).
 if (!process.env.COPILOT_MEMORY_SMOKE) {
-    const { joinSession } = await import("@github/copilot-sdk/extension");
-    const session = await joinSession({ tools, hooks });
+    const { joinSession, createCanvas } = await import("@github/copilot-sdk/extension");
+    // Painel visual (canvas): o server é SDK-free (lib/dashboard.mjs) e testável; o provisioner injeta
+    // ensureServer sem acoplar o SDK ao módulo. createCanvas só existe aqui, no host.
+    dashboard = new MemoryDashboard({
+        cwdProvider: () => toolCwd(),
+        provisioner: async () => ensureServer({ waitMs: 120000 }),
+    });
+    const memoryCanvas = createCanvas({
+        id: DASHBOARD_CANVAS_ID,
+        displayName: "Memory",
+        description: "Painel da memória do projeto: saúde do daemon, escopo, documentos, skills e telemetria de recall.",
+        open: async () => {
+            await dashboard.ensureServer();
+            return { title: DASHBOARD_TITLE, url: dashboard.url };
+        },
+    });
+    const session = await joinSession({ tools, canvases: [memoryCanvas], hooks });
     hostSession = session;
-    session.log?.("copilot-memory ativo — discovery + auto-provisionamento + recall two-tier + tools de memória, skill e destilação.");
+    session.log?.("copilot-memory ativo — discovery + auto-provisionamento + recall two-tier + painel + tools de memória, skill e destilação.");
 }

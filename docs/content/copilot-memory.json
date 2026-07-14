@@ -5,7 +5,8 @@
     { "title": "Lembra por projeto, não vaza entre eles", "body": "Cada leitura e escrita é carimbada com o `project_id` do projeto aberto. A memória de um projeto nunca aparece em outro." },
     { "title": "Recall em dois níveis", "body": "Skills voltam como **ponteiro** (nome + descrição + id) e o agente abre o corpo só quando precisa; fatos voltam **inline**, prontos para usar. Menos ruído, mais contexto." },
     { "title": "Aprende com a sessão", "body": "Depois de um marco verificado (teste passou, você confirmou), o destilador transforma o que foi validado em **skills candidatas** — com a evidência citada, e promoção só com o seu aval." },
-    { "title": "Sobe o servidor sozinho", "body": "Sem daemon e sem servidor instalado, o plugin baixa a release pública, **confere o sha256** e sobe o servidor. Se já existe, apenas reusa. Requer Java 21." }
+    { "title": "Sobe o servidor sozinho", "body": "Sem daemon e sem servidor instalado, o plugin baixa a release pública, **confere o sha256** e sobe o servidor. Se já existe, apenas reusa. Requer Java 21." },
+    { "title": "Um painel pra ver tudo", "body": "Um canvas lateral mostra, ao vivo, a saúde do daemon, o escopo do projeto (com a **escada** que resolveu o `project_id`), os documentos e skills recentes e a telemetria de recall." }
   ],
   "sections": [
     {
@@ -92,6 +93,23 @@
       ]
     },
     {
+      "id": "painel",
+      "title": "O painel (canvas)",
+      "blocks": [
+        { "type": "p", "text": "Chame `memory_dashboard` (ou abra \"Memory\" na seção de canvas do app) para ver a memória do projeto num painel lateral, ao vivo e com auto-refresh. Ele não muda nada — é só leitura." },
+        {
+          "type": "list",
+          "items": [
+            "**Saúde do daemon** — online, offline ou degradado, com a URL e a versão do servidor.",
+            "**Escopo** — o `project_id` e a *escada* que o resolveu (declarado → git remote → repo base → caminho → nome), destacando qual venceu e avisando quando o escopo é frágil.",
+            "**Documentos e skills** — os itens recentes e as skills (ativas e candidatas) do projeto, além de uma busca escopada.",
+            "**Telemetria de recall** — quantos recalls, quantos ponteiros injetados, quantas buscas de corpo e o *hit-rate* ponteiro→fetch."
+          ]
+        },
+        { "type": "note", "tone": "info", "text": "Com o daemon offline, o painel oferece um botão para provisionar o servidor — o mesmo caminho consentido do `memory_setup`. O painel aparece depois de reiniciar o app uma vez (o hook espelha o plugin para as extensões do app)." }
+      ]
+    },
+    {
       "id": "como-funciona",
       "title": "Como funciona",
       "blocks": [
@@ -121,13 +139,14 @@
     { "q": "O que o destilador salva na memória?", "a": "Só o que é generalizável e verificado. Ele exige um sinal concreto (uma execução de ferramenta bem-sucedida, a sua confirmação) e redige segredos antes de propor. Sem prova, recusa criar a skill. E toda skill nasce candidata, fora do recall automático, até você promovê-la." },
     { "q": "O plugin fica lento se o servidor demora?", "a": "Não trava a sessão. O recall tem um teto de tempo e cai para uma busca escopada mais barata se a composição demora; se estourar o teto, ele injeta nada e segue. Os hooks nunca derrubam a sua conversa." },
     { "q": "Como desligo o download automático do servidor?", "a": "Defina `COPILOT_MEMORY_AUTOPROVISION=0`. O plugin então apenas reusa um daemon que já esteja rodando e degrada se não houver — sem baixar nem subir nada." },
-    { "q": "Onde mora o código do servidor?", "a": "No projeto `native-java` (mcp-memory-server), publicado como release pública. Esta vitrine guarda só o plugin cliente; o servidor é baixado do repositório oficial de releases, verificado por sha256." }
+    { "q": "Onde mora o código do servidor?", "a": "No projeto `native-java` (mcp-memory-server), publicado como release pública. Esta vitrine guarda só o plugin cliente; o servidor é baixado do repositório oficial de releases, verificado por sha256." },
+    { "q": "Tem uma tela para ver o estado da memória?", "a": "Tem. O `memory_dashboard` abre um painel lateral (canvas) com a saúde do daemon, o escopo do projeto e a escada que resolveu o `project_id`, os documentos e skills recentes e a telemetria de recall. É só leitura e aparece depois de reiniciar o app uma vez." }
   ],
   "files": {
     "plugin.json": "Metadados do plugin + marcador de hooks.",
     "hooks.json": "SessionStart → node boot.mjs (espelhamento via canvas-sync).",
     "boot.mjs": "Bootstrap padrão da vitrine (garante o canvas-sync).",
-    "extension.mjs": "Entrypoint: 13 tools + 2 hooks (recall, memória, skills, destilador, setup, init).",
-    "lib/": "Módulos: discovery, escopo (project_id + .memory/project.json), cliente REST, recall two-tier, skills, destilador (digest + redação + registro) e auto-provisionamento."
+    "extension.mjs": "Entrypoint: 14 tools + painel (canvas) + 2 hooks (recall, memória, skills, destilador, setup, init, dashboard).",
+    "lib/": "Módulos: discovery, escopo (project_id + .memory/project.json), cliente REST, recall two-tier, skills, destilador (digest + redação + registro), auto-provisionamento e o painel (canvas)."
   }
 }

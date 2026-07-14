@@ -55,6 +55,7 @@ plugin não recria nada disso.
 | Tool | O que faz |
 |------|-----------|
 | `memory_status` | Daemon vivo? URL/versão + `project_id` do projeto aberto. Não altera nada. |
+| `memory_dashboard` | Abre o **painel (canvas)** lateral: saúde do daemon, escopo (com a escada do `project_id`), documentos recentes, skills e telemetria de recall. Só leitura. |
 | `memory_setup` | Provisiona o servidor se ele não existir: baixa a release (verificada por sha256), sobe e aguarda anunciar; se já existir, reusa. Bootstrap inicial. Requer Java 21. |
 | `memory_init_project` | Cria o `.memory/project.json` (project_id estável e portável) analisando a estrutura do projeto. `skip:true` registra "não sugerir aqui". Não sobrescreve. |
 | `memory_search` | Busca semântica **escopada** na memória do projeto. |
@@ -86,7 +87,7 @@ gatilho do recall** (a skill volta como ponteiro), então ela precisa carregar o
 plugin.json        metadados + "extensions":["."] + hooks
 hooks.json         SessionStart → node boot.mjs (espelha o plugin p/ ~/.copilot/extensions via canvas-sync)
 boot.mjs           bootstrap do canvas-sync (padrão da vitrine)
-extension.mjs      entrypoint: joinSession({ tools, hooks }) — 11 tools + 2 hooks
+extension.mjs      entrypoint: joinSession({ tools, canvases, hooks }) — 14 tools + painel + 2 hooks
 lib/daemon.mjs     discovery + health (cliente-puro)
 lib/provision.mjs  auto-provisionamento do server (bootstrap: baixa+verifica+sobe; fail-open)
 lib/projectId.mjs  resolver worktree-safe (.memory/project.json → git → path; força do escopo)
@@ -100,7 +101,19 @@ lib/digest.mjs     digest evidence-first da sessão (getMessages)
 lib/redact.mjs     redação de segredos/PII antes de destilar
 lib/ledger.mjs     ledger anti-duplicação temporal + recorrência
 lib/consumption.mjs telemetria client-side ponteiro→fetch
+lib/dashboard.mjs  painel (canvas): server local SDK-free + snapshot (health/escopo/docs/skills/telemetria)
 ```
+
+## Painel (canvas)
+
+`memory_dashboard` abre um painel lateral (canvas) — ou abra "Memory" na seção de canvas do app. Ele
+mostra, ao vivo (auto-refresh) e escopado ao projeto aberto: **saúde do daemon** (online/versão/status),
+o **escopo** com a *escada de resolução* do `project_id` (declared → git-remote → git-base → path → name,
+destacando qual venceu e alertando quando é frágil), **documentos recentes**, **skills** (ativas/candidatas),
+**telemetria de recall** (recalls, ponteiros injetados, fetches e hit-rate ponteiro→fetch) e busca escopada.
+Quando o daemon está offline, oferece **Provisionar servidor** (mesmo caminho consentido do `memory_setup`).
+É **cliente-puro e só leitura** — nunca sobe o server sozinho. O painel só aparece após **reiniciar o app
+uma vez** (o hook `SessionStart` espelha o plugin para `~/.copilot/extensions/` via canvas-sync).
 
 ## Requisitos
 
