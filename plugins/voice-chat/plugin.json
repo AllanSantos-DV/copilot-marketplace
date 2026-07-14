@@ -1,6 +1,6 @@
 {
   "name": "voice-chat",
-  "version": "1.5.11",
+  "version": "1.5.12",
   "description": "Converse por voz com o Copilot (pt-BR): fale e ouça um resumo falado. STT e TTS pelo motor único local vox-engine — a extensão instala e atualiza o motor sozinha, sem fallback local.",
   "author": {
     "name": "Allan Santos",

@@ -597,6 +597,17 @@ function showItemText(it) {
   if (it.full && it.full !== it.spoken) { fullText.textContent = it.full; fullWrap.style.display = "block"; }
   else { fullWrap.style.display = "none"; }
 }
+// Marca um item como OUVIDO no INÍCIO da reprodução (não no fim). Assim reabrir a sessão
+// NÃO retoca um áudio que já começou a tocar uma vez — quem quiser rever usa os botões de
+// voltar (◀/▶). Só posta quando o play REALMENTE começou (a promise resolve); se o autoplay
+// foi bloqueado (reject), NÃO marca (o usuário não ouviu) e o item volta a tocar depois.
+// O servidor é monotônico: um seq menor (rever item antigo com ◀) é no-op, não regride o cursor.
+function ackPlayStart(seq, playPromise, postFn) {
+  if (typeof seq !== "number") return;
+  Promise.resolve(playPromise).then(function () {
+    postFn("/played", { seq: seq }, true).catch(function () {});
+  }, function () {});
+}
 // Toca o item de índice i (é o ÚNICO ponto que mexe no <audio> do histórico), e o
 // texto mostrado é SEMPRE o do item que está tocando (corrige o descompasso antigo).
 function playAt(i) {
@@ -609,12 +620,14 @@ function playAt(i) {
   replayBtn.disabled = !it.audio;
   if (it.audio) {
     playing = true;
-    playingSeq = (typeof it.seq === "number") ? it.seq : null;   // seq DO ITEM que começou a tocar; o ack lê ISTO (não hist[curIdx], que um hello no meio pode remapear)
+    playingSeq = (typeof it.seq === "number") ? it.seq : null;
     pauseBtn.disabled = false; setPauseBtn(true);
     phase = "speaking"; reflectPhase();
     audio.src = base + it.audio + "?t=" + Date.now();
     unlockAudio();
-    audio.play().catch(() => { playing = false; onPlaybackEnded(); });
+    const p = audio.play();
+    ackPlayStart(playingSeq, p, post);   // OUVIDO = começou a tocar (não o fim): reabrir não retoca o que já iniciou
+    p.catch(() => { playing = false; onPlaybackEnded(); });
   }
   updateHistUi();
 }
@@ -659,7 +672,7 @@ function reconcileOnHello(state, ah) {
     const curIdx = idx >= 0 ? idx : (items.length ? items.length - 1 : -1);
     // Item em voo AINDA tocando mas já PODADO do histórico (rajada > cap durante a fala): idx<0.
     // Fallback p/ (from-1) — assim a cauda NÃO-ouvida [from..] AINDA é enfileirada, não descartada
-    // (Infinity descartaria tudo). O áudio em voo segue no <audio> até o `ended` (acka seu seq).
+    // (Infinity descartaria tudo). O item em voo já foi marcado OUVIDO no início do play.
     const playingSeqNow = idx >= 0 ? items[idx].seq : (from - 1);
     const playQueue = items.filter((it) => it.seq >= from && it.seq > playingSeqNow && it.audio);
     return { hist: items, curIdx, playQueue, keepPlaying: true };
@@ -680,7 +693,7 @@ function applyAudioHistory(ah) {
   reviewing = false; newCount = 0;
   playQueue = r.playQueue;
   if (r.keepPlaying) {
-    // segue tocando o item atual; ao terminar, o `ended` acka playingSeq e pumpAudio puxa a cauda.
+    // segue tocando o item atual (já marcado OUVIDO no início); ao terminar, pumpAudio puxa a cauda.
     updateHistUi();
     return;
   }
@@ -695,7 +708,7 @@ function applyAudioHistory(ah) {
 function stopPlayback() {   // corta o que toca e cancela o autoplay (controle manual/gravação)
   playQueue = [];
   try { audio.pause(); } catch (e) {}
-  playing = false; previewPlaying = false; playingSeq = null;   // item cortado NÃO é "ouvido": nunca acka
+  playing = false; previewPlaying = false; playingSeq = null;   // o item já foi marcado OUVIDO no início do play (não regride ao cortar)
 }
 function goPrev() {
   if (curIdx <= 0) return;
@@ -739,12 +752,8 @@ function setPauseBtn(playing) {
 }
 audio.addEventListener("ended", () => {
   if (previewPlaying) { previewPlaying = false; pumpAudio(); return; }
-  // ACK de reprodução: usa o seq CAPTURADO no play-start (playingSeq), imune a um hello que
-  // remapeie hist/curIdx no meio. Só quando um item do histórico terminou de TOCAR (não
-  // preview, não erro, não pause/stop). Monotônico no servidor (replay de item antigo = no-op).
-  const acked = playingSeq;
+  // O ACK de "ouvido" já foi no INÍCIO do play (ackPlayStart) — aqui só encerra e puxa a fila.
   playingSeq = null;
-  if (typeof acked === "number") { post("/played", { seq: acked }, true).catch(() => {}); }
   onPlaybackEnded();
 });
 prevBtn.addEventListener("click", (e) => { e.preventDefault(); goPrev(); });
