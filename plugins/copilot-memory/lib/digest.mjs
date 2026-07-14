@@ -1,4 +1,4 @@
-// Digest EVIDENCE-FIRST da sessão (getMessages() — forma validada ao vivo). Compacta o transcript
+// Digest EVIDENCE-FIRST da sessão (getEvents()/getMessages() — SessionEvent[]). Compacta o transcript
 // em SINAIS VERIFICÁVEIS, não em prosa: o oráculo do "verificado" (bloqueador do advogado-do-diabo)
 // são os tool.execution_complete com success=true — sinal machine-checkable, não a afirmação do agente.
 //
@@ -19,7 +19,7 @@ function clean(s) {
     return String(s || "").replace(/\s+/g, " ").trim();
 }
 
-// Constrói o digest. messages = saída de session.getMessages(). Retorna { text, evidence, stats }.
+// Constrói o digest. messages = saída de session.getEvents()/getMessages() (SessionEvent[]).
 // evidence: [{id, kind:"tool"|"user", name?, success?, label}] — os ids citáveis pela reflexão.
 export function buildDigest(messages, opts = {}) {
     const maxChars = opts.maxChars || 7000;
