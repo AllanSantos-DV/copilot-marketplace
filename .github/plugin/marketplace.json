@@ -10,8 +10,8 @@
   "plugins": [
     {
       "name": "copilot-memory",
-      "description": "Memória por projeto para o Copilot: descobre o daemon do servidor de memória (native-java) e, se não existir, baixa e sobe automaticamente (verificado por sha256); resolve o escopo pelo .memory/project.json ou git (worktree-safe) e guia a criação quando frágil; injeta recall two-tier, destila aprendizados em skills e abre um painel (canvas) com saúde do daemon, escopo, documentos, skills e telemetria de recall.",
-      "version": "1.4.0",
+      "description": "Memória por projeto para o Copilot: descobre o daemon do servidor de memória (native-java) e, se não existir, baixa e sobe automaticamente (verificado por sha256); resolve o escopo pelo .memory/project.json ou git (worktree-safe) e guia a criação quando frágil; migra a memória do escopo antigo para o novo com sua aprovação; injeta recall two-tier, destila aprendizados em skills e abre um painel (canvas) com saúde do daemon, escopo, documentos, skills e telemetria de recall.",
+      "version": "1.5.0",
       "source": "./plugins/copilot-memory",
       "author": {
         "name": "Allan Santos"
