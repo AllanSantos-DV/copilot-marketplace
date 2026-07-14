@@ -1271,6 +1271,10 @@ function handle(m) {
     case "mics":
       populateMics(m);
       break;
+    case "mic-fallback":
+      showBanner("Microfone selecionado indisponível — voltei para o padrão do Windows.");
+      setTimeout(hideBanner, 5000);
+      break;
     case "voices":
       populateVoices(m);
       break;
