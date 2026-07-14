@@ -9,6 +9,27 @@
   },
   "plugins": [
     {
+      "name": "visual-explainer",
+      "description": "Explicações visuais animadas e interativas: peça um assunto e um agente desenhista gera uma página HTML autocontida (Canvas/SVG) com play/pause, zoom e peças clicáveis. Usa um kit de componentes (motor leve próprio + Konva para grafos) e escreve só uma spec — o builder monta o HTML otimizado.",
+      "version": "0.1.0",
+      "source": "./plugins/visual-explainer",
+      "author": {
+        "name": "Allan Santos"
+      },
+      "homepage": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "license": "MIT",
+      "keywords": [
+        "visual",
+        "explicacao",
+        "animacao",
+        "canvas",
+        "agente",
+        "pt-BR"
+      ],
+      "category": "productivity"
+    },
+    {
       "name": "canvas-sync",
       "description": "Infra da vitrine: espelha canvas extensions (installed-plugins) para ~/.copilot/extensions via hook de SessionStart. Instale junto ou deixe um plugin baixar sozinho.",
       "version": "0.3.0",

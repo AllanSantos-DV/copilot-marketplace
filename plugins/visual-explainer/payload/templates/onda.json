@@ -1,0 +1,11 @@
+{
+  "engine": "vxk",
+  "title": "Onda senoidal — propagação",
+  "slug": "onda",
+  "badge": "VXK",
+  "accent": "#5b8cff",
+  "intro": "Uma onda senoidal se propagando no tempo. Clique na onda para detalhes; ajuste a velocidade.",
+  "nodes": [
+    { "type": "wave", "amp": 60, "wavelength": 180, "speed": 2.2, "x0": -300, "x1": 300, "y": 0, "color": "#5b8cff", "label": "onda", "info": "Amplitude = altura; comprimento de onda = distância entre cristas; a velocidade desloca a onda no tempo." }
+  ]
+}

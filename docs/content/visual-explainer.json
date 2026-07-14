@@ -1,0 +1,89 @@
+{
+  "tagline": "Peça uma explicação e receba uma página animada e interativa: um agente desenhista escreve a spec, o builder monta o HTML autocontido e abre no seu navegador.",
+  "lede": "O **visual-explainer** transforma um pedido em texto — \"explica o ciclo da água\", \"o motor 4 tempos\", \"bubble sort\", \"um grafo de dependências\" — numa **página HTML autocontida** com play/pause, velocidade, zoom, arrastar e peças clicáveis. Você não desenha nada: um **agente desenhista** escreve uma spec declarativa e um builder inlina o motor certo e entrega o HTML pronto, offline, aberto no navegador.",
+  "highlights": [
+    { "title": "Do pedido à página, sem desenhar", "body": "Você descreve o assunto; o agente escolhe o motor, escreve a spec em JSON e o builder monta o HTML. Nada de arrastar formas na mão." },
+    { "title": "Animada e interativa", "body": "As páginas têm play/pause, controle de velocidade, zoom, arrastar e peças clicáveis — não é uma imagem estática, é uma explicação que você explora." },
+    { "title": "Dois motores, um kit", "body": "O motor `vxk` (leve, próprio) cobre órbitas, física, fluxo, algoritmos e timelines; o `konva` cuida de grafos e redes com nós arrastáveis. Um design system de componentes cresce a cada arte." },
+    { "title": "Autocontido e offline", "body": "O builder inlina o motor escolhido: a página é um único HTML, sem dependência externa, que roda no seu navegador — com performance embutida (~30 FPS, pausa em aba oculta)." }
+  ],
+  "sections": [
+    {
+      "id": "o-que-e",
+      "title": "O que é",
+      "blocks": [
+        { "type": "p", "text": "O visual-explainer é um **agente desenhista** para o GitHub Copilot. Você pede uma explicação visual de um assunto e ele entrega uma **página HTML autocontida** que anima e deixa você interagir com o conceito — abrir, pausar, acelerar, dar zoom e clicar nas peças." },
+        { "type": "p", "text": "O truque é não desenhar na mão. O agente escreve uma **spec declarativa (JSON)** descrevendo o que mostrar, e um **builder** monta o HTML otimizado, inlinando o motor certo. O resultado é um arquivo único, offline, que abre no seu navegador." },
+        { "type": "note", "tone": "info", "text": "O agente é instalado no arranque. Depois de instalar o plugin, **reinicie o app uma vez** para o agente `visual-explainer` aparecer no seletor." }
+      ]
+    },
+    {
+      "id": "como-usar",
+      "title": "Como usar",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            { "title": "Instale o plugin", "text": "Pelo marketplace, com o comando da seção Instalar abaixo." },
+            { "title": "Reinicie o app", "text": "Uma vez, para o agente desenhista ser descoberto no seletor." },
+            { "title": "Peça uma explicação", "text": "Selecione o agente `visual-explainer` (ou peça uma explicação visual) e descreva o assunto: \"explica visualmente o modelo atômico de Bohr\"." },
+            { "title": "Abra a página", "text": "O agente escolhe o motor, escreve a spec, roda o builder e abre a página no navegador. Os arquivos ficam em `Desktop\\visual-explanations\\`." }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "os-motores",
+      "title": "Dois motores para dois tipos de arte",
+      "blocks": [
+        { "type": "p", "text": "Nem toda explicação pede o mesmo motor. O builder inlina o certo para o caso, e o agente raramente desenha do zero — um design system de componentes reutilizáveis cresce a cada arte." },
+        {
+          "type": "list",
+          "items": [
+            "**Motor `vxk`** (leve, próprio) — para as explicações comuns: órbitas, física, fluxo, algoritmos, linhas do tempo. É o caminho padrão.",
+            "**Motor `konva`** (vendorizado) — para grafos e redes: nós arrastáveis e interação mais pesada, quando a explicação é uma estrutura de ligações."
+          ]
+        },
+        { "type": "note", "tone": "info", "text": "Performance vem embutida: ~30 FPS, DPR limitado a 1.5 e pausa automática quando a aba fica oculta. Tudo offline e num único arquivo." }
+      ]
+    },
+    {
+      "id": "como-funciona",
+      "title": "Como funciona",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "**Pedido** — você descreve o assunto para o agente desenhista.",
+            "**Spec** — o agente escolhe o motor e escreve uma spec declarativa em JSON, reusando os componentes do kit.",
+            "**Build** — o builder monta o HTML autocontido, inlinando o motor e otimizando para rodar leve.",
+            "**Abre** — a página abre no navegador, com play/pause, zoom, arrastar e peças clicáveis."
+          ]
+        },
+        { "type": "p", "text": "Como a saída é um HTML único e offline, você pode guardar, abrir de novo ou compartilhar a explicação sem depender de nada — nem do agente, nem da rede." }
+      ]
+    }
+  ],
+  "requirements": [
+    "Copilot App (desktop) com o GitHub Copilot SDK",
+    "Node 18+ (runtime da extensão e do builder)",
+    "Um navegador para abrir as páginas geradas"
+  ],
+  "faq": [
+    { "q": "Preciso saber desenhar ou animar?", "a": "Não. Você descreve o assunto em texto; o agente escreve a spec e o builder monta a página. Você recebe o HTML pronto, animado e interativo." },
+    { "q": "A página depende de internet para abrir?", "a": "Não. O builder inlina o motor escolhido, então a página é um único HTML autocontido que roda offline no seu navegador. Você pode guardar e reabrir quando quiser." },
+    { "q": "Qual a diferença entre os motores vxk e konva?", "a": "O `vxk` é o motor leve próprio, para explicações comuns (órbitas, física, fluxo, algoritmos, timelines). O `konva` é para grafos e redes, com nós arrastáveis e interação mais pesada. O agente escolhe o motor pelo tipo de assunto." },
+    { "q": "Onde ficam as páginas geradas?", "a": "Em `Desktop\\visual-explanations\\`. Cada explicação vira um arquivo HTML autocontido nessa pasta." },
+    { "q": "Por que preciso reiniciar o app depois de instalar?", "a": "No arranque, o plugin instala o kit e o agente desenhista em `~/.copilot` (idempotente, por versão). O reinício é para o app descobrir o agente `visual-explainer` no seletor." },
+    { "q": "Onde mora o código do plugin?", "a": "O runtime completo (kit, builder, templates e o agente) é vendado nesta vitrine, em `plugins/visual-explainer/payload`. O `boot.mjs` instala esse payload em `~/.copilot` no primeiro arranque." }
+  ],
+  "files": {
+    "plugin.json": "Metadados do plugin + marcador de hooks.",
+    "hooks.json": "SessionStart → node boot.mjs.",
+    "boot.mjs": "Instala o kit e o agente desenhista em ~/.copilot (idempotente, por versão).",
+    "payload/kit/": "Motores (vxk + konva) e o design system de componentes.",
+    "payload/build-artifact.mjs": "O builder: transforma a spec declarativa em HTML autocontido.",
+    "payload/templates/": "Exemplos por tipo de visual (fluxo, onda, órbita, timeline, pêndulo).",
+    "payload/visual-explainer.agent.md": "O agente desenhista, instalado em ~/.copilot/agents."
+  }
+}

@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>visual-explainer — copilot-marketplace</title>
+  <meta name="description" content="Peça uma explicação e receba uma página animada e interativa: um agente desenhista escreve a spec, o builder monta o HTML autocontido e abre no seu navegador." />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#14121C" />
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content="visual-explainer — copilot-marketplace" />
+  <meta property="og:description" content="Peça uma explicação e receba uma página animada e interativa: um agente desenhista escreve a spec, o builder monta o HTML autocontido e abre no seu navegador." />
+  <meta property="og:url" content="https://allansantos-dv.github.io/copilot-marketplace/p/visual-explainer/" />
+  <link rel="canonical" href="https://allansantos-dv.github.io/copilot-marketplace/p/visual-explainer/" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../assets/styles.css" />
+</head>
+<body class="doc">
+  <a class="skip" href="#conteudo">Pular para o conteúdo</a>
+  <header class="topbar">
+    <a class="brand" href="../../"><span class="brand__glyph" aria-hidden="true">⌁</span> copilot-marketplace</a>
+    <nav class="topnav" aria-label="Seções">
+      <a href="../../#registry">registry</a>
+      <a href="../../#publicar">publicar</a>
+      <a href="https://github.com/AllanSantos-DV/copilot-marketplace" rel="noopener">github<span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main id="conteudo">
+    <nav class="crumbs" aria-label="Trilha">
+      <a href="../../#registry">registry</a>
+      <span class="crumbs__sep" aria-hidden="true">/</span>
+      <span aria-current="page">visual-explainer</span>
+    </nav>
+
+    <header class="doc-hero">
+      <p class="eyebrow">productivity</p>
+      <div class="doc-hero__top">
+        <h1 class="doc-hero__name">visual-explainer</h1>
+        <span class="chip" title="versão publicada">v0.1.0</span>
+      </div>
+      <p class="doc-hero__lede">O <strong>visual-explainer</strong> transforma um pedido em texto — &quot;explica o ciclo da água&quot;, &quot;o motor 4 tempos&quot;, &quot;bubble sort&quot;, &quot;um grafo de dependências&quot; — numa <strong>página HTML autocontida</strong> com play/pause, velocidade, zoom, arrastar e peças clicáveis. Você não desenha nada: um <strong>agente desenhista</strong> escreve uma spec declarativa e um builder inlina o motor certo e entrega o HTML pronto, offline, aberto no navegador.</p>
+      <div class="doc-hero__cta">
+        <div class="prompt prompt--sm" data-cmd="copilot plugin install visual-explainer@copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin install visual-explainer@copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin install visual-explainer@copilot-marketplace" aria-label="Copiar comando de instalação do visual-explainer">copiar</button>
+      </div>
+      </div>
+      <div class="doc-hero__links">
+        <a class="lnk" href="https://github.com/AllanSantos-DV/copilot-marketplace" rel="noopener">código<span aria-hidden="true">↗</span></a>
+      </div>
+      <ul class="hl" aria-label="Destaques">
+        <li class="hl__item">
+          <h3 class="hl__title">Do pedido à página, sem desenhar</h3>
+          <p class="hl__body">Você descreve o assunto; o agente escolhe o motor, escreve a spec em JSON e o builder monta o HTML. Nada de arrastar formas na mão.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Animada e interativa</h3>
+          <p class="hl__body">As páginas têm play/pause, controle de velocidade, zoom, arrastar e peças clicáveis — não é uma imagem estática, é uma explicação que você explora.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Dois motores, um kit</h3>
+          <p class="hl__body">O motor <code>vxk</code> (leve, próprio) cobre órbitas, física, fluxo, algoritmos e timelines; o <code>konva</code> cuida de grafos e redes com nós arrastáveis. Um design system de componentes cresce a cada arte.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Autocontido e offline</h3>
+          <p class="hl__body">O builder inlina o motor escolhido: a página é um único HTML, sem dependência externa, que roda no seu navegador — com performance embutida (~30 FPS, pausa em aba oculta).</p>
+        </li>
+      </ul>
+    </header>
+
+    <div class="doc-grid">
+      <article class="doc-body" id="doc-body">
+        <section class="doc-section" id="o-que-e">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#o-que-e" aria-label="Link para O que é">#</a>O que é</h2>
+          <p>O visual-explainer é um <strong>agente desenhista</strong> para o GitHub Copilot. Você pede uma explicação visual de um assunto e ele entrega uma <strong>página HTML autocontida</strong> que anima e deixa você interagir com o conceito — abrir, pausar, acelerar, dar zoom e clicar nas peças.</p>
+          <p>O truque é não desenhar na mão. O agente escreve uma <strong>spec declarativa (JSON)</strong> descrevendo o que mostrar, e um <strong>builder</strong> monta o HTML otimizado, inlinando o motor certo. O resultado é um arquivo único, offline, que abre no seu navegador.</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>O agente é instalado no arranque. Depois de instalar o plugin, <strong>reinicie o app uma vez</strong> para o agente <code>visual-explainer</code> aparecer no seletor.</p></aside>
+        </section>
+
+        <section class="doc-section" id="como-usar">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#como-usar" aria-label="Link para Como usar">#</a>Como usar</h2>
+          <ol class="doc-steps"><li><h4>Instale o plugin</h4><p>Pelo marketplace, com o comando da seção Instalar abaixo.</p></li><li><h4>Reinicie o app</h4><p>Uma vez, para o agente desenhista ser descoberto no seletor.</p></li><li><h4>Peça uma explicação</h4><p>Selecione o agente <code>visual-explainer</code> (ou peça uma explicação visual) e descreva o assunto: &quot;explica visualmente o modelo atômico de Bohr&quot;.</p></li><li><h4>Abra a página</h4><p>O agente escolhe o motor, escreve a spec, roda o builder e abre a página no navegador. Os arquivos ficam em <code>Desktop\visual-explanations\</code>.</p></li></ol>
+        </section>
+
+        <section class="doc-section" id="os-motores">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#os-motores" aria-label="Link para Dois motores para dois tipos de arte">#</a>Dois motores para dois tipos de arte</h2>
+          <p>Nem toda explicação pede o mesmo motor. O builder inlina o certo para o caso, e o agente raramente desenha do zero — um design system de componentes reutilizáveis cresce a cada arte.</p>
+          <ul class="doc-list"><li><strong>Motor <code>vxk</code></strong> (leve, próprio) — para as explicações comuns: órbitas, física, fluxo, algoritmos, linhas do tempo. É o caminho padrão.</li><li><strong>Motor <code>konva</code></strong> (vendorizado) — para grafos e redes: nós arrastáveis e interação mais pesada, quando a explicação é uma estrutura de ligações.</li></ul>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Performance vem embutida: ~30 FPS, DPR limitado a 1.5 e pausa automática quando a aba fica oculta. Tudo offline e num único arquivo.</p></aside>
+        </section>
+
+        <section class="doc-section" id="como-funciona">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#como-funciona" aria-label="Link para Como funciona">#</a>Como funciona</h2>
+          <ul class="doc-list"><li><strong>Pedido</strong> — você descreve o assunto para o agente desenhista.</li><li><strong>Spec</strong> — o agente escolhe o motor e escreve uma spec declarativa em JSON, reusando os componentes do kit.</li><li><strong>Build</strong> — o builder monta o HTML autocontido, inlinando o motor e otimizando para rodar leve.</li><li><strong>Abre</strong> — a página abre no navegador, com play/pause, zoom, arrastar e peças clicáveis.</li></ul>
+          <p>Como a saída é um HTML único e offline, você pode guardar, abrir de novo ou compartilhar a explicação sem depender de nada — nem do agente, nem da rede.</p>
+        </section>
+
+        <section class="doc-section" id="instalar">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#instalar" aria-label="Link para Instalar">#</a>Instalar</h2>
+          <p>Registre a vitrine uma vez (se ainda não fez):</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin marketplace add AllanSantos-DV/copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin marketplace add AllanSantos-DV/copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin marketplace add AllanSantos-DV/copilot-marketplace" aria-label="Copiar comando de registro do marketplace">copiar</button>
+      </div>
+          <p>Instale o <code>visual-explainer</code>:</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin install visual-explainer@copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin install visual-explainer@copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin install visual-explainer@copilot-marketplace" aria-label="Copiar comando de instalação do visual-explainer">copiar</button>
+      </div>
+          <p>Atualize quando quiser (ou todos com <code>--all</code>):</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin update visual-explainer">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin update visual-explainer</code>
+        <button class="copy" type="button" data-copy="copilot plugin update visual-explainer" aria-label="Copiar comando de atualização do visual-explainer">copiar</button>
+      </div>
+        </section>
+
+        <section class="doc-section" id="estrutura">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#estrutura" aria-label="Link para Estrutura">#</a>Estrutura</h2>
+          <p>Runtime <strong>vendado</strong> em <code>plugins/visual-explainer/</code> — vem do repositório de origem, então <strong>não se edita à mão</strong> aqui. É isto que o <code>copilot plugin install</code> entrega:</p>
+          <div class="tree">
+            <div class="tree__head"><span class="prompt__glyph" aria-hidden="true">⌁</span> plugins/visual-explainer/</div>
+            <ul class="tree__list">
+            <li class="tree__row">
+              <code class="tree__name">boot.mjs</code>
+              <span class="tree__role">Instala o kit e o agente desenhista em ~/.copilot (idempotente, por versão).</span>
+              <span class="tree__size">3.6 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">hooks.json</code>
+              <span class="tree__role">SessionStart → node boot.mjs.</span>
+              <span class="tree__size">144 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">plugin.json</code>
+              <span class="tree__role">Metadados do plugin + marcador de hooks.</span>
+              <span class="tree__size">788 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">README.md</code>
+              <span class="tree__role">Documentação vinda do repositório de origem.</span>
+              <span class="tree__size">2.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/build-artifact.mjs</code>
+              <span class="tree__role">O builder: transforma a spec declarativa em HTML autocontido.</span>
+              <span class="tree__size">3.7 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/README.md</code>
+              <span class="tree__role">Documentação vinda do repositório de origem.</span>
+              <span class="tree__size">3.4 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/visual-explainer.agent.md</code>
+              <span class="tree__role">O agente desenhista, instalado em ~/.copilot/agents.</span>
+              <span class="tree__size">5.3 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/kit/registry.json</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.9 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/kit/vxk-core.css</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/kit/vxk-core.js</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">6.0 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/kit/components/arrow.js</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1018 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/kit/components/barArray.js</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.6 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/kit/components/box.js</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/kit/components/orbit.js</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.4 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/kit/components/particleStream.js</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.5 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/kit/components/pendulum.js</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.7 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/kit/components/timeline.js</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.0 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/kit/components/wave.js</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.2 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/kit/konva/konva-adapter.js</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">6.4 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/kit/konva/konva.min.js</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">171 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/templates/bubble.json</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">453 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/templates/fluxo.json</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.2 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/templates/linha-tempo.json</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">814 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/templates/onda.json</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">514 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/templates/pendulo.json</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">531 B</span>
+            </li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="doc-section" id="faq">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#faq" aria-label="Link para Perguntas frequentes">#</a>Perguntas frequentes</h2>
+          <details class="faq">
+            <summary>Preciso saber desenhar ou animar?</summary>
+            <p>Não. Você descreve o assunto em texto; o agente escreve a spec e o builder monta a página. Você recebe o HTML pronto, animado e interativo.</p>
+          </details>
+          <details class="faq">
+            <summary>A página depende de internet para abrir?</summary>
+            <p>Não. O builder inlina o motor escolhido, então a página é um único HTML autocontido que roda offline no seu navegador. Você pode guardar e reabrir quando quiser.</p>
+          </details>
+          <details class="faq">
+            <summary>Qual a diferença entre os motores vxk e konva?</summary>
+            <p>O <code>vxk</code> é o motor leve próprio, para explicações comuns (órbitas, física, fluxo, algoritmos, timelines). O <code>konva</code> é para grafos e redes, com nós arrastáveis e interação mais pesada. O agente escolhe o motor pelo tipo de assunto.</p>
+          </details>
+          <details class="faq">
+            <summary>Onde ficam as páginas geradas?</summary>
+            <p>Em <code>Desktop\visual-explanations\</code>. Cada explicação vira um arquivo HTML autocontido nessa pasta.</p>
+          </details>
+          <details class="faq">
+            <summary>Por que preciso reiniciar o app depois de instalar?</summary>
+            <p>No arranque, o plugin instala o kit e o agente desenhista em <code>~/.copilot</code> (idempotente, por versão). O reinício é para o app descobrir o agente <code>visual-explainer</code> no seletor.</p>
+          </details>
+          <details class="faq">
+            <summary>Onde mora o código do plugin?</summary>
+            <p>O runtime completo (kit, builder, templates e o agente) é vendado nesta vitrine, em <code>plugins/visual-explainer/payload</code>. O <code>boot.mjs</code> instala esse payload em <code>~/.copilot</code> no primeiro arranque.</p>
+          </details>
+        </section>
+      </article>
+
+      <aside class="doc-rail" aria-label="Nesta página">
+        <nav class="toc" aria-label="Índice">
+          <p class="toc__label">nesta página</p>
+          <ul class="toc__list">
+            <li><a href="#o-que-e">O que é</a></li>
+            <li><a href="#como-usar">Como usar</a></li>
+            <li><a href="#os-motores">Dois motores para dois tipos de arte</a></li>
+            <li><a href="#como-funciona">Como funciona</a></li>
+            <li><a href="#instalar">Instalar</a></li>
+            <li><a href="#estrutura">Estrutura</a></li>
+            <li><a href="#faq">Perguntas frequentes</a></li>
+          </ul>
+        </nav>
+          <dl class="meta">
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.1.0</span></dd></div>
+            <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
+            <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
+            <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
+            <div class="meta__row"><dt>tipo</dt><dd><span class="pill">hooks</span></dd></div>
+            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>Copilot App (desktop) com o GitHub Copilot SDK</li><li>Node 18+ (runtime da extensão e do builder)</li><li>Um navegador para abrir as páginas geradas</li></ul></dd></div>
+            <div class="meta__row"><dt>tags</dt><dd><ul class="tags tags--meta"><li>visual</li><li>explicacao</li><li>animacao</li><li>canvas</li><li>agente</li><li>pt-BR</li></ul></dd></div>
+          </dl>
+      </aside>
+    </div>
+
+    <nav class="pager" aria-label="Outros plugins">
+      <span></span>
+      <a class="pager__all" href="../../#registry">todos os plugins</a>
+      <a class="pager__link pager__link--next" href="../voice-chat/"><span class="pager__dir">próximo →</span><span class="pager__name">voice-chat</span></a>
+    </nav>
+  </main>
+
+  <footer class="foot">
+    <p class="foot__made">Feito por <a href="https://github.com/AllanSantos-DV" rel="noopener">Allan Santos</a> · MIT · página gerada de <code>marketplace.json</code> + <code>docs/content/visual-explainer.json</code></p>
+    <p class="foot__cmd"><span aria-hidden="true">⌁</span> <code>copilot plugin install visual-explainer@copilot-marketplace</code></p>
+  </footer>
+
+  <script src="../../assets/app.js" defer></script>
+</body>
+</html>

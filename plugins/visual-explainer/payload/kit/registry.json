@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "engines": {
+    "vxk": {
+      "when": "Explicações rasas/comuns: ciclo, timeline, física simples, órbitas/rotação, data-structure simples, fluxo com poucos elementos. Arquivo minúsculo, nossa performance.",
+      "components": ["orbit"]
+    },
+    "konva": {
+      "when": "Grafos, muitos nós, arrastar/reordenar, interação pesada, diagramas de dependência/rede. Cena declarativa nodes+edges via adapter (nós arrastáveis, arestas que seguem, reorganizar).",
+      "builtin_spec": { "nodes": "[{id,label,x?,y?,r?,color,info}]", "edges": "[{from,to,label?}]" }
+    }
+  },
+  "components": {
+    "orbit": {
+      "engine": "vxk",
+      "file": "kit/components/orbit.js",
+      "desc": "Corpo em órbita circular ao redor da origem (estrela+planetas, elétrons num átomo, satélites, engrenagem simples).",
+      "params": {
+        "orbitR": "raio da órbita em px (0 = fica no centro)",
+        "ang0": "ângulo inicial em radianos (default 0)",
+        "speed": "velocidade angular em rad/seg (0 = parado)",
+        "r": "raio do corpo em px",
+        "color": "cor do corpo (hex)",
+        "label": "rótulo acima do corpo",
+        "info": "texto mostrado no painel ao clicar"
+      }
+    },
+    "pendulum": {
+      "engine": "vxk",
+      "file": "kit/components/pendulum.js",
+      "desc": "Pêndulo simples oscilando (física: oscilação, período, MHS).",
+      "params": { "pivotX": "x do pivô", "pivotY": "y do pivô", "length": "comprimento da haste", "amp": "amplitude em rad", "speed": "rad/seg", "phase": "fase inicial", "r": "raio do peso", "color": "cor", "label": "rótulo", "info": "painel" }
+    },
+    "particleStream": {
+      "engine": "vxk",
+      "file": "kit/components/particleStream.js",
+      "desc": "Partículas fluindo de A a B (fluxo: corrente elétrica, água, dados, sangue).",
+      "params": { "x0": "origem x", "y0": "origem y", "x1": "destino x", "y1": "destino y", "count": "nº de partículas", "speed": "velocidade do fluxo", "r": "raio", "color": "cor", "label": "rótulo", "info": "painel" }
+    },
+    "box": {
+      "engine": "vxk",
+      "file": "kit/components/box.js",
+      "desc": "Caixa rotulada clicável (etapa de fluxo, estado, bloco). x,y = centro.",
+      "params": { "x": "centro x", "y": "centro y", "w": "largura", "h": "altura", "label": "texto", "color": "cor de fundo", "textColor": "cor do texto", "info": "painel" }
+    },
+    "arrow": {
+      "engine": "vxk",
+      "file": "kit/components/arrow.js",
+      "desc": "Seta conectora (direção de fluxo). Decorativa, não clicável.",
+      "params": { "x0": "origem x", "y0": "origem y", "x1": "destino x", "y1": "destino y", "color": "cor", "label": "rótulo opcional", "dashed": "true = tracejada" }
+    },
+    "barArray": {
+      "engine": "vxk",
+      "file": "kit/components/barArray.js",
+      "desc": "Vetor de barras com animação de ordenação (bubble sort). Barras clicáveis (valor/posição/estado).",
+      "params": { "values": "array fixo (opcional)", "n": "nº de barras se sem values", "barW": "largura da barra", "gap": "espaço entre barras", "maxH": "altura máxima", "color": "cor", "stepEvery": "segundos por comparação" }
+    },
+    "wave": {
+      "engine": "vxk",
+      "file": "kit/components/wave.js",
+      "desc": "Onda senoidal animada (física: ondas, som, sinal).",
+      "params": { "amp": "amplitude", "wavelength": "comprimento de onda", "speed": "velocidade de propagação", "x0": "início x", "x1": "fim x", "y": "linha base y", "color": "cor", "label": "rótulo", "info": "painel" }
+    },
+    "timeline": {
+      "engine": "vxk",
+      "file": "kit/components/timeline.js",
+      "desc": "Linha do tempo com eventos e playhead animado. Eventos clicáveis.",
+      "params": { "x0": "início x", "x1": "fim x", "y": "y", "duration": "duração total (s)", "color": "cor", "events": "[{t?, label, info, color?}]" }
+    }
+  }
+}

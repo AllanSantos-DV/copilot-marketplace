@@ -1,0 +1,15 @@
+{
+  "name": "visual-explainer",
+  "version": "0.1.0",
+  "description": "Explicações visuais animadas e interativas: peça um assunto e um agente desenhista gera uma página HTML autocontida (Canvas/SVG) com play/pause, zoom e peças clicáveis. Usa um kit de componentes (motor leve próprio + Konva para grafos) e escreve só uma spec — o builder monta o HTML otimizado.",
+  "author": {
+    "name": "Allan Santos",
+    "url": "https://github.com/AllanSantos-DV"
+  },
+  "homepage": "https://github.com/AllanSantos-DV/copilot-marketplace",
+  "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
+  "license": "MIT",
+  "keywords": ["visual", "explicacao", "animacao", "canvas", "agente", "pt-BR"],
+  "category": "productivity",
+  "hooks": "hooks.json"
+}

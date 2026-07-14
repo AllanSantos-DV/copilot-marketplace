@@ -1,0 +1,17 @@
+{
+  "engine": "vxk",
+  "title": "Fluxo de um processo — 3 etapas",
+  "slug": "fluxo-processo",
+  "badge": "VXK",
+  "accent": "#6fe3c4",
+  "intro": "Um processo em três etapas com fluxo entre elas. Clique nas caixas e no fluxo para ver detalhes.",
+  "nodes": [
+    { "type": "particleStream", "x0": -150, "y0": 0, "x1": -62, "y1": 0, "count": 8, "speed": 0.5, "r": 3, "color": "#6fe3c4", "info": "Fluxo de entrada chegando ao processamento." },
+    { "type": "particleStream", "x0": 62, "y0": 0, "x1": 150, "y1": 0, "count": 8, "speed": 0.5, "r": 3, "color": "#6fe3c4", "info": "Fluxo de saída deixando o sistema." },
+    { "type": "box", "x": -210, "y": 0, "w": 108, "h": 54, "label": "Entrada", "color": "#25406b", "info": "Dados ou energia que entram no sistema." },
+    { "type": "box", "x": 0, "y": 0, "w": 122, "h": 62, "label": "Processa", "color": "#2b6b5a", "info": "O núcleo que transforma a entrada em saída." },
+    { "type": "box", "x": 210, "y": 0, "w": 108, "h": 54, "label": "Saída", "color": "#6b4a25", "info": "O resultado produzido pelo sistema." },
+    { "type": "arrow", "x0": -152, "y0": 0, "x1": -64, "y1": 0 },
+    { "type": "arrow", "x0": 64, "y0": 0, "x1": 152, "y1": 0 }
+  ]
+}
