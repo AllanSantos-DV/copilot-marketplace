@@ -41,7 +41,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.5.13";
+const CURRENT_VERSION = "1.5.14";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -1504,6 +1504,40 @@ const AUDIO_HISTORY_MAX = 30;
 const AUDIO_QUEUE_FILE = join(ARTIFACTS, "audio-queue.json");
 const audioHistoryBySid = new Map();   // sid -> item[]
 const audioSeqBySid = new Map();       // sid -> last seq issued
+
+// ---- heartbeat de vida do fork por sessão (para o Stop hook detectar canvas CAÍDO) -------------
+// O canvas é registrado pelo joinSession DESTA fork e MORRE com o processo. Então
+// "canvas registrado <=> processo do fork vivo". Cada fork grava forks/<sid>.json={pid,ts} e o
+// atualiza a cada 5s (NÃO remove no SIGTERM — de propósito: um PID morto no arquivo é a impressão
+// digital DETERMINÍSTICA do canvas caído). O Stop hook lê isso e, se o PID estiver morto, avisa o
+// agente a rodar extensions_reload (caminho A->B->C: hook detecta -> avisa -> agente recarrega).
+const FORKS_DIR = join(ARTIFACTS, "forks");
+function forkHeartbeatFile(sid) {
+    return join(FORKS_DIR, String(sid || "nosid").replace(/[^A-Za-z0-9._-]/g, "_") + ".json");
+}
+function writeForkHeartbeat() {
+    const sid = mySid();
+    if (!sid) return;
+    // Só marca "vivo" se o handle do joinSession NÃO está morto. Assim o heartbeat NÃO mente:
+    // um fork que descobriu que o handle caiu (markSessionDead, via send) para de atualizar o ts
+    // -> ele envelhece -> o Stop hook detecta e avisa o reload. (Determinístico p/ processo MORTO;
+    // best-effort p/ handle-morto-sem-exit, que só é conhecido quando a fork tenta usar o handle.)
+    if (sessionDead) return;
+    try { mkdirSync(FORKS_DIR, { recursive: true }); writeFileSync(forkHeartbeatFile(sid), JSON.stringify({ pid: process.pid, ts: Date.now() })); } catch { /* best-effort */ }
+}
+function pruneForkHeartbeats() {
+    // higiene: remove heartbeats de sids antigos cujo PID está morto E o ts é velho (>1 dia).
+    try {
+        if (!existsSync(FORKS_DIR)) return;
+        const now = Date.now();
+        for (const fn of readdirSync(FORKS_DIR)) {
+            if (!fn.endsWith(".json")) continue;
+            const full = join(FORKS_DIR, fn);
+            let hb; try { hb = JSON.parse(readFileSync(full, "utf8")); } catch { continue; }
+            if (hb && (now - (hb.ts || 0)) > 86400000) { try { unlinkSync(full); } catch { /* ignore */ } }
+        }
+    } catch { /* ignore */ }
+}
 
 // ---- fila EM ARQUIVO que o Stop hook (voice-summary-stop.cjs) escreve --------------------------
 // O hook SEMPRE coleta o resumo 🔊 pra pending/<sid>.jsonl — mesmo com servidor/canvas CAÍDOS.
@@ -3008,6 +3042,9 @@ restoreVoiceState();
 restoreAudioHistory();
 restorePendingTurns();
 startHeartbeat();
+writeForkHeartbeat();   // canvas registrado (joinSession OK) -> marca esta fork viva p/ o Stop hook
+const _forkHb = setInterval(writeForkHeartbeat, 5000);
+if (_forkHb.unref) _forkHb.unref();
 const _turnSweep = setInterval(drainAllPendingTurns, 5000);
 if (_turnSweep.unref) _turnSweep.unref();
 // Sweep do PRIMÁRIO que drena a fila-em-arquivo do Stop hook (pending/<sid>.jsonl) a cada 2s: com
@@ -3015,7 +3052,7 @@ if (_turnSweep.unref) _turnSweep.unref();
 // sweep o resumo 🔊 ficaria no disco sem tocar. drainAllPendingSpeak é no-op fora do primário.
 const _speakSweep = setInterval(() => { drainAllPendingSpeak().catch(() => { }); }, 2000);
 if (_speakSweep.unref) _speakSweep.unref();
-const _sidPrune = setInterval(pruneDeadSids, 300000);   // 5min: poda sids mortos (forks/forkSeen/recentSpoken)
+const _sidPrune = setInterval(() => { pruneDeadSids(); pruneForkHeartbeats(); }, 300000);   // 5min: poda sids mortos + heartbeats velhos
 if (_sidPrune.unref) _sidPrune.unref();
 log("voice-chat extension loaded", "info");
 

@@ -97,6 +97,37 @@ function appendPending(sid, summary, id) {
     return true;
   } catch { return false; }
 }
+
+// ---- advisor DETERMINÍSTICO de canvas caído (caminho A->B->C: hook detecta -> avisa -> agente recarrega)
+// O canvas é registrado pelo joinSession do fork da extensão e MORRE com o processo. Logo
+// "canvas registrado <=> processo do fork vivo". A extensão grava forks/<sid>.json={pid,ts} e
+// atualiza a cada 5s. Aqui checamos: PID vivo? (fato do SO) E heartbeat fresco? Se o PID está
+// MORTO (ou o ts velho = fork travado / PID reusado), o canvas caiu -> avisamos o agente a rodar
+// extensions_reload. Ausência do arquivo = voz nunca aberta nesta sessão -> não avisa (zero nag).
+const FORKS_DIR = path.join(DATA_DIR, 'forks');
+const HEARTBEAT_STALE_MS = 90000;   // fork atualiza a cada 5s; 90s tolera GC/stall/wake de sleep sem falso "caído"
+const ADVISOR_MAX = 5;              // teto absoluto de avisos de reload por sessão (backstop anti-loop patológico)
+function readForkHeartbeat(sid) {
+  try {
+    const hb = JSON.parse(fs.readFileSync(path.join(FORKS_DIR, String(sid || 'nosid').replace(/[^A-Za-z0-9._-]/g, '_') + '.json'), 'utf8'));
+    if (hb && typeof hb.pid === 'number' && hb.pid > 0 && Number(hb.ts) > 0) return { pid: hb.pid, ts: Number(hb.ts) };
+  } catch { /* ausente/corrompido = voz nunca aberta aqui -> não avisa */ }
+  return null;
+}
+function pidAlive(pid) {
+  if (!pid || pid < 1) return false;
+  try { process.kill(pid, 0); return true; }        // sinal 0 = só testa existência (fato do SO)
+  catch (e) { return !!(e && e.code === 'EPERM'); }  // EPERM = existe sem permissão -> vivo; ESRCH -> morto
+}
+// PURO (testável): decide se avisa o reload. `alive` já resolvido pelo chamador (PID + frescor).
+function decideCanvasAdvisor(hb, alive, alreadyAdvisedKey) {
+  if (!hb || !hb.pid) return { advise: false };   // sem heartbeat -> voz nunca aberta -> não avisa
+  if (alive) return { advise: false };            // fork vivo -> canvas registrado -> nada a fazer
+  const key = hb.pid + ':' + (hb.ts || 0);        // instância única do fork morto (dedup por queda)
+  if (key === alreadyAdvisedKey) return { advise: false };   // já avisou ESTA queda -> não repete
+  return { advise: true, key };
+}
+const CANVAS_RELOAD_REASON = 'O canvas de voz desta sessão caiu: o processo do host da extensão que registrava o canvas morreu (por isso apareceria "Canvas not registered" ao abrir o painel). Rode AGORA a ferramenta extensions_reload para re-lançar o host e re-registrar o canvas de voz desta sessão.';
 // ---- estado por sessão (disco): anti block-storm por CONTADOR CONSECUTIVO + dedup de escrita ----
 // O CLI NÃO manda stop_hook_active E re-injeta o motivo do block como um NOVO prompt. Um cap por
 // JANELA DE TEMPO falha: se os re-prompts vêm espaçados (turno lento), poucos blocks caem na janela
@@ -128,9 +159,8 @@ if (require.main === module) {
     // anti block-storm: blocks CONSECUTIVOS desde o último sucesso; no cap, suprime o block (skip).
     const consec = Number(st.consecBlocks) || 0;
     const decision = decideVoiceSummary(msg, consec >= MAX_BLOCKS);   // no cap -> skip no lugar de block
-    if (decision.action === 'skip') process.exit(0);
 
-    // BLOCK: SEMPRE bloqueia se faltar o 🔊 — em QUALQUER sessão, SEM depender de servidor/canvas.
+    // BLOCK do 🔊 tem PRIORIDADE (não perder o resumo). O advisor de canvas espera o próximo turno.
     if (decision.action === 'block') {
       if (sid) writeState(sid, { ...st, consecBlocks: consec + 1 });
       const out = {
@@ -141,14 +171,36 @@ if (require.main === module) {
       process.exit(0);
     }
 
-    // COLETA: escreve o resumo na FILA EM ARQUIVO por sid (independente de servidor/canvas).
-    // A extensão drena/sintetiza/toca quando o canvas carrega, quando o servidor ativa e no sweep.
-    if (!sid) process.exit(0);
-    if (dedupKey && st.enqueuedKey === dedupKey) process.exit(0);   // dedup: mesmo resumo já escrito
-    appendPending(sid, decision.summary, dedupKey);
-    writeState(sid, { consecBlocks: 0, enqueuedKey: dedupKey });   // sucesso -> zera o contador de block
+    // COLETA (enqueue): escreve o resumo na FILA EM ARQUIVO por sid (mutando st; persistido abaixo).
+    if (decision.action === 'enqueue' && sid) {
+      if (!(dedupKey && st.enqueuedKey === dedupKey)) appendPending(sid, decision.summary, dedupKey);
+      st.consecBlocks = 0; st.enqueuedKey = dedupKey;
+    }
+
+    // ADVISOR determinístico (A->B->C): canvas caído (PID do fork morto)? -> avisa o agente a recarregar.
+    // Roda tanto no 'skip' (turno só-tool) quanto após coletar o 🔊. Deduplicado por queda (uma vez só)
+    // + teto absoluto ADVISOR_MAX por sessão (backstop se o reload nunca estabilizar a fork).
+    if (sid) {
+      const hb = readForkHeartbeat(sid);
+      const alive = hb ? (pidAlive(hb.pid) && (Date.now() - hb.ts) < HEARTBEAT_STALE_MS) : true;
+      if (hb && alive && (Number(st.advisedCount) || 0) !== 0) st.advisedCount = 0;   // fork saudável -> reabastece o teto
+      const advisedCount = Number(st.advisedCount) || 0;
+      const adv = decideCanvasAdvisor(hb, alive, st.advisedDropKey);
+      if (adv.advise && advisedCount < ADVISOR_MAX) {
+        writeState(sid, { ...st, advisedDropKey: adv.key, advisedCount: advisedCount + 1 });   // persiste tudo
+        const out = {
+          decision: 'block', reason: CANVAS_RELOAD_REASON,
+          hookSpecificOutput: { hookEventName: 'agentStop', decision: 'block', reason: CANVAS_RELOAD_REASON },
+        };
+        process.stdout.write(JSON.stringify(out) + '\n');
+        process.exit(0);
+      }
+    }
+
+    // persiste o estado do enqueue (ou o reset do advisedCount) e sai.
+    if (sid && (decision.action === 'enqueue' || st.advisedCount === 0)) writeState(sid, st);
     process.exit(0);
   });
 }
 
-module.exports = { decideVoiceSummary, lastAssistantMessage };
+module.exports = { decideVoiceSummary, lastAssistantMessage, decideCanvasAdvisor };
