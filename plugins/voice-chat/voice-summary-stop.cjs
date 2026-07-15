@@ -4,26 +4,20 @@
 // Stop hook DO voice-chat (empacotado no plugin — quem instala o voice-chat ganha ele).
 // Registrado sob "agentStop" — o evento de fim-de-turno REAL do Copilot CLI (o público "Stop"
 // do VS Code é DESCARTADO pelo CLI; o set válido é camelCase: sessionStart/agentStop/...).
-// Payload REAL do CLI (1.0.71): { sessionId, transcriptPath, cwd, timestamp, stopReason } —
-// camelCase, SEM last_assistant_message e SEM stop_hook_active. Por isso a última mensagem sai
-// do transcript (JSONL) e o anti-loop usa um contador em disco (não o flag inexistente).
-// Objetivo: garantir que TODA resposta termine com o resumo falado (linha "🔊 …") E coletar
-// esse resumo numa FILA EM ARQUIVO por sessão — SEM depender de servidor/canvas no ar.
-//   - Falta o 🔊  -> BLOQUEIA o Stop e pede o resumo. SEMPRE bloqueia (em qualquer sessão); só um
-//                    cap de blocks CONSECUTIVOS (por sid) evita loop infinito se nunca vier o 🔊.
-//   - Tem o 🔊    -> escreve o texto em <voice-chat-data>/pending/<sid>.jsonl.
-// A EXTENSÃO — quando o canvas carrega, quando o servidor ativa E num sweep periódico — drena esse
-// arquivo, sintetiza e toca; ao COMEÇAR a tocar marca como lido. Quem COLETA é o hook (roda a cada
-// Stop, em QUALQUER sessão); a extensão só CONSOME/toca — funciona com canvas fechado / servidor caído.
+// Payload REAL do CLI (1.0.71): { sessionId, transcriptPath, cwd, timestamp, stopReason } — camelCase.
+// Modelo v1.5.16 (por TOOL): quem produz áudio é a TOOL `falar` da extensão (o agente chama quando
+// quiser, várias vezes por turno, inclusive antes de uma pergunta). O hook NÃO coleta mais texto —
+// ele só faz DUAS coisas, ambas via transcript/estado em disco:
+//   1) ENFORCEMENT: se o turno teve resposta textual mas NÃO chamou a tool `falar`, BLOQUEIA pedindo
+//      pra chamar (cap de blocks CONSECUTIVOS evita loop).
+//   2) ADVISOR de canvas caído: heartbeat do fork com PID morto -> avisa o agente a rodar extensions_reload.
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const crypto = require('crypto');
 
 // Resolve o data dir IGUAL à extensão (extension.mjs resolveDataDir): honra VOICE_DATA_DIR, senão
-// o marcador ".copilot" a partir do dir do plugin (__dirname). Se divergisse, o drain leria uma
-// pasta vazia e todo resumo se perderia em silêncio (instalação fora de ~/.copilot).
+// o marcador ".copilot" a partir do dir do plugin (__dirname).
 function resolveDataDir() {
   if (process.env.VOICE_DATA_DIR) return process.env.VOICE_DATA_DIR;
   const marker = path.sep + '.copilot' + path.sep;
@@ -32,71 +26,40 @@ function resolveDataDir() {
   return path.join(home, 'voice-chat-data');
 }
 const DATA_DIR = resolveDataDir();
-const PENDING_DIR = path.join(DATA_DIR, 'pending');
 
-// ---- núcleo PURO (testável): decide o que fazer com a última mensagem do assistente ----
-// Devolve { action: 'enqueue'|'block'|'skip', summary?, reason? }.
-function decideVoiceSummary(msg, stopHookActive) {
-  const text = typeof msg === 'string' ? msg : '';
-  // O resumo falado TEM que ser a ÚLTIMA linha não-vazia da resposta. Se o 🔊 aparecer no meio,
-  // dentro de um code fence, ou numa citação (com conteúdo real depois), NÃO é o resumo final:
-  // não coleta (seria o texto errado) e não satisfaz o enforcement (exige o resumo de verdade).
-  const lines = text.split(/\r?\n/);
-  let last = '';
-  for (let i = lines.length - 1; i >= 0; i--) { if (lines[i].trim()) { last = lines[i]; break; } }
-  if (!last) return { action: 'skip' };   // turno sem texto (só tool calls) -> não exige resumo
-  const m = last.match(/^[^\S\r\n]*🔊[^\S\r\n]*(\S.*?)[^\S\r\n]*$/u);
-  if (m) {
-    const summary = m[1].trim();
-    // Precisa ter conteúdo FALÁVEL de verdade (ao menos 1 letra/número) DEPOIS de tirar tags HTML.
-    // "🔊 **✅**" ou "🔊 <b></b>" limpariam pra vazio no cleanForSpeech do /speak -> áudio mudo:
-    // trata como resumo AUSENTE (o texto cru vai pro /speak; o servidor faz a limpeza completa).
-    if (/[\p{L}\p{N}]/u.test(summary.replace(/<[^>]+>/g, ''))) return { action: 'enqueue', summary };
+// ---- enforcement da tool `falar`: este turno chamou a tool de fala? ----------------------------
+// Passada ÚNICA para frente, parseando CADA linha como JSON e resetando o escopo a cada evento cujo
+// TOP-LEVEL .type === "user.message" (o turno atual = o último bloco após o último user.message). NÃO
+// usa substring '"user.message"': args de OUTRAS tools podem conter esse literal aninhado UNESCAPED e
+// falsear a fronteira do turno (-> false block/false ok). Detecta tool.execution_start cujo toolName
+// CASA `falar` (token, tolera prefixo do CLI) -> spoke; e assistant.message com conteúdo -> hadText.
+function isFalarTool(name) { return /(?:^|[^a-z0-9])falar$/i.test(String(name)); }
+function readTurnSpeak(transcriptPath) {
+  let lines;
+  try { lines = fs.readFileSync(transcriptPath, 'utf8').split('\n'); }
+  catch { return { readable: false }; }
+  let sawUser = false, spoke = false, hadText = false;
+  for (const raw of lines) {
+    const t = raw.trim();
+    if (!t) continue;
+    let e;
+    try { e = JSON.parse(t); } catch { continue; }
+    if (!e || !e.type) continue;
+    if (e.type === 'user.message') { sawUser = true; spoke = false; hadText = false; continue; }   // novo turno -> zera o escopo
+    if (e.type === 'tool.execution_start' && e.data && typeof e.data.toolName === 'string' && isFalarTool(e.data.toolName)) spoke = true;
+    else if (e.type === 'assistant.message' && e.data && typeof e.data.content === 'string' && e.data.content.trim()) hadText = true;
   }
-  if (stopHookActive) return { action: 'skip' };   // já bloqueou ESTA mensagem -> não loopar
-  return {
-    action: 'block',
-    reason: 'Adicione ao FINAL da resposta uma ÚLTIMA linha começando exatamente com "🔊 " seguida de 1 a 3 frases curtas em português do Brasil, naturais e completas, resumindo a sua resposta. Sem markdown, sem listas, sem código e sem outros emojis. Essa linha é o que vira áudio na voz.',
-  };
+  return { readable: true, sawUser, spoke, hadText };
 }
-
-// ---- última mensagem do assistente: SEMPRE do transcript (JSONL) — fonte autoritativa do CLI.
-// O CLI 1.0.71 NÃO manda last_assistant_message; NÃO confiamos nesse campo (evita um payload
-// legado/forjado sobrepor o transcript real). O caminho é transcriptPath (camelCase; fallback snake).
-// Devolve { content, id } — o id (messageId do evento) é a chave de dedup: dois turnos com texto
-// IDÊNTICO têm messageIds DIFERENTES (ambos coletam); um re-fire do mesmo turno tem o mesmo id.
-function lastAssistant(payload) {
-  const tp = payload && (payload.transcriptPath || payload.transcript_path);
-  if (tp && fs.existsSync(tp)) {
-    try {
-      const lines = fs.readFileSync(tp, 'utf8').split('\n');
-      for (let i = lines.length - 1; i >= 0; i--) {
-        const t = lines[i].trim();
-        if (!t) continue;
-        let e;
-        try { e = JSON.parse(t); } catch { continue; }
-        if (e && e.type === 'assistant.message' && e.data && typeof e.data.content === 'string' && e.data.content.trim()) {
-          return { content: e.data.content, id: String(e.data.messageId || '') };
-        }
-      }
-    } catch { /* fail-open */ }
-  }
-  return { content: '', id: '' };
+// PURO (testável): 'ok' | 'block' a partir do estado do turno + suppressBlock (cap consecutivo).
+function decideSpeakEnforcement(state, suppressBlock) {
+  if (!state || !state.readable) return 'ok';        // sem transcript legível -> não trava o turno
+  if (state.spoke) return 'ok';                       // já chamou `falar` -> ok
+  if (suppressBlock) return 'ok';                     // cap consecutivo estourou -> desiste (anti-loop)
+  if (!state.sawUser || !state.hadText) return 'ok';  // turno sem resposta textual -> nada a falar
+  return 'block';
 }
-function lastAssistantMessage(payload) { return lastAssistant(payload).content; }
-
-// ---- coleta: FILA EM ARQUIVO por sessão (não depende de servidor nem de canvas) --------------
-// O hook só ESCREVE o texto do resumo aqui; a extensão drena/sintetiza/toca quando sobe.
-function pendingFile(sid) {
-  return path.join(PENDING_DIR, String(sid || 'nosid').replace(/[^A-Za-z0-9._-]/g, '_') + '.jsonl');
-}
-function appendPending(sid, summary, id) {
-  try {
-    fs.mkdirSync(PENDING_DIR, { recursive: true });
-    fs.appendFileSync(pendingFile(sid), JSON.stringify({ sid, id, spoken: summary, ts: Date.now() }) + '\n');
-    return true;
-  } catch { return false; }
-}
+const SPEAK_REASON = 'Você respondeu sem produzir áudio para o usuário (a mensagem foi capturada por VOZ). Chame AGORA a ferramenta `falar` passando um texto natural em português do Brasil (1 a 3 frases curtas, sem markdown, sem listas, sem código e sem emojis) resumindo o essencial da sua resposta. É a tool `falar` que gera a voz.';
 
 // ---- advisor DETERMINÍSTICO de canvas caído (caminho A->B->C: hook detecta -> avisa -> agente recarrega)
 // O canvas é registrado pelo joinSession do fork da extensão e MORRE com o processo. Logo
@@ -128,20 +91,24 @@ function decideCanvasAdvisor(hb, alive, alreadyAdvisedKey) {
   return { advise: true, key };
 }
 const CANVAS_RELOAD_REASON = 'O canvas de voz desta sessão caiu: o processo do host da extensão que registrava o canvas morreu (por isso apareceria "Canvas not registered" ao abrir o painel). Rode AGORA a ferramenta extensions_reload para re-lançar o host e re-registrar o canvas de voz desta sessão.';
-// ---- estado por sessão (disco): anti block-storm por CONTADOR CONSECUTIVO + dedup de escrita ----
+// ---- estado por sessão (disco): anti block-storm por CONTADOR CONSECUTIVO -----------------------
 // O CLI NÃO manda stop_hook_active E re-injeta o motivo do block como um NOVO prompt. Um cap por
 // JANELA DE TEMPO falha: se os re-prompts vêm espaçados (turno lento), poucos blocks caem na janela
 // e ele NUNCA estoura -> loop infinito. Então o cap é ABSOLUTO: nº de blocks CONSECUTIVOS por sid
-// desde o último sucesso; ao chegar em MAX_BLOCKS, desiste (skip) — independente do tempo. Um enqueue
-// (🔊 veio) ZERA o contador. O enqueuedKey (messageId) evita escrever o MESMO resumo 2x num re-fire.
+// desde o último sucesso; ao chegar em MAX_BLOCKS, desiste (skip) — independente do tempo. Um turno
+// que chamou `falar` (ou o próprio cap) ZERA o contador.
 const MAX_BLOCKS = 3;
-function hashMsg(msg) { return crypto.createHash('sha256').update(String(msg || '')).digest('hex'); }
 function stateFile(sid) {
   return path.join(DATA_DIR, 'hook-state-' + String(sid || 'nosid').replace(/[^A-Za-z0-9._-]/g, '_') + '.json');
 }
 function readState(sid) { try { return JSON.parse(fs.readFileSync(stateFile(sid), 'utf8')) || {}; } catch { return {}; } }
 function writeState(sid, st) {
-  try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(stateFile(sid), JSON.stringify(st)); } catch { /* best-effort */ }
+  try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(stateFile(sid), JSON.stringify(st)); return true; }
+  catch { return false; }   // não conseguiu PERSISTIR -> o chamador decide (fail-open p/ não dar block-storm)
+}
+function emitBlock(reason) {
+  const out = { decision: 'block', reason, hookSpecificOutput: { hookEventName: 'agentStop', decision: 'block', reason } };
+  process.stdout.write(JSON.stringify(out) + '\n');
 }
 
 if (require.main === module) {
@@ -152,55 +119,45 @@ if (require.main === module) {
     let p;
     try { p = JSON.parse(data); } catch { process.exit(0); }
     const sid = p.sessionId || p.session_id || '';
-    const { content: msg, id: msgId } = lastAssistant(p);
-    const dedupKey = msgId || hashMsg(msg);   // messageId do CLI; fallback = hash do conteúdo
+    const tp = p.transcriptPath || p.transcript_path || '';
     const st = sid ? readState(sid) : {};
 
-    // anti block-storm: blocks CONSECUTIVOS desde o último sucesso; no cap, suprime o block (skip).
-    const consec = Number(st.consecBlocks) || 0;
-    const decision = decideVoiceSummary(msg, consec >= MAX_BLOCKS);   // no cap -> skip no lugar de block
+    // Liveness do fork do canvas (fato do SO) — reusado no enforcement E no advisor. A tool `falar` VIVE
+    // no fork; se ele morreu, pedir `falar` é IMPOSSÍVEL -> pulamos o enforcement e deixamos o advisor
+    // pedir o reload (senão o usuário come 3 nags inúteis antes da dica que resolve).
+    const hb = sid ? readForkHeartbeat(sid) : null;
+    const forkAlive = hb ? (pidAlive(hb.pid) && (Date.now() - hb.ts) < HEARTBEAT_STALE_MS) : true;
+    const forkDead = !!hb && !forkAlive;
 
-    // BLOCK do 🔊 tem PRIORIDADE (não perder o resumo). O advisor de canvas espera o próximo turno.
-    if (decision.action === 'block') {
-      if (sid) writeState(sid, { ...st, consecBlocks: consec + 1 });
-      const out = {
-        decision: 'block', reason: decision.reason,
-        hookSpecificOutput: { hookEventName: 'agentStop', decision: 'block', reason: decision.reason },
-      };
-      process.stdout.write(JSON.stringify(out) + '\n');
+    // 1) ENFORCEMENT da tool `falar` (cap CONSECUTIVO anti-loop). Pulado se o fork está morto. Fail-open
+    //    se não der pra PERSISTIR o contador (sem persistência o cap não segura -> não bloqueia).
+    const turn = readTurnSpeak(tp);
+    const consec = Number(st.consecBlocks) || 0;
+    const enf = forkDead ? 'ok' : decideSpeakEnforcement(turn, consec >= MAX_BLOCKS);
+    if (enf === 'block') {
+      if (!sid || !writeState(sid, { ...st, consecBlocks: consec + 1 })) process.exit(0);
+      emitBlock(SPEAK_REASON);
       process.exit(0);
     }
+    if (turn && turn.spoke && consec !== 0) st.consecBlocks = 0;   // SÓ zera quando o turno REALMENTE falou
+                                                                   // (NÃO no suppress do cap nem em turno sem texto: senão re-arma o storm)
 
-    // COLETA (enqueue): escreve o resumo na FILA EM ARQUIVO por sid (mutando st; persistido abaixo).
-    if (decision.action === 'enqueue' && sid) {
-      if (!(dedupKey && st.enqueuedKey === dedupKey)) appendPending(sid, decision.summary, dedupKey);
-      st.consecBlocks = 0; st.enqueuedKey = dedupKey;
-    }
-
-    // ADVISOR determinístico (A->B->C): canvas caído (PID do fork morto)? -> avisa o agente a recarregar.
-    // Roda tanto no 'skip' (turno só-tool) quanto após coletar o 🔊. Deduplicado por queda (uma vez só)
-    // + teto absoluto ADVISOR_MAX por sessão (backstop se o reload nunca estabilizar a fork).
+    // 2) ADVISOR determinístico de canvas caído (independente). Deduplicado por queda + teto ABSOLUTO
+    //    ADVISOR_MAX por SESSÃO (NÃO reabastece em turno saudável: senão alternar saudável/morto burla o
+    //    cap -> storm ilimitado). advisedCount = nº de quedas DISTINTAS já avisadas; conta só pra cima.
+    //    Fail-open igual: só emite se conseguiu persistir o advisedCount.
     if (sid) {
-      const hb = readForkHeartbeat(sid);
-      const alive = hb ? (pidAlive(hb.pid) && (Date.now() - hb.ts) < HEARTBEAT_STALE_MS) : true;
-      if (hb && alive && (Number(st.advisedCount) || 0) !== 0) st.advisedCount = 0;   // fork saudável -> reabastece o teto
       const advisedCount = Number(st.advisedCount) || 0;
-      const adv = decideCanvasAdvisor(hb, alive, st.advisedDropKey);
+      const adv = decideCanvasAdvisor(hb, forkAlive, st.advisedDropKey);
       if (adv.advise && advisedCount < ADVISOR_MAX) {
-        writeState(sid, { ...st, advisedDropKey: adv.key, advisedCount: advisedCount + 1 });   // persiste tudo
-        const out = {
-          decision: 'block', reason: CANVAS_RELOAD_REASON,
-          hookSpecificOutput: { hookEventName: 'agentStop', decision: 'block', reason: CANVAS_RELOAD_REASON },
-        };
-        process.stdout.write(JSON.stringify(out) + '\n');
+        if (writeState(sid, { ...st, advisedDropKey: adv.key, advisedCount: advisedCount + 1 })) emitBlock(CANVAS_RELOAD_REASON);
         process.exit(0);
       }
     }
 
-    // persiste o estado do enqueue (ou o reset do advisedCount) e sai.
-    if (sid && (decision.action === 'enqueue' || st.advisedCount === 0)) writeState(sid, st);
+    if (sid) writeState(sid, st);   // persiste resets (consecBlocks / advisedCount)
     process.exit(0);
   });
 }
 
-module.exports = { decideVoiceSummary, lastAssistantMessage, decideCanvasAdvisor };
+module.exports = { decideSpeakEnforcement, readTurnSpeak, isFalarTool, decideCanvasAdvisor };

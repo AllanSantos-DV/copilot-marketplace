@@ -41,7 +41,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.5.15";
+const CURRENT_VERSION = "1.5.16";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -152,6 +152,17 @@ const VOICE_SUMMARY_INSTRUCTION =
     "de 1 a 3 frases curtas, em português do Brasil, naturais e completas (sem cortar no meio), " +
     "sem markdown, sem listas, sem código e sem outros emojis. Essa linha 🔊 é exatamente o que " +
     "será falado, então escreva-a para ser ouvida com clareza, resumindo o essencial da resposta.";
+
+// Modelo por TOOL (v1.5.16+): em vez de coletar o texto no fim do turno, o agente usa a tool `falar`
+// para produzir áudio QUANDO quiser (inclusive antes de uma pergunta, várias vezes por turno). O
+// Stop hook exige >=1 chamada de `falar` por turno.
+const VOICE_TOOL_INSTRUCTION =
+    "A mensagem anterior do usuário foi capturada por VOZ. Para tudo que o usuário deve OUVIR, use a " +
+    "ferramenta (tool) `falar`, passando um texto natural em português do Brasil (1 a 3 frases curtas, " +
+    "sem markdown, sem listas, sem código e sem emojis). Você DEVE chamar `falar` ao menos uma vez neste " +
+    "turno com um resumo do essencial da sua resposta, e PODE chamá-la quantas vezes quiser — inclusive " +
+    "ANTES de fazer uma pergunta, para que o áudio saia na hora certa. Não escreva a linha 🔊 no chat; " +
+    "quem fala é a tool `falar`.";
 
 const CHECKPOINT_SENTINEL = "📍";
 const CHECKPOINT_INSTRUCTION =
@@ -1565,11 +1576,22 @@ async function _processDrainFile(proc, fallbackSid) {
 }
 async function drainPendingSpeak(sid) {
     if (!sid || !primaryFork) return;   // só o primário sintetiza/enfileira/toca
+    if (!workerReady) return;           // motor OFF -> deixa o texto na fila de síntese (drena qdo ligar)
     const f = pendingSpeakFile(sid);
     if (!existsSync(f)) return;
     const proc = `${f}.draining-${process.pid}-${Date.now()}`;
     try { renameSync(f, proc); } catch { return; }   // sumiu / outro drain já pegou (rotação atômica)
     await _processDrainFile(proc, sid);
+}
+// Writer da fila de TEXTO (motor off / sem primário alcançável): o handler da tool `falar` grava
+// aqui e o drain sintetiza+toca quando o motor liga. Mesmo formato que o Stop hook usava.
+function writePendingSpeak(sid, text) {
+    if (!sid || !text) return false;
+    try {
+        mkdirSync(PENDING_SPEAK_DIR, { recursive: true });
+        appendFileSync(pendingSpeakFile(sid), JSON.stringify({ sid, spoken: text, ts: Date.now() }) + "\n");
+        return true;
+    } catch { return false; }
 }
 async function drainAllPendingSpeak() {
     if (!primaryFork) return;
@@ -1894,7 +1916,7 @@ async function speakToCanvas(sid, spoken, full, cue) {
     }
     if (alreadySpoke(sid, spoken)) {
         dbg(`dedup: ignoring duplicate reply for sid=${sid}`);
-        return;
+        return true;   // já tratado recentemente -> sucesso p/ o chamador (não re-enfileirar)
     }
     // Reply text shows immediately (silent UI update); the audio is persisted for
     // replay and either plays now (if this is the active session) or queues FIFO.
@@ -1902,9 +1924,16 @@ async function speakToCanvas(sid, spoken, full, cue) {
     try {
         const wav = await synthesize(spoken);
         playOrQueueAudio(sid, { type: "reply", spoken, full, audio: "/tts/" + wav });
+        return true;
     } catch (e) {
         log("tts failed: " + e.message);
         broadcastTo(sid, { type: "error", msg: "Falha na síntese de voz: " + e.message });
+        // nada tocou: libera o dedup desta fala p/ um re-enqueue (fila de texto) poder RE-TENTAR sem ser
+        // suprimido, e sinaliza a falha ao chamador (o handler da tool re-enfileira em vez de mentir "Falado").
+        const k = String(sid || "");
+        const cur = recentSpoken.get(k);
+        if (cur && cur.text === spoken) recentSpoken.delete(k);
+        return false;
     }
 }
 
@@ -3028,14 +3057,56 @@ const canvas = createCanvas({
 });
 
 await loadSettings();
+
+// Tool `falar` (v1.5.16): o agente produz áudio QUANDO quiser (não só no fim). Handler recebe o
+// texto + invocation.sessionId (sid CONFIÁVEL). Motor ON -> speakToCanvas (toca/enfileira durável);
+// motor OFF -> writePendingSpeak (fila de texto, drenada quando o motor ligar). Retorna tool_result.
+const falarTool = {
+    name: "falar",
+    description:
+        "Fala em voz alta para o usuário no painel de Voz (pt-BR). Passe um texto natural, curto (1 a 3 " +
+        "frases), sem markdown, sem código e sem emojis. Use SEMPRE que quiser que algo seja OUVIDO — " +
+        "inclusive ANTES de fazer uma pergunta e várias vezes por turno. O áudio sai na hora (ou entra na " +
+        "fila e toca quando o painel/motor de voz ligar).",
+    parameters: {
+        type: "object",
+        properties: {
+            texto: { type: "string", description: "O texto a ser falado em voz alta (natural, pt-BR, sem markdown/código/emojis)." },
+        },
+        required: ["texto"],
+    },
+    skipPermission: true,
+    handler: async (args, invocation) => {
+        const sid = String((invocation && invocation.sessionId) || ownSid || mySid());
+        const text = cleanForSpeech(String((args && (args.texto ?? args.text)) || ""));
+        if (!text) return "Nada para falar: o texto veio vazio.";
+        if (primaryFork) {
+            if (!workerReady) { writePendingSpeak(sid, text); ensureWorker(); return "🔊 Enfileirado para falar quando o motor de voz ligar: " + text.slice(0, 90); }
+            let ok = false;
+            try { ok = await speakToCanvas(sid, text); } catch { ok = false; }
+            if (ok) return "🔊 Falado: " + text.slice(0, 120);
+            // synth falhou agora: re-enfileira (o drain re-tenta quando o motor voltar) e reporta HONESTO.
+            writePendingSpeak(sid, text); ensureWorker();
+            return "🔊 Enfileirado (falha ao sintetizar agora, re-tenta quando o motor voltar): " + text.slice(0, 90);
+        }
+        // secundário: encaminha ao primário; se não houver primário no ar, enfileira em arquivo.
+        let ok = false;
+        try { ok = await forwardToPrimary("/speak", { sid, spoken: text }); } catch { ok = false; }
+        if (ok) return "🔊 Falado: " + text.slice(0, 120);
+        writePendingSpeak(sid, text);
+        return "🔊 Enfileirado para falar quando o motor de voz ligar: " + text.slice(0, 90);
+    },
+};
+
 session = await joinSession({
     canvases: [canvas],
+    tools: [falarTool],
     hooks: {
         onUserPromptSubmitted: async () => {
             if (!voiceInstructionPending) return undefined;
             voiceInstructionPending = false;
             let ctx = "";
-            if (settings.authorSummary !== false) ctx += VOICE_SUMMARY_INSTRUCTION;
+            if (settings.authorSummary !== false) ctx += VOICE_TOOL_INSTRUCTION;
             if (settings.cueCheckpoints !== false) ctx += (ctx ? " " : "") + CHECKPOINT_INSTRUCTION;
             return ctx ? { additionalContext: ctx } : undefined;
         },
