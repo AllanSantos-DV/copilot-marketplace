@@ -41,7 +41,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.5.12";
+const CURRENT_VERSION = "1.5.13";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -53,7 +53,7 @@ const RUNNING_AS_PLUGIN = /[\\/]installed-plugins[\\/]/.test(EXT_DIR);
 const UPDATE_DISABLED = process.env.VOICE_UPDATE_DISABLED === "1" || RUNNING_AS_PLUGIN;
 const UPDATE_THROTTLE_MS = Number(process.env.VOICE_UPDATE_THROTTLE_MS) || 0;
 const UPDATE_STATE_FILE = join(ARTIFACTS, "update-state.json");
-const UPDATABLE_FILES = new Set(["extension.mjs", "voice_worker.py", "vox_sdk.py", "vox_stream.py", "_ed25519_ref.py", "iframe.html", "requirements.txt"]);
+const UPDATABLE_FILES = new Set(["extension.mjs", "voice_worker.py", "vox_sdk.py", "vox_stream.py", "_ed25519_ref.py", "iframe.html", "requirements.txt", "hooks.json", "voice-summary-stop.cjs"]);
 
 // Python interpreters are discovered dynamically (see buildPythonCandidates).
 
@@ -1480,16 +1480,14 @@ async function flushSpeech() {
     pendingVoiceTurn = false;
     clearVoiceState();
     clearTurn(mySid());
-
-    const { spoken, full } = makeSpoken(content);
-    let speakText = settings.fullRead ? full : spoken;
-    if (!speakText) {
-        speakText = "A resposta não tem texto para ler em voz alta. Confira o chat para os detalhes.";
-    }
-    const fullForUi = full && full !== speakText ? full : undefined;
-
-    _phase = "flushSpeech:speak";
-    await routeSpeak({ spoken: speakText, full: fullForUi });
+    // A COLETA do resumo falado é do Stop hook (voice-summary-stop.cjs), NÃO da extensão. O hook
+    // roda a cada fim de turno (painel aberto OU fechado, servidor vivo ou não), garante o 🔊 e
+    // ESCREVE o resumo em pending/<sid>.jsonl. A extensão só DRENA esse arquivo (drainPendingSpeak)
+    // e toca; aqui NÃO sintetiza nem enfileira a resposta "ao vivo" (senão duplicaria o do hook).
+    // Melhor-esforço: se ESTA fork é o primário, dreno já o que o hook escreveu neste turno (baixa
+    // latência). Pode perder a corrida com o hook (que escreve no agentStop) — o sweep periódico
+    // abaixo garante em ≤2s de qualquer forma.
+    if (primaryFork) drainPendingSpeak(mySid()).catch(() => { });
     _phase = "flushSpeech:done";
 }
 
@@ -1506,6 +1504,52 @@ const AUDIO_HISTORY_MAX = 30;
 const AUDIO_QUEUE_FILE = join(ARTIFACTS, "audio-queue.json");
 const audioHistoryBySid = new Map();   // sid -> item[]
 const audioSeqBySid = new Map();       // sid -> last seq issued
+
+// ---- fila EM ARQUIVO que o Stop hook (voice-summary-stop.cjs) escreve --------------------------
+// O hook SEMPRE coleta o resumo 🔊 pra pending/<sid>.jsonl — mesmo com servidor/canvas CAÍDOS.
+// Quando o servidor sobe (primary) E/OU um canvas conecta (hello), o PRIMÁRIO drena: sintetiza +
+// enfileira na fila durável + toca; o item some do pending (consumido). A rotação por rename é
+// atômica, então um append do hook durante o drain não se perde (fica pro próximo drain).
+const PENDING_SPEAK_DIR = join(ARTIFACTS, "pending");
+function pendingSpeakFile(sid) {
+    return join(PENDING_SPEAK_DIR, String(sid || "nosid").replace(/[^A-Za-z0-9._-]/g, "_") + ".jsonl");
+}
+async function _processDrainFile(proc, fallbackSid) {
+    let lines = [];
+    try { lines = readFileSync(proc, "utf8").split("\n"); } catch { /* ignore */ }
+    for (const ln of lines) {
+        const t = ln.trim();
+        if (!t) continue;
+        let item;
+        try { item = JSON.parse(t); } catch { continue; }
+        const spoken = cleanForSpeech(String((item && item.spoken) || ""));
+        if (spoken) { try { await speakToCanvas(item.sid || fallbackSid, spoken); } catch { /* segue */ } }
+    }
+    try { unlinkSync(proc); } catch { /* ignore */ }
+}
+async function drainPendingSpeak(sid) {
+    if (!sid || !primaryFork) return;   // só o primário sintetiza/enfileira/toca
+    const f = pendingSpeakFile(sid);
+    if (!existsSync(f)) return;
+    const proc = `${f}.draining-${process.pid}-${Date.now()}`;
+    try { renameSync(f, proc); } catch { return; }   // sumiu / outro drain já pegou (rotação atômica)
+    await _processDrainFile(proc, sid);
+}
+async function drainAllPendingSpeak() {
+    if (!primaryFork) return;
+    try {
+        if (!existsSync(PENDING_SPEAK_DIR)) return;
+        for (const fn of readdirSync(PENDING_SPEAK_DIR)) {
+            if (fn.endsWith(".jsonl")) { await drainPendingSpeak(fn.slice(0, -6)); continue; }
+            // órfão: um ".jsonl.draining-*" VELHO (>60s) = drain que crashou no meio. Apaga pra não
+            // VAZAR (os itens já se perderam no crash; reprocessar arriscaria áudio DOBRADO — pior).
+            if (fn.includes(".jsonl.draining-")) {
+                const full = join(PENDING_SPEAK_DIR, fn);
+                try { if (Date.now() - statSync(full).mtimeMs > 60000) unlinkSync(full); } catch { /* ignore */ }
+            }
+        }
+    } catch { /* ignore */ }
+}
 const audioTurnBySid = new Map();      // sid -> current turn number
 const audioDeliveredBySid = new Map(); // sid -> highest seq SENT to a live client (dedup do push ao vivo)
 const audioHeardBySid = new Map();      // sid -> highest seq que o cliente CONFIRMOU ter TOCADO até o fim (cursor DURÁVEL de "consumido"; só avança via /played, NUNCA na entrega). É o que decide o autoplay ao reabrir: fechar no meio da fala NÃO marca como ouvido, então reabrir retoca o que faltou.
@@ -2356,6 +2400,7 @@ async function handleRequest(req, res) {
         });
         res.write(": connected\n\n");
         sseClients.set(res, sid);
+        if (sid) drainPendingSpeak(sid).catch(() => { });   // canvas conectou -> toca o que o hook coletou
         if (sid && !activeSid) activeSid = sid;
         if (primaryFork && settings.wakeWord) {
             try { workerSend({ cmd: "wake", on: true, phrases: [settings.wakePhrase] }); } catch { }
@@ -2538,7 +2583,11 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && path === "/speak") {
         const body = await readBody(req);
-        const spoken = String((body && body.spoken) || "").trim();
+        const raw = String((body && body.spoken) || "").trim();
+        // O Stop hook manda o resumo CRU (linha 🔊 sem tratamento). Limpamos aqui, no servidor,
+        // pra TODO chamador do /speak (hook, forward de secundário) chegar limpo no TTS. cleanForSpeech
+        // é idempotente, então re-limpar texto já-limpo (cue/forward) não muda nada.
+        const spoken = body && body.cue ? raw : cleanForSpeech(raw);
         const sid = body && body.sid ? String(body.sid) : "";
         if (!sid) return sendJson(res, { ok: false, error: "missing sid" });
         if (spoken) speakToCanvas(sid, spoken, body.full, body.cue);
@@ -2753,6 +2802,7 @@ async function startServer() {
         if (!preferredPort) preferredPort = bound; 
         sharedToken = sharedToken || readSavedToken() || randomBytes(16).toString("hex");
         savePort(bound); 
+        drainAllPendingSpeak().catch(() => { });   // servidor ATIVO -> drena o que o hook coletou offline
     } else {
         sharedToken = readSavedToken(); 
     }
@@ -2796,6 +2846,7 @@ async function reclaimPrimaryIfOrphaned(reason, force = false) {
         preferredPort = canonical;
         myBaseUrl = `http://127.0.0.1:${canonical}/`;
         savePort(canonical);
+        drainAllPendingSpeak().catch(() => { });   // promovido a primário -> drena o pendente do hook
         setFork(mySid(), myBaseUrl);
         // RECONCILIA o bookkeeping p/ ESPELHAR um primário de cold-start: as entradas de painel desta fork eram
         // secundárias, apontando p/ um server efêmero AGORA órfão (esta fork passou a servir pela canônica). Sem
@@ -2959,6 +3010,11 @@ restorePendingTurns();
 startHeartbeat();
 const _turnSweep = setInterval(drainAllPendingTurns, 5000);
 if (_turnSweep.unref) _turnSweep.unref();
+// Sweep do PRIMÁRIO que drena a fila-em-arquivo do Stop hook (pending/<sid>.jsonl) a cada 2s: com
+// o painel ABERTO e o primário estável, nenhum hello/promoção dispara por turno, então SEM este
+// sweep o resumo 🔊 ficaria no disco sem tocar. drainAllPendingSpeak é no-op fora do primário.
+const _speakSweep = setInterval(() => { drainAllPendingSpeak().catch(() => { }); }, 2000);
+if (_speakSweep.unref) _speakSweep.unref();
 const _sidPrune = setInterval(pruneDeadSids, 300000);   // 5min: poda sids mortos (forks/forkSeen/recentSpoken)
 if (_sidPrune.unref) _sidPrune.unref();
 log("voice-chat extension loaded", "info");
