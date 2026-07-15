@@ -42,12 +42,15 @@ de escopo/hierarquia e a composição do recall são do **servidor** — o plugi
   demanda com `memory_get`, progressive disclosure); **conhecimento/fatos = inline** (o chunk direto,
   grounding sem round-trip). Se o `compose` falhar/estourar, cai para `context` escopado (nunca busca
   aberta — não vaza entre projetos).
-- **Destilador de aprendizado** (`memory_distill` + `lib/digest.mjs` / `redact.mjs` / `ledger.mjs`):
-  fecha o loop de autoaprendizado. Sob gatilho **deliberado** (após um marco verificado), lê a sessão,
-  monta um **digest evidence-first** (execuções de ferramenta com `success=true` = oráculo
-  machine-checkable), **redige segredos/PII**, checa o **ledger** (anti-duplicação temporal) e devolve
-  uma tarefa de reflexão com rubrica dura. O resultado vira **skill candidate** (fora do recall
-  automático até promoção humana).
+- **Destilador de aprendizado por AGENTE** (`memory_distill` + `lib/curation.mjs` / `curator.mjs` /
+  `transcript.mjs` / `checkpoints.mjs` / `curationLedger.mjs`): fecha o loop de autoaprendizado, em
+  **background** no `SessionStart`. Um **agente curador (LLM)** lê a CONVERSA — os checkpoints do Copilot
+  (saída já curada) e os turnos vivos, limpos para só `user`+`assistant` (sem ruído de tool/hooks) — e
+  extrai lições **de forma SEMÂNTICA** (entende ironia, xingamento, frustração; nada de regex). Captura
+  **dois tipos**: técnicas E **comportamentais** (anti-padrões do próprio assistente que o usuário
+  criticou). Incremental e idempotente: marca cada checkpoint/bloco por id determinístico (ledger) e
+  nunca recura. O curador roda num **node subprocess limpo** (o resolver hook do fork quebraria o SDK).
+  Skills de projeto **auto-promovem** (o curador é o gate); segredos são redigidos antes de curar.
 
 ## Escopo e isolamento
 
@@ -69,7 +72,7 @@ plugin não recria nada disso.
 | `memory_recent` | Lista os documentos mais recentes do projeto (escopado). |
 | `memory_get` | Recupera o conteúdo completo de um documento por id (drill-down do ponteiro). |
 | `memory_save` | Salva conhecimento/decisão/nota carimbando `project_id`. |
-| `memory_distill` | **Destilador:** lê a sessão, monta digest evidence-first (oráculo = tool success), redige segredos e devolve tarefa de reflexão. Chamar de forma deliberada após marco verificado. |
+| `memory_distill` | **Destilador (curadoria por agente):** força AGORA a curadoria dos checkpoints/turnos não processados. Um curador LLM lê a conversa e extrai lições técnicas E comportamentais, semanticamente. Já roda em background no SessionStart. |
 | `memory_skill_guide` | Retorna o guia de autoria de skill (formato PT+EN, What/When/Do/Don't, regras da description, pitfalls). |
 | `memory_save_skill` | Salva uma skill (name/description PT + corpo EN) como **candidate**; aceita `evidence[]`; dedup prévio + ledger anti-duplicação. |
 | `memory_promote_skill` | Promove candidate → **active** (só então entra no recall). Gate de qualidade. |
@@ -104,9 +107,13 @@ lib/client.mjs     cliente REST do daemon
 lib/recall.mjs     compose_recall two-tier + fallback context escopado
 lib/skill.mjs      formato/validação de skill (PT header + EN body)
 lib/skillGuide.mjs guia de autoria (memory_skill_guide)
-lib/digest.mjs     digest evidence-first da sessão (getMessages)
-lib/redact.mjs     redação de segredos/PII antes de destilar
-lib/ledger.mjs     ledger anti-duplicação temporal + recorrência
+lib/transcript.mjs limpeza estrutural (só user+assistant) + agrupamento em blocos
+lib/checkpoints.mjs leitura dos checkpoints do Copilot (saída já curada)
+lib/curationLedger.mjs rastreio incremental por id (não recura)
+lib/curator.mjs    curador LLM num node subprocess limpo (+ curatorWorker.mjs)
+lib/curation.mjs   orquestra a curadoria (checkpoints + turnos vivos)
+lib/redact.mjs     redação de segredos/PII antes de curar
+lib/ledger.mjs     ledger anti-duplicação (skill manual)
 lib/consumption.mjs telemetria client-side ponteiro→fetch
 lib/dashboard.mjs  painel (canvas): server local SDK-free + snapshot (health/escopo/docs/skills/telemetria/escopo obsoleto)
 lib/migrate.mjs    migração de escopo aprovada (previewMigration + migrateScope: list→PATCH, idempotente)

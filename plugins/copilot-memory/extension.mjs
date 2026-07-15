@@ -22,16 +22,57 @@ import { composeRecall, recallOptsFromEnv } from "./lib/recall.mjs";
 import { validateSkill, buildSkillDocument, TYPE_CANDIDATE, TYPE_ACTIVE } from "./lib/skill.mjs";
 import { SKILL_GUIDE } from "./lib/skillGuide.mjs";
 import { recordRecall, recordFetch } from "./lib/consumption.mjs";
-import { buildDigest } from "./lib/digest.mjs";
-import { redact } from "./lib/redact.mjs";
-import { recordDistillation, sessionDistilled, fingerprint, findFingerprint } from "./lib/ledger.mjs";
+import { recordDistillation, fingerprint, findFingerprint } from "./lib/ledger.mjs";
 import { ensureServer, autoProvisionEnabled, resolveJava } from "./lib/provision.mjs";
 import { previewMigration, migrateScope } from "./lib/migrate.mjs";
+import { runCuration } from "./lib/curation.mjs";
 import { MemoryDashboard, DASHBOARD_CANVAS_ID, DASHBOARD_INSTANCE_ID, DASHBOARD_TITLE } from "./lib/dashboard.mjs";
 import { readPersistedCwd, persistCwd } from "./lib/sessionCwd.mjs";
 
 // Provisionamento em background disparado no máximo 1× por processo (não repete a cada hook).
 let provisionKicked = false;
+// Curadoria de aprendizado (o distiller) disparada 1× por processo, em background.
+let curationKicked = false;
+
+// Curadoria ligada por padrão; COPILOT_MEMORY_NO_CURATION=1 desliga (ex.: economizar tokens).
+function curationEnabled() {
+    return process.env.COPILOT_MEMORY_NO_CURATION !== "1";
+}
+
+// Persiste uma skill CURADA: valida, dedup (cosine>=0.90 no cliente), e salva já ATIVA — auto-promoção
+// de PROJETO (o curador LLM é o gate de qualidade; o humano só decide o salto a global). Nunca sobrescreve
+// uma similar. Lança em skill inválida (o orquestrador conta como erro sem abortar o lote).
+function makePersistSkill(c, sessionId) {
+    return async (skill, meta = {}) => {
+        const v = validateSkill(skill);
+        if (!v.ok) throw new Error("skill inválida: " + v.errors.join("; "));
+        try {
+            const sim = await c.client.search(`${skill.name}\n${skill.description}`, { topK: 1, metadata: { project_id: c.projectId } });
+            const dupe = (sim.results || []).find((r) => Number(r.score) >= 0.90);
+            if (dupe) return { skipped: "dupe", id: dupe.documentId };
+        } catch { /* dedup best-effort */ }
+        const doc = buildSkillDocument({
+            name: skill.name, description: skill.description, body: skill.body,
+            tags: Array.isArray(skill.tags) && skill.tags.length ? skill.tags : (skill.kind ? [skill.kind] : undefined),
+            projectId: c.projectId, sessionId,
+        });
+        doc.metadata.type = TYPE_ACTIVE;      // auto-promovido (projeto)
+        doc.metadata.status = "active";
+        doc.metadata.confidence = "medium";
+        doc.metadata.source = "copilot-curator";
+        if (skill.kind) doc.metadata.kind = skill.kind;
+        if (meta.source) doc.metadata.curated_from = meta.source + (meta.ref ? ":" + meta.ref : "");
+        const saved = await c.client.save(doc.content, doc.metadata);
+        return { id: saved && saved.id };
+    };
+}
+
+// Monta o leitor de histórico da session do host (getEvents no host; getMessages no smoke). null se nenhum.
+function hostHistoryReader() {
+    if (hostSession && typeof hostSession.getEvents === "function") return () => hostSession.getEvents();
+    if (hostSession && typeof hostSession.getMessages === "function") return () => hostSession.getMessages();
+    return null;
+}
 
 // Sessão do host (capturada no joinSession) — dá às tools acesso ao histórico via getEvents()
 // (host/produção) ou getMessages() (smoke via createSession). No harness de smoke, __setHostSession
@@ -439,71 +480,40 @@ export const tools = [
         {
             name: "memory_distill",
             description:
-                "DESTILADOR de aprendizado: leia a sessão atual e proponha skills reusáveis. Chame de forma DELIBERADA " +
-                "após um marco confirmado (teste passou, build verde, o usuário confirmou que funcionou, checkpoint aprovado) — " +
-                "NÃO chame no fim de toda sessão nem por reflexo. Ele monta um digest evidence-first da sessão (execuções de " +
-                "ferramenta com sucesso = sinal verificável), redige segredos, checa o que já foi destilado, e devolve uma TAREFA " +
-                "de reflexão com rubrica: extraia só o que é generalizável E verificado, cada skill citando a evidência (id de tool " +
-                "com success=true ou confirmação do usuário). Depois use memory_save_skill (nasce candidate).",
+                "DESTILADOR de aprendizado (curadoria por AGENTE): força AGORA a curadoria dos checkpoints e turnos " +
+                "ainda não processados desta sessão. Um agente curador (LLM) LÊ a conversa (usuário+assistente, sem " +
+                "ruído de tool) e extrai lições reusáveis — técnicas E comportamentais (anti-padrões do assistente que " +
+                "você criticou) — de forma SEMÂNTICA, salvando-as escopadas no projeto. Já roda sozinho em background no " +
+                "início da sessão; use esta tool só para adiantar. Incremental: não recura o que já foi curado.",
             parameters: {
                 type: "object",
                 properties: {
-                    reason: { type: "string", description: "O marco que justifica destilar agora (ex.: 'testes passaram', 'usuário confirmou')" },
+                    reason: { type: "string", description: "Opcional: o marco que justifica curar agora (ex.: 'testes passaram')" },
                 },
                 additionalProperties: false,
             },
             handler: async (args, invocation) => {
-                // A session do joinSession (HOST/produção) expõe getEvents(); a de createSession (usada
-                // nos smokes) expõe getMessages(). Ambos retornam SessionEvent[] no MESMO formato. O
-                // distill roda no host, então preferimos getEvents(); getMessages fica de fallback para
-                // robustez cross-runtime. (Descoberto por dogfooding: o .d.ts anuncia só getMessages,
-                // mas o runtime do host tem getEvents — como o askUserBridge do copilot-mobile já usa.)
-                const readHistory =
-                    (hostSession && typeof hostSession.getEvents === "function") ? () => hostSession.getEvents()
-                    : (hostSession && typeof hostSession.getMessages === "function") ? () => hostSession.getMessages()
-                    : null;
-                if (!readHistory) {
-                    return "Destilação indisponível: a session do host não expõe getEvents/getMessages (plugin não carregado pelo host?).";
+                const wd = toolCwd();
+                const c = await connect(wd);
+                if (!c.ok) return `🧠 Memória offline: ${c.reason}`;
+                if (!c.projectId) return "Sem project_id resolvido.";
+                const getEvents = hostHistoryReader();
+                if (!getEvents) return "Histórico indisponível: a session do host não expõe getEvents (plugin carregado pelo host?).";
+                const sid = invocation?.sessionId || SELF_SESSION_ID;
+                const sum = await runCuration({
+                    sessionId: sid,
+                    workingDirectory: wd,
+                    getEvents,
+                    persistSkill: makePersistSkill(c, sid),
+                    maxUnits: 2,
+                });
+                if (!sum.checkpoints && !sum.liveBlocks && !sum.skills) {
+                    return `🧠 Nada novo a curar — tudo já processado.${sum.errors.length ? " Avisos: " + sum.errors.slice(0, 2).join("; ") : ""}`;
                 }
-                let msgs;
-                try {
-                    msgs = await readHistory();
-                } catch (e) {
-                    return "Não foi possível ler a sessão: " + (e?.message || e);
-                }
-                const sid = invocation?.sessionId || null;
-                if (sid && sessionDistilled(sid)) {
-                    return "Esta sessão já foi destilada antes (ledger). Só destile de novo se houve um NOVO aprendizado verificado desde então; caso contrário, evite duplicar.";
-                }
-                const { text, evidence, stats } = buildDigest(msgs, { maxChars: 7000 });
-                const red = redact(text);
-                const toolOracles = evidence.filter((e) => e.kind === "tool" && e.success).map((e) => e.id);
-                const userSignals = evidence.filter((e) => e.kind === "user").map((e) => e.id);
-                if (!toolOracles.length && !userSignals.length) {
-                    return (
-                        "Nada VERIFICÁVEL para destilar: a sessão não tem execução de ferramenta bem-sucedida nem confirmação " +
-                        "explícita do usuário. Sem oráculo (sinal machine-checkable), destilar seria só reafirmar o que o agente " +
-                        "achou que funcionou. Não crie skill agora."
-                    );
-                }
-                return [
-                    "# Tarefa de reflexão — destilar aprendizado(s) desta sessão",
-                    `_${red.count} trecho(s) sensível(is) redigido(s) · ${stats.toolOk} tool ok / ${stats.toolFail} falhas · ${stats.userMsgs} msgs do usuário._`,
-                    "",
-                    "## Regras (duras)",
-                    "1. Só proponha o que é **generalizável** (serve além desta sessão) E **verificado** por um sinal concreto abaixo.",
-                    "2. CADA skill DEVE citar a evidência: id(s) de `[TOOL …]` com success=true, ou `[USER …]` de confirmação. Sem citação verificável → NÃO proponha.",
-                    "3. Descarte: tentativa-e-erro, detalhe efêmero, específico-demais, não confirmado.",
-                    "4. Formato: siga `memory_skill_guide` (name/description PT com 'quando NÃO usar'; body EN What/When/Do/Don't). A description é o gatilho do recall.",
-                    "5. Se nada aqui for realmente reusável+verificado, responda que **não há skill a criar** — resposta vazia é válida e preferível a lixo.",
-                    "6. Ao salvar, chame `memory_save_skill` com o campo `evidence` (os ids citados). Nasce candidate; a promoção é humana.",
-                    "",
-                    `Oráculos disponíveis (tool success): ${toolOracles.slice(0, 20).join(", ") || "(nenhum)"}`,
-                    `Sinais do usuário: ${userSignals.slice(0, 20).join(", ") || "(nenhum)"}`,
-                    "",
-                    "## Digest evidence-first (redigido)",
-                    red.text || "(vazio)",
-                ].join("\n");
+                let msg = `🧠 Curadoria: ${sum.skills} skill(s) salva(s) de ${sum.checkpoints} checkpoint(s) + ${sum.liveBlocks} bloco(s) de turnos vivos.`;
+                if (sum.remaining) msg += ` Faltam ~${sum.remaining} unidade(s) — chame de novo para continuar (o background também segue curando).`;
+                if (sum.errors.length) msg += ` (${sum.errors.length} aviso(s): ${sum.errors.slice(0, 2).join("; ")})`;
+                return msg;
             },
         },
 
@@ -637,7 +647,7 @@ export const tools = [
                 try {
                     const doc = await c.client.getDocument(String(args.documentId || ""));
                     const src = doc && doc.metadata ? doc.metadata.source : null;
-                    if (src && src !== "copilot-autoskill" && src !== "copilot") {
+                    if (src && src !== "copilot-autoskill" && src !== "copilot" && src !== "copilot-curator") {
                         return `Recusado: [${args.documentId}] tem source="${src}" (curado por humano/outra fonte). Auto-capture não remove conteúdo humano.`;
                     }
                 } catch { /* se não achar, o feedback abaixo retorna erro claro */ }
@@ -693,6 +703,32 @@ export const hooks = {
             if (!provisionKicked && autoProvisionEnabled()) {
                 provisionKicked = true;
                 (async () => { try { const info = await discover(); if (!info) await ensureServer(); } catch { /* fail-open */ } })();
+            }
+            // Curadoria de aprendizado (o distiller) em BACKGROUND, 1× por processo. Um agente curador lê os
+            // checkpoints já curados + os turnos vivos e destila lições (técnicas E comportamentais),
+            // salvando-as escopadas no projeto. Incremental via ledger (não recura). Delay curto para não
+            // competir com o recall de abertura; fire-and-forget, nunca bloqueia nem derruba a sessão.
+            if (!curationKicked && curationEnabled()) {
+                curationKicked = true;
+                const sid = input.sessionId;
+                const wd = input.workingDirectory;
+                setTimeout(() => {
+                    (async () => {
+                        try {
+                            const c = await connect(wd);
+                            if (!c.ok || !c.projectId) return;
+                            const getEvents = hostHistoryReader();
+                            if (!getEvents) return;
+                            await runCuration({
+                                sessionId: sid,
+                                workingDirectory: wd,
+                                getEvents,
+                                persistSkill: makePersistSkill(c, sid),
+                                log: (m) => { try { hostSession?.log?.("[curator] " + m); } catch { /* ignore */ } },
+                            });
+                        } catch { /* background, fail-open */ }
+                    })();
+                }, 4000);
             }
             if (!recallEnabled()) return;
             // Nudge asked-once de scaffold: se o escopo é FRÁGIL (path/nome) e eu ainda não perguntei
