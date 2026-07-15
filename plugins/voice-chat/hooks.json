@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "hooks": {
+    "agentStop": [
+      {
+        "type": "command",
+        "command": "node voice-summary-stop.cjs",
+        "timeout": 12
+      }
+    ]
+  }
+}
