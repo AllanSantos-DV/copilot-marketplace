@@ -4,7 +4,7 @@
   "highlights": [
     { "title": "Lembra por projeto, não vaza entre eles", "body": "Cada leitura e escrita é carimbada com o `project_id` do projeto aberto. A memória de um projeto nunca aparece em outro." },
     { "title": "Recall em dois níveis", "body": "Skills voltam como **ponteiro** (nome + descrição + id) e o agente abre o corpo só quando precisa; fatos voltam **inline**, prontos para usar. Menos ruído, mais contexto." },
-    { "title": "Aprende com a sessão", "body": "Depois de um marco verificado (teste passou, você confirmou), o destilador transforma o que foi validado em **skills candidatas** — com a evidência citada, e promoção só com o seu aval." },
+    { "title": "Aprende com a sessão, sozinho", "body": "Um **agente curador** lê a conversa (checkpoints + turnos) em background e destila lições **técnicas e comportamentais** — semanticamente, entendendo ironia e crítica, não por palavra-chave. Skills de projeto entram no recall automaticamente." },
     { "title": "Sobe o servidor sozinho", "body": "Sem daemon e sem servidor instalado, o plugin baixa a release pública, **confere o sha256** e sobe o servidor. Se já existe, apenas reusa. Requer Java 21." },
     { "title": "Um painel pra ver tudo", "body": "Um canvas lateral mostra, ao vivo, a saúde do daemon, o escopo do projeto (com a **escada** que resolveu o `project_id`), os documentos e skills recentes e a telemetria de recall." },
     { "title": "Muda o escopo sem perder a memória", "body": "Ao declarar um `project_id` novo, o plugin detecta a memória do escopo antigo e **migra com a sua aprovação** — reatribui sem re-processar, e avisa quando há risco de deixar memória órfã." }
@@ -61,19 +61,20 @@
     },
     {
       "id": "destilador",
-      "title": "O destilador de aprendizado",
+      "title": "O destilador de aprendizado (curadoria por agente)",
       "blocks": [
-        { "type": "p", "text": "O destilador fecha o ciclo: a experiência da sessão vira conhecimento reusável. Mas só o que é **generalizável e verificado** — nada de despejar a conversa na memória." },
+        { "type": "p", "text": "O destilador fecha o ciclo: a experiência da sessão vira conhecimento reusável. Quem faz isso é um **agente curador** — um modelo que **lê a conversa** e entende o que aconteceu, não um filtro de palavras-chave. Roda sozinho, em **background**, quando a sessão abre." },
         {
           "type": "list",
           "items": [
-            "**Gatilho deliberado.** Você chama `memory_distill` depois de um marco real (um teste que passou, um build verde, a sua confirmação). Ele não roda no fim de toda sessão.",
-            "**Prova, não achismo.** O destilador lê a sessão e monta um resumo baseado em **evidência**: execuções de ferramenta que deram certo. Sem um sinal verificável, ele **recusa** criar a skill.",
-            "**Segredos ficam de fora.** Antes de propor qualquer skill, ele redige tokens, chaves e credenciais que possam ter aparecido na sessão.",
-            "**Nasce candidata.** A skill entra como candidata, fora do recall automático, até você promovê-la com `memory_promote_skill`. Errou? `memory_invalidate_skill` tira do recall preservando o histórico."
+            "**Lê a conversa, não a máquina.** A fonte são os **checkpoints** do Copilot (que já são um resumo curado da sessão) e os **turnos vivos**, limpos para conter só o que você disse e o que o assistente respondeu — sem ruído de ferramentas e hooks.",
+            "**Semântico, não regex.** O curador entende ironia, uma reclamação, um elogio, uma instrução repetida. É assim que ele sabe se algo deu certo ou errado — coisas que uma busca por palavra mágica nunca pegaria.",
+            "**Dois tipos de lição.** Técnicas (uma API que se comporta diferente, um passo que resolveu o problema) E **comportamentais**: anti-padrões do próprio assistente que você criticou, para ele não repetir.",
+            "**Incremental e sem retrabalho.** Cada checkpoint e bloco de turnos é marcado por id ao ser curado, então o background nunca refaz o que já processou.",
+            "**Errou? Sai do recall.** `memory_invalidate_skill` tira uma lição errada do recall preservando o histórico (auditável, reversível)."
           ]
         },
-        { "type": "note", "tone": "info", "text": "Um registro por projeto evita destilar a mesma lição duas vezes — a recorrência é sinal de que ela é generalizável, não motivo para duplicar." }
+        { "type": "note", "tone": "info", "text": "Skills de projeto entram no recall automaticamente — o curador é o filtro de qualidade. Sua revisão fica reservada ao que sobe para o escopo global (que afeta todos os projetos). Segredos são redigidos antes de qualquer curadoria." }
       ]
     },
     {
