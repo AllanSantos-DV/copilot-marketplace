@@ -46,24 +46,30 @@ async function readStdin() {
 }
 
 (async () => {
-    let client = null;
+    let client = null, outText = null;
     try {
         const prompt = await readStdin();
-        if (!prompt.trim()) { process.stderr.write("prompt vazio"); process.exit(1); }
+        if (!prompt.trim()) { process.stderr.write("prompt vazio"); process.exitCode = 1; return; }
         const wd = process.env.COPILOT_MEMORY_CURATOR_CWD || process.cwd();
         const model = process.env.COPILOT_MEMORY_CURATOR_MODEL || "claude-sonnet-4.6";
         const { CopilotClient, approveAll } = await import(sdkIndexUrl());
-        if (typeof CopilotClient !== "function") { process.stderr.write("CopilotClient indisponível"); process.exit(1); }
+        if (typeof CopilotClient !== "function") { process.stderr.write("CopilotClient indisponível"); process.exitCode = 1; return; }
         client = new CopilotClient({ workingDirectory: wd });
         await client.start();
         const session = await client.createSession({ model, workingDirectory: wd, onPermissionRequest: approveAll });
         const res = await session.sendAndWait({ prompt }, Number(process.env.COPILOT_MEMORY_CURATOR_TIMEOUT || 150000));
-        process.stdout.write(assistantText(res));
-        process.exit(0);
+        outText = assistantText(res);
     } catch (e) {
         process.stderr.write(String(e?.message || e));
-        process.exit(1);
+        process.exitCode = 1;
     } finally {
         if (client) { try { await client.stop(); } catch { /* ignore */ } }
     }
+    // Escreve a saída e DRENA o pipe ANTES de encerrar. NUNCA usar process.exit() logo após stdout.write:
+    // em POSIX o pipe é assíncrono e o exit imediato TRUNCA a resposta (o parent recebe JSON cortado e
+    // conta como sucesso vazio). Aguardar o callback de write garante a entrega completa.
+    if (outText != null) {
+        await new Promise((r) => process.stdout.write(outText, () => r()));
+    }
+    process.exit(process.exitCode || 0);
 })();
