@@ -11,7 +11,7 @@
     {
       "name": "copilot-memory",
       "description": "Memória por projeto para o Copilot: descobre/sobe o daemon do servidor de memória (native-java, verificado por sha256); resolve o escopo pelo .memory/project.json ou git (worktree-safe) e migra a memória do escopo antigo com sua aprovação; injeta recall two-tier; e um AGENTE CURADOR lê a conversa (checkpoints + turnos) e destila lições técnicas E comportamentais em skills, semanticamente e em background. Painel (canvas) com saúde, escopo, skills e telemetria.",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "source": "./plugins/copilot-memory",
       "author": {
         "name": "Allan Santos"

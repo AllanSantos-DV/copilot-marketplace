@@ -51,6 +51,12 @@ de escopo/hierarquia e a composição do recall são do **servidor** — o plugi
   criticou). Incremental e idempotente: marca cada checkpoint/bloco por id determinístico (ledger) e
   nunca recura. O curador roda num **node subprocess limpo** (o resolver hook do fork quebraria o SDK).
   Skills de projeto **auto-promovem** (o curador é o gate); segredos são redigidos antes de curar.
+- **Skill creator** (`lib/skillCreator.mjs`): cada lição destilada não é salva às cegas — o frontmatter
+  (name+description PT) vira uma **busca semântica** (escopo projeto E global) e uma **decisão**: `create`
+  (nova de projeto), `update` (reconcilia/corrige uma existente — resolve contradições como
+  getMessages↔getEvents em vez de duplicar), `promote_global` (lição generalizável além do projeto →
+  vira `skill_global` sem `project_id`, entra no home spine de todos os projetos) ou `skip` (redundante).
+  A decisão, quando há ambiguidade, é do **reconciliador** (o curador LLM). Comportamentais tendem a global.
 
 ## Escopo e isolamento
 
@@ -110,7 +116,8 @@ lib/skillGuide.mjs guia de autoria (memory_skill_guide)
 lib/transcript.mjs limpeza estrutural (só user+assistant) + agrupamento em blocos
 lib/checkpoints.mjs leitura dos checkpoints do Copilot (saída já curada)
 lib/curationLedger.mjs rastreio incremental por id (não recura)
-lib/curator.mjs    curador LLM num node subprocess limpo (+ curatorWorker.mjs)
+lib/curator.mjs    curador + reconciliador LLM num node subprocess limpo (+ curatorWorker.mjs)
+lib/skillCreator.mjs cria/atualiza/promove skill (busca semântica → decide → aplica; projeto e global)
 lib/curation.mjs   orquestra a curadoria (checkpoints + turnos vivos)
 lib/redact.mjs     redação de segredos/PII antes de curar
 lib/ledger.mjs     ledger anti-duplicação (skill manual)

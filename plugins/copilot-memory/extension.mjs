@@ -26,6 +26,8 @@ import { recordDistillation, fingerprint, findFingerprint } from "./lib/ledger.m
 import { ensureServer, autoProvisionEnabled, resolveJava } from "./lib/provision.mjs";
 import { previewMigration, migrateScope } from "./lib/migrate.mjs";
 import { runCuration } from "./lib/curation.mjs";
+import { reconcileSkill } from "./lib/curator.mjs";
+import { createOrUpdateSkill } from "./lib/skillCreator.mjs";
 import { MemoryDashboard, DASHBOARD_CANVAS_ID, DASHBOARD_INSTANCE_ID, DASHBOARD_TITLE } from "./lib/dashboard.mjs";
 import { readPersistedCwd, persistCwd } from "./lib/sessionCwd.mjs";
 
@@ -39,31 +41,19 @@ function curationEnabled() {
     return process.env.COPILOT_MEMORY_NO_CURATION !== "1";
 }
 
-// Persiste uma skill CURADA: valida, dedup (cosine>=0.90 no cliente), e salva já ATIVA — auto-promoção
-// de PROJETO (o curador LLM é o gate de qualidade; o humano só decide o salto a global). Nunca sobrescreve
-// uma similar. Lança em skill inválida (o orquestrador conta como erro sem abortar o lote).
-function makePersistSkill(c, sessionId) {
-    return async (skill, meta = {}) => {
-        const v = validateSkill(skill);
-        if (!v.ok) throw new Error("skill inválida: " + v.errors.join("; "));
-        try {
-            const sim = await c.client.search(`${skill.name}\n${skill.description}`, { topK: 1, metadata: { project_id: c.projectId } });
-            const dupe = (sim.results || []).find((r) => Number(r.score) >= 0.90);
-            if (dupe) return { skipped: "dupe", id: dupe.documentId };
-        } catch { /* dedup best-effort */ }
-        const doc = buildSkillDocument({
-            name: skill.name, description: skill.description, body: skill.body,
-            tags: Array.isArray(skill.tags) && skill.tags.length ? skill.tags : (skill.kind ? [skill.kind] : undefined),
-            projectId: c.projectId, sessionId,
+// Persiste uma skill CURADA via o SKILL CREATOR (busca semântica projeto+global → decide criar/atualizar/
+// promover a global → aplica). Não é save cego: reconcilia contra o que já existe (corrige contradições,
+// evita duplicata, evolui a global lições generalizáveis). O reconciliador é o curador LLM. Nunca lança.
+function makePersistSkill(c, sessionId, workingDirectory) {
+    return async (skill /*, meta */) => {
+        const res = await createOrUpdateSkill(skill, {
+            client: c.client,
+            projectId: c.projectId,
+            sessionId,
+            reconcile: (lesson, candidates) => reconcileSkill(lesson, candidates, { workingDirectory }),
         });
-        doc.metadata.type = TYPE_ACTIVE;      // auto-promovido (projeto)
-        doc.metadata.status = "active";
-        doc.metadata.confidence = "medium";
-        doc.metadata.source = "copilot-curator";
-        if (skill.kind) doc.metadata.kind = skill.kind;
-        if (meta.source) doc.metadata.curated_from = meta.source + (meta.ref ? ":" + meta.ref : "");
-        const saved = await c.client.save(doc.content, doc.metadata);
-        return { id: saved && saved.id };
+        if (res.action === "skip") throw new Error(res.reason || "skip");
+        return res;
     };
 }
 
@@ -504,7 +494,7 @@ export const tools = [
                     sessionId: sid,
                     workingDirectory: wd,
                     getEvents,
-                    persistSkill: makePersistSkill(c, sid),
+                    persistSkill: makePersistSkill(c, sid, wd),
                     maxUnits: 2,
                 });
                 if (!sum.checkpoints && !sum.liveBlocks && !sum.skills) {
@@ -723,7 +713,7 @@ export const hooks = {
                                 sessionId: sid,
                                 workingDirectory: wd,
                                 getEvents,
-                                persistSkill: makePersistSkill(c, sid),
+                                persistSkill: makePersistSkill(c, sid, wd),
                                 log: (m) => { try { hostSession?.log?.("[curator] " + m); } catch { /* ignore */ } },
                             });
                         } catch { /* background, fail-open */ }
