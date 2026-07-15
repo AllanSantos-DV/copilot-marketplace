@@ -5,25 +5,18 @@ import tls from "node:tls";
 import { spawn, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import { dirname, join, basename, sep } from "node:path";
+import { dirname, join, basename } from "node:path";
 import { readFile, writeFile, mkdir, readdir, stat, unlink } from "node:fs/promises";
 import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, appendFileSync, statSync, renameSync, copyFileSync, linkSync, readdirSync } from "node:fs";
-import { setPriority, constants as osConstants, homedir } from "node:os";
+import { setPriority, constants as osConstants } from "node:os";
 import { randomBytes, createHash, createPublicKey, verify as edVerify } from "node:crypto";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
+import shared from "./voice-shared.cjs";
 
 const EXT_DIR = dirname(fileURLToPath(import.meta.url));
 const LEGACY_ARTIFACTS = join(EXT_DIR, "artifacts");
 
-function resolveDataDir() {
-    if (process.env.VOICE_DATA_DIR) return process.env.VOICE_DATA_DIR;
-    const marker = sep + ".copilot" + sep;
-    const i = EXT_DIR.indexOf(marker);
-    const home = i >= 0 ? EXT_DIR.slice(0, i + marker.length - 1) : join(homedir(), ".copilot");
-    return join(home, "voice-chat-data");
-}
-
-let ARTIFACTS = resolveDataDir();
+let ARTIFACTS = shared.resolveDataDir();
 try {
     if (ARTIFACTS !== LEGACY_ARTIFACTS && existsSync(LEGACY_ARTIFACTS) && !existsSync(ARTIFACTS)) {
         mkdirSync(dirname(ARTIFACTS), { recursive: true });
@@ -41,7 +34,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.5.17";
+const CURRENT_VERSION = "1.5.18";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -53,7 +46,7 @@ const RUNNING_AS_PLUGIN = /[\\/]installed-plugins[\\/]/.test(EXT_DIR);
 const UPDATE_DISABLED = process.env.VOICE_UPDATE_DISABLED === "1" || RUNNING_AS_PLUGIN;
 const UPDATE_THROTTLE_MS = Number(process.env.VOICE_UPDATE_THROTTLE_MS) || 0;
 const UPDATE_STATE_FILE = join(ARTIFACTS, "update-state.json");
-const UPDATABLE_FILES = new Set(["extension.mjs", "voice_worker.py", "vox_sdk.py", "vox_stream.py", "_ed25519_ref.py", "iframe.html", "requirements.txt", "hooks.json", "voice-summary-stop.cjs"]);
+const UPDATABLE_FILES = new Set(["extension.mjs", "voice-shared.cjs", "voice_worker.py", "vox_sdk.py", "vox_stream.py", "_ed25519_ref.py", "iframe.html", "requirements.txt", "hooks.json", "voice-summary-stop.cjs"]);
 
 // Python interpreters are discovered dynamically (see buildPythonCandidates).
 
@@ -652,11 +645,18 @@ function extLogicNormalize(src) {
         .replace(/\r\n/g, "\n")
         .replace(/^const\s+CURRENT_VERSION\s*=\s*"[^"]*"\s*;/m, 'const CURRENT_VERSION="0";');
 }
-function extLogicSha(src) {
-    return sha256Hex(Buffer.from(extLogicNormalize(src), "utf8"));
+// Arquivos de LÓGICA da extensão (ESM/cross-process) cuja mudança exige RE-IMPORT -> app-restart. NÃO
+// inclui worker/SDK (hot via restart do worker), o hook (roda fresco a cada agentStop) nem a UI. O hash
+// de lógica cobre TODOS eles (concatenados, versão mascarada): senão um update que só mexe num módulo
+// de lógica não dispararia o app-restart e a extensão seguiria com o código antigo em memória.
+const LOGIC_FILES = ["extension.mjs", "voice-shared.cjs"];
+function computeLogicSha(getSrc) {
+    let acc = "";
+    for (const rel of LOGIC_FILES) acc += rel + "\0" + extLogicNormalize(getSrc(rel)) + "\0";
+    return sha256Hex(Buffer.from(acc, "utf8"));
 }
 const RUNNING_EXT_LOGIC_SHA = (() => {
-    try { return extLogicSha(readFileSync(fileURLToPath(import.meta.url), "utf8")); } catch { return ""; }
+    try { return computeLogicSha((rel) => readFileSync(join(EXT_DIR, rel), "utf8")); } catch { return ""; }
 })();
 // Decisão PURA: dado o que mudou no stage, o que aplicar. needsAppRestart só quando a LÓGICA do
 // extension.mjs mudou (o bundle é co-versionado -> aplica tudo junto num restart do app, atômico).
@@ -732,14 +732,18 @@ async function checkForUpdate(opts = {}) {
         if (!staged.length) return { status: "uptodate", version: effectiveVersion(st) };
         // Classifica ANTES de sobrescrever: o que muda vs o disco atual + se a LÓGICA do extension.mjs mudou.
         const changedRels = [];
-        let extLogicChanged = false;
+        const stagedMap = new Map(staged.map((s) => [s.rel, s.buf]));
         for (const s of staged) {
             const target = join(EXT_DIR, s.rel);
             let preSha = null;
             try { if (existsSync(target)) preSha = sha256Hex(readFileSync(target)); } catch { }
             if (sha256Hex(s.buf) !== preSha) changedRels.push(s.rel);
-            if (s.rel === "extension.mjs") extLogicChanged = extLogicSha(s.buf.toString("utf8")) !== RUNNING_EXT_LOGIC_SHA;
         }
+        // LÓGICA mudou? compara o hash do CONJUNTO de módulos de lógica (staged onde houver, senão o
+        // disco ATUAL — antes do overwrite abaixo) contra o que está rodando em memória.
+        const stagedLogicSha = computeLogicSha((rel) =>
+            stagedMap.has(rel) ? stagedMap.get(rel).toString("utf8") : readFileSync(join(EXT_DIR, rel), "utf8"));
+        const extLogicChanged = stagedLogicSha !== RUNNING_EXT_LOGIC_SHA;
         for (const s of staged) {
             const target = join(EXT_DIR, s.rel);
             const part = target + ".part";
@@ -1500,9 +1504,9 @@ const audioSeqBySid = new Map();       // sid -> last seq issued
 // atualiza a cada 5s (NÃO remove no SIGTERM — de propósito: um PID morto no arquivo é a impressão
 // digital DETERMINÍSTICA do canvas caído). O Stop hook lê isso e, se o PID estiver morto, avisa o
 // agente a rodar extensions_reload (caminho A->B->C: hook detecta -> avisa -> agente recarrega).
-const FORKS_DIR = join(ARTIFACTS, "forks");
+const FORKS_DIR = shared.forksDir(ARTIFACTS);
 function forkHeartbeatFile(sid) {
-    return join(FORKS_DIR, String(sid || "nosid").replace(/[^A-Za-z0-9._-]/g, "_") + ".json");
+    return shared.forkHeartbeatFile(ARTIFACTS, sid);
 }
 function writeForkHeartbeat() {
     const sid = ownSid || mySid();
@@ -1533,9 +1537,9 @@ function pruneForkHeartbeats() {
 // Quando o servidor sobe (primary) E/OU um canvas conecta (hello), o PRIMÁRIO drena: sintetiza +
 // enfileira na fila durável + toca; o item some do pending (consumido). A rotação por rename é
 // atômica, então um append do hook durante o drain não se perde (fica pro próximo drain).
-const PENDING_SPEAK_DIR = join(ARTIFACTS, "pending");
+const PENDING_SPEAK_DIR = shared.pendingDir(ARTIFACTS);
 function pendingSpeakFile(sid) {
-    return join(PENDING_SPEAK_DIR, String(sid || "nosid").replace(/[^A-Za-z0-9._-]/g, "_") + ".jsonl");
+    return shared.pendingSpeakFile(ARTIFACTS, sid);
 }
 async function _processDrainFile(proc, fallbackSid) {
     let lines = [];

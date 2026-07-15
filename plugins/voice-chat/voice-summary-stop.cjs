@@ -13,19 +13,10 @@
 //   2) ADVISOR de canvas caído: heartbeat do fork com PID morto -> avisa o agente a rodar extensions_reload.
 
 const fs = require('fs');
-const path = require('path');
-const os = require('os');
+// Contrato cross-process (data dir, sanitização de sid, paths das filas) — ÚNICA fonte, igual à extensão.
+const shared = require('./voice-shared.cjs');
 
-// Resolve o data dir IGUAL à extensão (extension.mjs resolveDataDir): honra VOICE_DATA_DIR, senão
-// o marcador ".copilot" a partir do dir do plugin (__dirname).
-function resolveDataDir() {
-  if (process.env.VOICE_DATA_DIR) return process.env.VOICE_DATA_DIR;
-  const marker = path.sep + '.copilot' + path.sep;
-  const i = __dirname.indexOf(marker);
-  const home = i >= 0 ? __dirname.slice(0, i + marker.length - 1) : path.join(os.homedir(), '.copilot');
-  return path.join(home, 'voice-chat-data');
-}
-const DATA_DIR = resolveDataDir();
+const DATA_DIR = shared.resolveDataDir();
 
 // ---- enforcement da tool `falar`: este turno chamou a tool de fala? ----------------------------
 // Passada ÚNICA para frente, parseando CADA linha como JSON e resetando o escopo a cada evento cujo
@@ -67,12 +58,11 @@ const SPEAK_REASON = 'Você respondeu sem produzir áudio para o usuário (a men
 // atualiza a cada 5s. Aqui checamos: PID vivo? (fato do SO) E heartbeat fresco? Se o PID está
 // MORTO (ou o ts velho = fork travado / PID reusado), o canvas caiu -> avisamos o agente a rodar
 // extensions_reload. Ausência do arquivo = voz nunca aberta nesta sessão -> não avisa (zero nag).
-const FORKS_DIR = path.join(DATA_DIR, 'forks');
 const HEARTBEAT_STALE_MS = 90000;   // fork atualiza a cada 5s; 90s tolera GC/stall/wake de sleep sem falso "caído"
 const ADVISOR_MAX = 5;              // teto absoluto de avisos de reload por sessão (backstop anti-loop patológico)
 function readForkHeartbeat(sid) {
   try {
-    const hb = JSON.parse(fs.readFileSync(path.join(FORKS_DIR, String(sid || 'nosid').replace(/[^A-Za-z0-9._-]/g, '_') + '.json'), 'utf8'));
+    const hb = JSON.parse(fs.readFileSync(shared.forkHeartbeatFile(DATA_DIR, sid), 'utf8'));
     if (hb && typeof hb.pid === 'number' && hb.pid > 0 && Number(hb.ts) > 0) return { pid: hb.pid, ts: Number(hb.ts) };
   } catch { /* ausente/corrompido = voz nunca aberta aqui -> não avisa */ }
   return null;
@@ -99,7 +89,7 @@ const CANVAS_RELOAD_REASON = 'O canvas de voz desta sessão caiu: o processo do 
 // que chamou `falar` (ou o próprio cap) ZERA o contador.
 const MAX_BLOCKS = 3;
 function stateFile(sid) {
-  return path.join(DATA_DIR, 'hook-state-' + String(sid || 'nosid').replace(/[^A-Za-z0-9._-]/g, '_') + '.json');
+  return shared.hookStateFile(DATA_DIR, sid);
 }
 function readState(sid) { try { return JSON.parse(fs.readFileSync(stateFile(sid), 'utf8')) || {}; } catch { return {}; } }
 function writeState(sid, st) {
