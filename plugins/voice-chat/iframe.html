@@ -337,10 +337,6 @@
       <label class="switch"><input id="setFull" type="checkbox" /><span></span></label>
     </div>
     <div class="row">
-      <div><label>Falar todas as respostas</label><div class="sub">inclusive as que você digitar</div></div>
-      <label class="switch"><input id="setSpeakAll" type="checkbox" /><span></span></label>
-    </div>
-    <div class="row">
       <div><label>Confirmar antes de enviar</label><div class="sub">revise a transcrição da voz</div></div>
       <label class="switch"><input id="setConfirm" type="checkbox" /><span></span></label>
     </div>
@@ -938,7 +934,6 @@ function pushSettings() {
     rate: parseInt($("setRate").value, 10),
     language: $("setLang").value,
     fullRead: $("setFull").checked,
-    speakAll: $("setSpeakAll").checked,
     confirmTranscript: $("setConfirm").checked,
     authorSummary: $("setAuthor").checked,
     cueStart: $("setCueStart").checked,
@@ -956,7 +951,7 @@ function pushSettings() {
   reflectToggles();
   post("/settings", s);
 }
-["setVoice","setRate","setLang","setFull","setSpeakAll","setConfirm","setAuthor","setCueStart","setCueCheckpoints","setHandsfree","setWake","setWakePhrase"]
+["setVoice","setRate","setLang","setFull","setConfirm","setAuthor","setCueStart","setCueCheckpoints","setHandsfree","setWake","setWakePhrase"]
   .forEach((id) => $(id).addEventListener("change", pushSettings));
 
 (function initVolume() {
@@ -986,7 +981,6 @@ function applySettings(s) {
   if (typeof s.rate === "number") $("setRate").value = s.rate;
   if (s.language) $("setLang").value = s.language;
   $("setFull").checked = !!s.fullRead;
-  $("setSpeakAll").checked = !!s.speakAll;
   $("setConfirm").checked = !!s.confirmTranscript;
   $("setAuthor").checked = s.authorSummary !== false;
   $("setCueStart").checked = s.cueStart !== false;

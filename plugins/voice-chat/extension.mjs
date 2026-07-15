@@ -41,7 +41,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.5.16";
+const CURRENT_VERSION = "1.5.17";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -130,7 +130,6 @@ const DEFAULT_SETTINGS = {
     rate: 0,
     language: "pt",
     fullRead: false,
-    speakAll: false,
     ttsVoice: "",
     ttsSid: 0,
     authorSummary: true,
@@ -145,17 +144,9 @@ const DEFAULT_SETTINGS = {
 let settings = { ...DEFAULT_SETTINGS };
 
 const VOICE_SENTINEL = "🔊";
-const VOICE_SUMMARY_INSTRUCTION =
-    "A mensagem anterior do usuário foi capturada por VOZ e a sua resposta será lida em voz alta. " +
-    "Responda normalmente no chat e, ao FINAL da resposta, acrescente uma última linha começando " +
-    'exatamente com "🔊 " seguida de um RESUMO FALADO autoexplicativo da sua própria resposta: ' +
-    "de 1 a 3 frases curtas, em português do Brasil, naturais e completas (sem cortar no meio), " +
-    "sem markdown, sem listas, sem código e sem outros emojis. Essa linha 🔊 é exatamente o que " +
-    "será falado, então escreva-a para ser ouvida com clareza, resumindo o essencial da resposta.";
 
-// Modelo por TOOL (v1.5.16+): em vez de coletar o texto no fim do turno, o agente usa a tool `falar`
-// para produzir áudio QUANDO quiser (inclusive antes de uma pergunta, várias vezes por turno). O
-// Stop hook exige >=1 chamada de `falar` por turno.
+// Modelo por TOOL (v1.5.16+): o agente usa a tool `falar` para produzir áudio QUANDO quiser (inclusive
+// antes de uma pergunta, várias vezes por turno). O Stop hook exige >=1 chamada de `falar` por turno.
 const VOICE_TOOL_INSTRUCTION =
     "A mensagem anterior do usuário foi capturada por VOZ. Para tudo que o usuário deve OUVIR, use a " +
     "ferramenta (tool) `falar`, passando um texto natural em português do Brasil (1 a 3 frases curtas, " +
@@ -317,15 +308,6 @@ function sessionTurnPending(sid) {
 function hasPendingTurn() {
     return pendingVoiceTurn || sessionTurnPending(mySid());
 }
-// A 🔊 authored summary is an explicit "speak this aloud" marker. Honor it even
-// when no voice turn was started (i.e. a TEXT turn), so an open panel still gets
-// the spoken summary. Delivery still respects the per-session audio queue: it
-// plays now if the session is active, otherwise it queues until the user returns.
-function replyWantsSpeech(content) {
-    return settings.authorSummary !== false
-        && typeof content === "string"
-        && content.includes(VOICE_SENTINEL);
-}
 function alreadySpoke(sid, text) {
     const key = String(sid || "");
     const prev = recentSpoken.get(key);
@@ -376,7 +358,6 @@ function sanitizeSettings(b) {
     if (typeof b.rate === "number" && b.rate >= -10 && b.rate <= 10) out.rate = Math.round(b.rate);
     if (typeof b.language === "string" && /^[a-z]{2}$|^auto$/.test(b.language)) out.language = b.language;
     if (typeof b.fullRead === "boolean") out.fullRead = b.fullRead;
-    if (typeof b.speakAll === "boolean") out.speakAll = b.speakAll;
     if (typeof b.authorSummary === "boolean") out.authorSummary = b.authorSummary;
     if (typeof b.confirmTranscript === "boolean") out.confirmTranscript = b.confirmTranscript;
     if (typeof b.cueStart === "boolean") out.cueStart = b.cueStart;
@@ -1424,12 +1405,12 @@ async function handleVoiceTranscript(text) {
 function onAssistantMessage(event) {
     if (event?.agentId) return; // só as mensagens do agente raiz são faladas
     const content = event?.data?.content;
-    // Speak when there's a pending voice turn OR an explicit 🔊 summary (text turns),
-    // OR global speakAll on the primary.
-    const pending = hasPendingTurn();   // avalia 1x (evita 2º readTurns só p/ o log abaixo)
-    if (!pending && !replyWantsSpeech(content) && !(primaryFork && settings.speakAll)) return;
+    // Processa APENAS turnos de VOZ pendentes (o usuário falou). O áudio da resposta é produzido pela
+    // tool `falar` (o agente a chama); aqui só cuidamos dos cues de checkpoint + limpeza do turno.
+    const pending = hasPendingTurn();
+    if (!pending) return;
     _phase = "reply:msg";
-    dbg(`onAssistantMessage: len=${typeof content === "string" ? content.length : 0} pending=${pending} sentinel=${typeof content === "string" && content.includes(VOICE_SENTINEL)}`);
+    dbg(`onAssistantMessage: len=${typeof content === "string" ? content.length : 0} pending=${pending}`);
     armIdleFallback();
     if (typeof content === "string" && content.trim()) {
         latestReply = content;
@@ -1450,9 +1431,9 @@ function maybeSpeakCheckpoints(content) {
 }
 
 function onIdle(event) {
-    if (!hasPendingTurn() && !replyWantsSpeech(latestReply) && !(primaryFork && settings.speakAll)) return; 
+    if (!hasPendingTurn()) return;
     _phase = "idle-event";
-    dbg(`onIdle: agentId=${event?.agentId ?? "(root)"} pendingVoiceTurn=${pendingVoiceTurn} speakAll=${settings.speakAll}`);
+    dbg(`onIdle: agentId=${event?.agentId ?? "(root)"} pendingVoiceTurn=${pendingVoiceTurn}`);
     if (event?.agentId) return;
     flushSpeech();
 }
@@ -1464,11 +1445,6 @@ function armIdleFallback() {
 
 function onIdleFallbackFired() {
     idleFallback = null;
-    if (hasPendingTurn() && settings.authorSummary && latestReply && !latestReply.includes(VOICE_SENTINEL)) {
-        dbg("idleFallback: no 🔊 sentinel yet — re-arming instead of speaking partial reply");
-        armIdleFallback();
-        return;
-    }
     dbg("idleFallback: firing flushSpeech (session.idle never arrived)");
     flushSpeech();
 }
@@ -1480,9 +1456,9 @@ async function flushSpeech() {
         idleFallback = null;
     }
     const content = latestReply;
-    dbg(`flushSpeech: hasContent=${!!content} pendingVoiceTurn=${pendingVoiceTurn} speakAll=${settings.speakAll} sameAsLast=${content === lastSpokenContent}`);
+    dbg(`flushSpeech: hasContent=${!!content} pendingVoiceTurn=${pendingVoiceTurn} sameAsLast=${content === lastSpokenContent}`);
     if (!content) return;
-    if (!hasPendingTurn() && !replyWantsSpeech(content) && !settings.speakAll) return;
+    if (!hasPendingTurn()) return;
     if (content === lastSpokenContent) {
         pendingVoiceTurn = false;
         clearVoiceState();
