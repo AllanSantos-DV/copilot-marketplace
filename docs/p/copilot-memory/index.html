@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">copilot-memory</h1>
-        <span class="chip" title="versão publicada">v1.6.0</span>
+        <span class="chip" title="versão publicada">v1.7.0</span>
       </div>
       <p class="doc-hero__lede">O <strong>copilot-memory</strong> dá ao agente uma memória que dura além da sessão, <strong>escopada por projeto</strong>. Ele injeta o contexto certo no começo de cada conversa (decisões, convenções, pendências), deixa você buscar e salvar conhecimento, e <strong>destila</strong> o que deu certo em skills reusáveis. É um <strong>cliente puro</strong> do servidor de memória <code>native-java</code>: descobre o daemon, reusa se estiver no ar e, se não estiver, <strong>baixa e sobe o servidor</strong> — verificando a assinatura antes de rodar. Toda a memória fica na sua máquina.</p>
       <div class="doc-hero__cta">
@@ -111,7 +111,7 @@
         <section class="doc-section" id="destilador">
           <h2 class="doc-h2"><a class="doc-anchor" href="#destilador" aria-label="Link para O destilador de aprendizado (curadoria por agente)">#</a>O destilador de aprendizado (curadoria por agente)</h2>
           <p>O destilador fecha o ciclo: a experiência da sessão vira conhecimento reusável. Quem faz isso é um <strong>agente curador</strong> — um modelo que <strong>lê a conversa</strong> e entende o que aconteceu, não um filtro de palavras-chave. Roda sozinho, em <strong>background</strong>, quando a sessão abre.</p>
-          <ul class="doc-list"><li><strong>Lê a conversa, não a máquina.</strong> A fonte são os <strong>checkpoints</strong> do Copilot (que já são um resumo curado da sessão) e os <strong>turnos vivos</strong>, limpos para conter só o que você disse e o que o assistente respondeu — sem ruído de ferramentas e hooks.</li><li><strong>Semântico, não regex.</strong> O curador entende ironia, uma reclamação, um elogio, uma instrução repetida. É assim que ele sabe se algo deu certo ou errado — coisas que uma busca por palavra mágica nunca pegaria.</li><li><strong>Dois tipos de lição.</strong> Técnicas (uma API que se comporta diferente, um passo que resolveu o problema) E <strong>comportamentais</strong>: anti-padrões do próprio assistente que você criticou, para ele não repetir.</li><li><strong>Incremental e sem retrabalho.</strong> Cada checkpoint e bloco de turnos é marcado por id ao ser curado, então o background nunca refaz o que já processou.</li><li><strong>Errou? Sai do recall.</strong> <code>memory_invalidate_skill</code> tira uma lição errada do recall preservando o histórico (auditável, reversível).</li></ul>
+          <ul class="doc-list"><li><strong>Lê a conversa, não a máquina.</strong> A fonte são os <strong>checkpoints</strong> do Copilot (que já são um resumo curado da sessão) e os <strong>turnos vivos</strong>, limpos para conter só o que você disse e o que o assistente respondeu — sem ruído de ferramentas e hooks.</li><li><strong>Semântico, não regex.</strong> O curador entende ironia, uma reclamação, um elogio, uma instrução repetida. É assim que ele sabe se algo deu certo ou errado — coisas que uma busca por palavra mágica nunca pegaria.</li><li><strong>Dois tipos de lição.</strong> Técnicas (uma API que se comporta diferente, um passo que resolveu o problema) E <strong>comportamentais</strong>: anti-padrões do próprio assistente que você criticou, para ele não repetir.</li><li><strong>Não duplica, reconcilia.</strong> Cada lição vira uma busca semântica na memória (do projeto e global) e uma decisão: criar nova, <strong>atualizar</strong> uma existente (corrigindo contradições em vez de duplicar), <strong>evoluir para global</strong> (quando serve a qualquer projeto) ou ignorar se já existe.</li><li><strong>Incremental e sem retrabalho.</strong> Cada checkpoint e bloco de turnos é marcado por id ao ser curado, então o background nunca refaz o que já processou.</li><li><strong>Errou? Sai do recall.</strong> <code>memory_invalidate_skill</code> tira uma lição errada do recall preservando o histórico (auditável, reversível).</li></ul>
           <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Skills de projeto entram no recall automaticamente — o curador é o filtro de qualidade. Sua revisão fica reservada ao que sobe para o escopo global (que afeta todos os projetos). Segredos são redigidos antes de qualquer curadoria.</p></aside>
         </section>
 
@@ -172,7 +172,7 @@
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
               <span class="tree__role">Entrypoint: 15 tools + painel (canvas) + 2 hooks (recall, memória, skills, destilador, setup, init, dashboard, migração).</span>
-              <span class="tree__size">48 KB</span>
+              <span class="tree__size">47 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">hooks.json</code>
@@ -187,7 +187,7 @@
             <li class="tree__row">
               <code class="tree__name">README.md</code>
               <span class="tree__role">Documentação vinda do repositório de origem.</span>
-              <span class="tree__size">12 KB</span>
+              <span class="tree__size">13 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/checkpoints.mjs</code>
@@ -217,7 +217,7 @@
             <li class="tree__row">
               <code class="tree__name">lib/curator.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">6.9 KB</span>
+              <span class="tree__size">10 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/curatorWorker.mjs</code>
@@ -283,6 +283,11 @@
               <code class="tree__name">lib/skill.mjs</code>
               <span class="tree__role"></span>
               <span class="tree__size">4.5 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/skillCreator.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">5.9 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/skillGuide.mjs</code>
@@ -357,7 +362,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.6.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.7.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
