@@ -117,7 +117,17 @@ export async function curateBlock(blockText, { workingDirectory, model, timeoutM
     const prompt = `${CURATOR_INSTRUCTION}\n\n=== CONVERSA (${sourceLabel || "bloco"}) ===\n${blockText}`;
     const { text, error } = await runAgent(prompt, { workingDirectory, model, timeoutMs });
     if (error) return { skills: [], error };
-    return { skills: parseSkillsJson(text) };
+    const skills = parseSkillsJson(text);
+    // Defense-in-depth (Issue truncamento): se veio um array aberto ('[') mas NADA foi parseado, a
+    // resposta provavelmente foi cortada. Trata como ERRO (não marca progresso) em vez de "0 skills".
+    if (!skills.length) {
+        const t = String(text || "");
+        const open = t.lastIndexOf("[");
+        if (open >= 0 && t.indexOf("]", open) < 0) {
+            return { skills: [], error: "resposta do curador parece truncada (array não fechado)" };
+        }
+    }
+    return { skills };
 }
 
 // Extrai o primeiro objeto JSON da resposta (a decisão do reconciliador).

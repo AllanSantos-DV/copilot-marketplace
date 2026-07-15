@@ -14,7 +14,31 @@ import { redact } from "./redact.mjs";
 //  - persistSkill: async (skill, meta) => any  (valida/dedup/salva; skill = {kind,name,description,body})
 //  - curator:      async (text, opts) => { skills, error? }  (default: curateBlock)
 // Retorna um summary { checkpoints, liveBlocks, skills, errors }.
+//
+// Serializa por sessionId: o background (onSessionStart) e a tool memory_distill chamam runCuration no
+// MESMO processo/sessão; sem serialização, um curaria o mesmo checkpoint/bloco que o outro está a
+// curar (check-then-act em volta do await do LLM) → dupla curadoria + duplicata. Um mutex in-process
+// por sessionId (fila de Promises) garante que só uma curadoria corre por vez para a sessão.
+const sessionLocks = new Map();
+
 export async function runCuration(deps = {}) {
+    const sid = deps && deps.sessionId;
+    if (!sid) return await runCurationInner(deps);
+    const prev = sessionLocks.get(sid) || Promise.resolve();
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const chained = prev.then(() => gate);
+    sessionLocks.set(sid, chained);
+    try {
+        await prev;                       // espera a curadoria anterior desta sessão terminar
+        return await runCurationInner(deps);
+    } finally {
+        release();
+        if (sessionLocks.get(sid) === chained) sessionLocks.delete(sid);
+    }
+}
+
+async function runCurationInner(deps = {}) {
     const {
         sessionId,
         workingDirectory,
@@ -70,7 +94,9 @@ export async function runCuration(deps = {}) {
     let startIdx = 0;
     if (lastId) {
         const i = turns.findIndex((t) => t.id === lastId);
-        if (i >= 0) startIdx = i + 1;
+        // Achou → retoma após ele. NÃO achou (o marcador saiu do tail por compactação) → NO-OP:
+        // assume que tudo até o tail atual já foi curado, em vez de recurar do zero (custo + duplicata).
+        startIdx = i >= 0 ? i + 1 : turns.length;
     }
     const fresh = turns.slice(startIdx);
     // Deixa turnos muito recentes "descansarem"? Não — curamos tudo o que fechou um bloco cheio; um

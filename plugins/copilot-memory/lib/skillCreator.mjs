@@ -52,21 +52,24 @@ export async function createOrUpdateSkill(lesson, { client, projectId, sessionId
     const strong = cands.filter((c) => c.score >= strongScore);
 
     let decision;
+    let known = [];
     if (!strong.length) {
         decision = { action: "create", ...lesson };  // nada parecido → nova
     } else if (typeof reconcile === "function") {
-        const enriched = await enrich(client, strong);
-        decision = await reconcile(lesson, enriched);
+        known = await enrich(client, strong);
+        decision = await reconcile(lesson, known);
         if (!decision || !decision.action) decision = { action: "create", ...lesson }; // fallback conservador
     } else {
-        // sem reconciliador: se há forte no projeto, não duplica (skip); senão cria.
+        known = await enrich(client, strong);
         decision = strong.some((c) => c.scope === "project") ? { action: "skip", reason: "similar já existe" } : { action: "create", ...lesson };
     }
 
-    return await apply(client, projectId, sessionId, lesson, decision);
+    return await apply(client, projectId, sessionId, lesson, decision, known);
 }
 
-async function apply(client, projectId, sessionId, lesson, decision) {
+const AUTO_SOURCES = new Set(["copilot-curator", "copilot-autoskill", "copilot"]);
+
+async function apply(client, projectId, sessionId, lesson, decision, known = []) {
     const name = decision.name || lesson.name;
     const description = decision.description || lesson.description;
     const body = decision.body || lesson.body;
@@ -81,17 +84,41 @@ async function apply(client, projectId, sessionId, lesson, decision) {
         return m;
     };
 
+    const doCreate = async () => {
+        const saved = await client.save(content, baseMeta({ type: TYPE_ACTIVE, project_id: projectId }));
+        return { action: "create", id: saved && saved.id, name };
+    };
+
     if (decision.action === "skip") return { action: "skip", reason: decision.reason || "sem ação", name };
 
-    if (decision.action === "update" && decision.targetId) {
-        // Atualiza o CONTEÚDO da skill existente do projeto (PUT re-embeda). Mantém escopo de projeto.
+    // Guarda para ações que MUTAM um alvo: o targetId tem de estar entre os candidatos apresentados,
+    // e o alvo não pode ser conteúdo HUMANO (auto-capture nunca sobrescreve humano — invariante skill.mjs).
+    const needsTarget = (decision.action === "update") || (decision.action === "promote_global" && decision.targetId);
+    if (needsTarget) {
+        const cand = known.find((c) => c.id === decision.targetId);
+        if (!decision.targetId || !cand) {
+            // update/promote sem alvo válido, mas HÁ vizinho forte → NÃO cria duplicata: pula.
+            return { action: "skip", reason: "targetId ausente/desconhecido; evitando duplicata", name };
+        }
+        let target;
+        try { target = await client.getDocument(decision.targetId); } catch { target = null; }
+        const src = target && target.metadata ? target.metadata.source : null;
+        if (src && !AUTO_SOURCES.has(src)) {
+            return { action: "skip", reason: `alvo ${decision.targetId} é conteúdo humano (source=${src}); não sobrescrevo`, name };
+        }
+        // não REBAIXAR uma global para projeto num 'update'.
+        if (decision.action === "update" && cand.scope === "global") {
+            return { action: "skip", reason: "alvo é global; não rebaixo para projeto num update", name };
+        }
+    }
+
+    if (decision.action === "update") {
         await client.updateDocument(decision.targetId, content, baseMeta({ type: TYPE_ACTIVE, project_id: projectId }));
         return { action: "update", id: decision.targetId, name };
     }
 
     if (decision.action === "promote_global") {
         if (decision.targetId) {
-            // Evolui uma existente a global: novo conteúdo + type global; remove o project_id.
             await client.updateDocument(decision.targetId, content, baseMeta({ type: GLOBAL_TYPE }));
             try { await client.patchMetadata(decision.targetId, { type: GLOBAL_TYPE }, ["project_id"]); } catch { /* best-effort */ }
             return { action: "promote_global", id: decision.targetId, name };
@@ -100,7 +127,5 @@ async function apply(client, projectId, sessionId, lesson, decision) {
         return { action: "promote_global_new", id: saved && saved.id, name };
     }
 
-    // create (default): nova skill de projeto, auto-ativa.
-    const saved = await client.save(content, baseMeta({ type: TYPE_ACTIVE, project_id: projectId }));
-    return { action: "create", id: saved && saved.id, name };
+    return await doCreate();  // create (default): nova skill de projeto, auto-ativa.
 }

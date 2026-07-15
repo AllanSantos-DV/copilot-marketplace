@@ -2,7 +2,7 @@
 // SessionStart ser INCREMENTAL e IDEMPOTENTE: nunca recura um checkpoint/bloco já processado. É o
 // determinismo LEGÍTIMO (rastreamento de progresso por id), distinto da extração de conhecimento
 // (que é semântica, feita pelo curador LLM). Arquivo global keyed por sessionId.
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -23,7 +23,12 @@ function readAll() {
 function writeAll(obj) {
     try {
         mkdirSync(dir(), { recursive: true });
-        writeFileSync(file(), JSON.stringify(obj, null, 2), "utf8");
+        // Escrita ATÔMICA: grava num tmp e renomeia (rename é atômico no mesmo FS). Evita que um leitor
+        // concorrente (outro fork) veja um arquivo meio-escrito/corrompido. O last-writer-wins residual
+        // entre forks é tolerável — recurar é limitado e o skill-creator deduplica.
+        const tmp = file() + "." + process.pid + ".tmp";
+        writeFileSync(tmp, JSON.stringify(obj, null, 2), "utf8");
+        renameSync(tmp, file());
     } catch { /* best-effort */ }
 }
 
