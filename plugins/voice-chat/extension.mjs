@@ -1,7 +1,5 @@
 
 import { createServer, request as httpRequest, get as httpGet, Agent as HttpAgent } from "node:http";
-import { get as httpsGet } from "node:https";
-import tls from "node:tls";
 import { spawn, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -9,9 +7,34 @@ import { dirname, join, basename } from "node:path";
 import { readFile, writeFile, mkdir, readdir, stat, unlink } from "node:fs/promises";
 import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, appendFileSync, statSync, renameSync, copyFileSync, linkSync, readdirSync } from "node:fs";
 import { setPriority, constants as osConstants } from "node:os";
-import { randomBytes, createHash, createPublicKey, verify as edVerify } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
 import shared from "./voice-shared.cjs";
+import { dbg, mkdirp, readJson, writeJsonAtomic } from "./voice-core.mjs";
+import { buildPythonCandidates, savePythonPath } from "./voice-python.mjs";
+import { cleanForSpeech, makeSpoken } from "./voice-text.mjs";
+import {
+    verGt, shouldStepDownForNewer, sha256Hex, verifyManifestSig, updateVersionAcceptable,
+    fetchBuf, pickPluginVersion, releaseAssetBase, computeLogicSha, classifyStagedUpdate,
+    RUNNING_EXT_LOGIC_SHA, PLUGIN_NAME,
+} from "./voice-update.mjs";
+import {
+    sseClients, servers, forkVersions, forks, forkSeen,
+    spokenCheckpoints, pendingTts, recentSpoken,
+    audioHistoryBySid, audioSeqBySid, audioTurnBySid, audioDeliveredBySid, audioHeardBySid,
+    pendingTurnsBySid, drainingTurns, injectedTurnIds, injectedTurnOrder, injectingIds,
+    pendingTranscribe,
+    primaryFork, setPrimaryFork, activeSid, setActiveSid, myBaseUrl, setMyBaseUrl,
+    registered, setRegistered, sessionDead, setSessionDead, ownSid, setOwnSid,
+} from "./voice-state.mjs";
+import {
+    appendAudioItem, pushAudio, playOrQueueAudio, audioHistoryForHello, markPlayed,
+    readAudioStateMap, persistAudioState, restoreAudioHistory, reloadAudioStateFromDisk,
+} from "./voice-audio.mjs";
+import {
+    readPendingTurnsMap, persistPendingTurns, restorePendingTurns, enqueueTurn, pruneExpiredTurns,
+    drainTurnsToFork, drainAllPendingTurns, seenInjectedId, rememberInjectedId, injectTurn,
+} from "./voice-turns.mjs";
 
 const EXT_DIR = dirname(fileURLToPath(import.meta.url));
 const LEGACY_ARTIFACTS = join(EXT_DIR, "artifacts");
@@ -34,19 +57,18 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.5.18";
+const CURRENT_VERSION = "1.5.19";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
 // assets from the same repo. The source repo (copilot-voice) can stay private —
 // nothing is fetched from it, so no unauthenticated 404.
 const MARKETPLACE_MANIFEST_URL = process.env.VOICE_MARKETPLACE_MANIFEST || "https://raw.githubusercontent.com/AllanSantos-DV/copilot-marketplace/main/.github/plugin/marketplace.json";
-const PLUGIN_NAME = "voice-chat";
 const RUNNING_AS_PLUGIN = /[\\/]installed-plugins[\\/]/.test(EXT_DIR);
 const UPDATE_DISABLED = process.env.VOICE_UPDATE_DISABLED === "1" || RUNNING_AS_PLUGIN;
 const UPDATE_THROTTLE_MS = Number(process.env.VOICE_UPDATE_THROTTLE_MS) || 0;
 const UPDATE_STATE_FILE = join(ARTIFACTS, "update-state.json");
-const UPDATABLE_FILES = new Set(["extension.mjs", "voice-shared.cjs", "voice_worker.py", "vox_sdk.py", "vox_stream.py", "_ed25519_ref.py", "iframe.html", "requirements.txt", "hooks.json", "voice-summary-stop.cjs"]);
+const UPDATABLE_FILES = new Set(["extension.mjs", "voice-shared.cjs", "voice-core.mjs", "voice-python.mjs", "voice-update.mjs", "voice-text.mjs", "voice-state.mjs", "voice-audio.mjs", "voice-turns.mjs", "voice_worker.py", "vox_sdk.py", "vox_stream.py", "_ed25519_ref.py", "iframe.html", "requirements.txt", "hooks.json", "voice-summary-stop.cjs"]);
 
 // Python interpreters are discovered dynamically (see buildPythonCandidates).
 
@@ -54,11 +76,8 @@ const CONVERSE_ONSET_MS = Number(process.env.VOICE_CONVERSE_ONSET_MS) || 20000;
 
 let session; 
 
-const sseClients = new Map(); 
-const servers = new Map(); 
 let preferredPort = 0;
 let sharedToken = "";
-let primaryFork = false;
 const DEAD_PRIMARY_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EPIPE", "ENOTFOUND"]);
 let reclaiming = false;
 let lastReclaimAttempt = 0;
@@ -70,7 +89,6 @@ let handingOver = false;             // step-down de versão em andamento (throt
 let suppressReclaimUntil = 0;        // após ceder, NÃO reassumir a porta por um tempo (deixa a nova pegar; ANTI-FLAP)
 let secondaryTimersOn = false;       // timers de re-registro/probe (idempotente entre startServer e step-down)
 const HANDOVER_GRACE_MS = 8000;
-const forkVersions = new Map();      // sid -> versão anunciada no /register (diagnóstico + decisão de handover)
 // ANTI-FLAP GLOBAL: durante um handover, QUALQUER fork (inclusive um secundário velho bystander que
 // não cedeu) deve suspender o reclaim na janela — senão ele fisga a porta recém-liberada e vira um
 // primário VELHO espúrio. suppressReclaimUntil é por-fork; este arquivo compartilha a janela.
@@ -80,8 +98,6 @@ function handoverLockActive() {
     try { return Date.now() < (parseInt(readFileSync(HANDOVER_LOCK_FILE, "utf8"), 10) || 0); } catch { return false; }
 }
 
-const forks = new Map(); 
-const forkSeen = new Map();   // sid -> última vez que a fork se anunciou (para eviction de sids mortos)
 function setFork(sid, url) { forks.set(sid, url); forkSeen.set(sid, Date.now()); }
 const FORK_TTL_MS = 600000;   // 10min sem re-registro => sid morto (uma fork viva re-registra a cada 4s; uma morta/sessionDead para). NUNCA remove a própria (mySid).
 function pruneDeadSids() {
@@ -94,17 +110,11 @@ function pruneDeadSids() {
         if (now - (v && v.ts || 0) > FORK_TTL_MS) recentSpoken.delete(sid);
     }
 }
-let activeSid = null; 
-let ownSid = "";   // sid da PRÓPRIA sessão deste fork (p/ o heartbeat): mySid() pode vir vazio no load,
-                   // então capturamos do ctx.sessionId no open() do canvas (fonte confiável = esta sessão).
 let lastTtsPreviewSid = null;
 let turnOwnerSid = null; 
 let recordingActiveSid = null; 
 let recordingActiveTimer = null; 
 let monitorSid = null; 
-let myBaseUrl = null; 
-let registered = false; 
-let sessionDead = false;   // o handle joinSession desta fork morreu ("Session not found"/disconnected). Uma fork morta para de se registrar e reporta falha na entrega para o primary re-rotear a fala p/ uma fork VIVA (nunca perde o turno nem trava com unhandledRejection).
 function mySid() {
     return process.env.SESSION_ID || (session && session.sessionId) || "";
 }
@@ -136,8 +146,6 @@ const DEFAULT_SETTINGS = {
 };
 let settings = { ...DEFAULT_SETTINGS };
 
-const VOICE_SENTINEL = "🔊";
-
 // Modelo por TOOL (v1.5.16+): o agente usa a tool `falar` para produzir áudio QUANDO quiser (inclusive
 // antes de uma pergunta, várias vezes por turno). O Stop hook exige >=1 chamada de `falar` por turno.
 const VOICE_TOOL_INSTRUCTION =
@@ -148,7 +156,6 @@ const VOICE_TOOL_INSTRUCTION =
     "ANTES de fazer uma pergunta, para que o áudio saia na hora certa. Não escreva a linha 🔊 no chat; " +
     "quem fala é a tool `falar`.";
 
-const CHECKPOINT_SENTINEL = "📍";
 const CHECKPOINT_INSTRUCTION =
     "Se ESTE turno envolver uma tarefa LONGA ou COMPLEXA (montar uma feature inteira, um fluxo " +
     "completo, mudanças em vários arquivos, várias etapas), você PODE emitir checkpoints de progresso " +
@@ -183,46 +190,12 @@ let lastVoices = { voices: [], default: null };
 
 let pendingVoiceTurn = false;
 let voiceInstructionPending = false; 
-let spokenCheckpoints = new Set(); 
 let latestReply = "";
 let lastSpokenContent = "";
 let idleFallback = null;
 const IDLE_FALLBACK_MS = 15000; 
 let ttsSeq = 0;
-const pendingTts = new Map(); 
 let _phase = "boot"; 
-
-const MAX_LOG_BYTES = 10 * 1024 * 1024; 
-let _logStream = null;
-let _logDirReady = false;
-
-function _logWrite(line) {
-    try {
-        if (!_logStream) {
-            if (!_logDirReady) {
-                mkdirSync(ARTIFACTS, { recursive: true });
-                _logDirReady = true;
-            }
-            try {
-                if (existsSync(DEBUG_LOG) && statSync(DEBUG_LOG).size > MAX_LOG_BYTES) {
-                    renameSync(DEBUG_LOG, DEBUG_LOG + ".1"); 
-                }
-            } catch {
-            }
-            _logStream = createWriteStream(DEBUG_LOG, { flags: "a" });
-            _logStream.on("error", () => {
-                _logStream = null;
-            });
-        }
-        _logStream.write(line);
-    } catch {
-        _logStream = null;
-    }
-}
-
-function dbg(msg) {
-    _logWrite(`[${new Date().toISOString()}] ${msg}\n`);
-}
 
 function log(msg, level = "debug") {
     dbg(msg);
@@ -259,7 +232,6 @@ const VOICE_STATE_TTL = 600000;
 const VOICE_TURNS_FILE = join(ARTIFACTS, "voice-turns.json");
 const VOICE_TURN_TTL = 300000;
 const SPEAK_DEDUP_MS = 20000;
-const recentSpoken = new Map();
 
 let _turnsCache = null;
 let _turnsCacheAt = 0;
@@ -373,7 +345,7 @@ function broadcast(obj) {
     }
 }
 
-function broadcastTo(sid, obj) {
+export function broadcastTo(sid, obj) {
     if (!sid) { dbg("broadcastTo: empty sid, dropping event " + (obj && obj.type)); return; }
     const line = `data: ${JSON.stringify(obj)}\n\n`;
     for (const [res, csid] of sseClients) {
@@ -397,22 +369,6 @@ function startHeartbeat() {
     if (heartbeatTimer.unref) heartbeatTimer.unref();
 }
 
-function parseVer(v) {
-    return String(v || "0.0.0").split(".").map((n) => parseInt(n, 10) || 0);
-}
-function verGt(a, b) {
-    const A = parseVer(a), B = parseVer(b);
-    for (let i = 0; i < 3; i++) {
-        if ((A[i] || 0) > (B[i] || 0)) return true;
-        if ((A[i] || 0) < (B[i] || 0)) return false;
-    }
-    return false;
-}
-// O primário cede a uma fork ESTRITAMENTE mais nova (mesmo mecanismo do reclaim, agora
-// automático + consciente de versão). Versão vazia/igual/menor NÃO cede (evita flap/loop).
-function shouldStepDownForNewer(myVer, forkVer) {
-    return !!forkVer && verGt(String(forkVer), String(myVer));
-}
 function readUpdateState() {
     try {
         return JSON.parse(readFileSync(UPDATE_STATE_FILE, "utf8"));
@@ -427,245 +383,7 @@ function writeUpdateState(s) {
         dbg("writeUpdateState failed: " + (e && e.message));
     }
 }
-function sha256Hex(buf) {
-    return createHash("sha256").update(buf).digest("hex");
-}
-// Chave pública Ed25519 do projeto (pinada). O manifest.json de cada release é
-// ASSINADO com a chave PRIVADA (fora do repo; ver gen-manifest.mjs) e verificado
-// aqui antes de qualquer arquivo ser staged. Isso fecha o buraco de um proxy que
-// reassina o TLS (rede "SSL assinado" / CA hostil no trust store): sem a privada,
-// ninguém forja um manifesto — então nem os bytes nem os sha256 podem ser trocados
-// por conteúdo malicioso. Rotacionar a chave = nova release com esta constante nova.
-const UPDATE_PUBLIC_KEY_B64 = "/PHACLNF4lvlJuSGsa44VGbfu+IbwccWoIvoDUwZmOQ=";
-// Prefixo DER SPKI de uma chave Ed25519 (12 bytes) + os 32 bytes crus da pública.
-const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
-let _updPubKey = null;
-function updatePublicKey() {
-    if (_updPubKey) return _updPubKey;
-    const der = Buffer.concat([ED25519_SPKI_PREFIX, Buffer.from(UPDATE_PUBLIC_KEY_B64, "base64")]);
-    _updPubKey = createPublicKey({ key: der, format: "der", type: "spki" });
-    return _updPubKey;
-}
-// Campos do manifesto assinado com formato ESTRITO — assim a mensagem canônica é
-// INJETIVA (nenhum separador `:` ou `\n` pode aparecer DENTRO de um campo), e uma
-// assinatura nunca vale para dois (version, files) distintos:
-//   path:    basename simples [A-Za-z0-9._-] (casa os UPDATABLE_FILES; sem / \ : \n)
-//   sha256:  exatamente 64 hex minúsculos
-//   version: dígitos/letras/.+- (sem `\n`)
-const MANIFEST_PATH_RE = /^[A-Za-z0-9._-]+$/;
-const MANIFEST_SHA256_RE = /^[0-9a-f]{64}$/;
-const MANIFEST_VERSION_RE = /^[0-9A-Za-z.+-]+$/;
-function manifestFileValid(f) {
-    return !!f && typeof f === "object"
-        && typeof f.path === "string" && MANIFEST_PATH_RE.test(f.path)
-        && typeof f.sha256 === "string" && MANIFEST_SHA256_RE.test(f.sha256);
-}
-// Mensagem canônica assinada — IDÊNTICA à de gen-manifest.mjs: rótulo + versão +
-// "path:sha256" de cada arquivo, ordenado por path (determinístico nos dois lados).
-// Só produz bytes sem ambiguidade quando os campos passaram a validação estrita.
-function manifestSigMessage(version, files) {
-    const parts = (Array.isArray(files) ? files : [])
-        .slice()
-        .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
-        .map((f) => f.path + ":" + f.sha256);
-    return Buffer.from("voice-chat-manifest-v1\n" + (version || "") + "\n" + parts.join("\n"), "utf8");
-}
-// Verdadeiro só se o manifesto é Ed25519-assinado, a assinatura confere com a chave
-// pinada, a versão é bem-formada, E todo arquivo traz path seguro + sha256 hex de 64
-// (a assinatura cobre path E hash, sem ambiguidade de encoding). Nunca lança.
-function verifyManifestSig(manifest) {
-    try {
-        if (!manifest || manifest.sigAlg !== "ed25519" || typeof manifest.sig !== "string") return false;
-        if (typeof manifest.version !== "string" || !MANIFEST_VERSION_RE.test(manifest.version)) return false;
-        const files = Array.isArray(manifest.files) ? manifest.files : [];
-        if (!files.length || !files.every(manifestFileValid)) return false;
-        const msg = manifestSigMessage(manifest.version, files);
-        return edVerify(null, msg, updatePublicKey(), Buffer.from(manifest.sig, "base64"));
-    } catch (e) {
-        dbg("verifyManifestSig error: " + (e && e.message));
-        return false;
-    }
-}
-// Anti-rollback: a versão ASSINADA precisa ser exatamente a anunciada no marketplace
-// E estritamente maior que a instalada. Sem isto, um MITM anuncia uma versão alta (o
-// marketplace.json NÃO é assinado) e devolve um manifesto ANTIGO genuinamente
-// assinado → downgrade forçado para uma release vulnerável. `verGt` já é estrito.
-function updateVersionAcceptable(signedVer, announcedVer, currentVer) {
-    return typeof signedVer === "string" && signedVer.length > 0
-        && signedVer === announcedVer && verGt(signedVer, currentVer);
-}
-let _caBundle = null;
-function caBundle() {
-    if (_caBundle) return _caBundle;
-    let sys = [];
-    try { sys = tls.getCACertificates("system") || []; } catch { sys = []; }
-    _caBundle = [...(tls.rootCertificates || []), ...sys];
-    return _caBundle;
-}
-// Teto de tamanho para downloads do updater (nativo E curl): uma rede hostil não
-// pode streamar um corpo infinito e derrubar por OOM o event loop single-thread.
-const MAX_FETCH_BYTES = 64 * 1024 * 1024;
-function fetchViaNode(url, redirects = 0) {
-    return new Promise((resolve, reject) => {
-        const getter = new URL(url).protocol === "http:" ? httpGet : httpsGet;
-        const req = getter(url, { headers: { "User-Agent": "voice-chat-updater", Accept: "*/*" }, ca: caBundle() }, (res) => {
-            const sc = res.statusCode || 0;
-            if (sc >= 300 && sc < 400 && res.headers.location && redirects < 5) {
-                const next = new URL(res.headers.location, url);
-                res.resume();
-                // Nunca segue um downgrade https -> http (evita rebaixar a segurança
-                // do canal via redirect forjado).
-                if (new URL(url).protocol === "https:" && next.protocol !== "https:") {
-                    reject(new Error("redirect inseguro (https->" + next.protocol + ")"));
-                    return;
-                }
-                resolve(fetchViaNode(next.toString(), redirects + 1));
-                return;
-            }
-            if (sc !== 200) {
-                res.resume();
-                const err = new Error("HTTP " + sc);
-                err.httpStatus = sc;   // já houve resposta HTTP: curl não ajudaria
-                reject(err);
-                return;
-            }
-            const chunks = [];
-            let len = 0;
-            // Teto de tamanho (mesmo do fetchViaCurl): uma rede hostil não pode streamar
-            // um corpo infinito e derrubar por OOM o event loop single-thread da extensão.
-            res.on("data", (c) => {
-                len += c.length;
-                if (len > MAX_FETCH_BYTES) {
-                    res.destroy();
-                    reject(new Error("resposta excedeu o limite de tamanho"));
-                    return;
-                }
-                chunks.push(c);
-            });
-            res.on("end", () => resolve(Buffer.concat(chunks)));
-            res.on("error", reject);
-        });
-        req.on("error", reject);
-        req.setTimeout(15000, () => req.destroy(new Error("timeout")));
-    });
-}
-// Fallback para redes que reassinam o HTTPS com uma CA própria ("SSL assinado" /
-// TLS interception corporativo): o CA bundle do Node não conhece essa CA, então o
-// fetch nativo falha na verificação. O curl.exe do System32 usa o Schannel (o stack
-// TLS do Windows), que confia no MESMO trust store da máquina onde a CA corporativa
-// está instalada — e respeita HTTP(S)_PROXY. Só Windows; sem dep nova. Caminho
-// ABSOLUTO de System32 de propósito: garante o curl Schannel (não um curl OpenSSL
-// que estiver no PATH, ex.: git/msys). Retorna Buffer (o sha256 do update é checado
-// depois, então o conteúdo continua verificado).
-function fetchViaCurl(url) {
-    if (process.platform !== "win32") return Promise.resolve(null);
-    const curl = join(process.env.SystemRoot || "C:\\Windows", "System32", "curl.exe");
-    if (!existsSync(curl)) return Promise.resolve(null);
-    return new Promise((resolve, reject) => {
-        // spawn ASSÍNCRONO (não spawnSync): baixar por curl NÃO pode congelar o
-        // event loop single-thread da extensão (áudio/turnos ficariam parados). Teto
-        // de 64MB na resposta + timeout backstop de 35s (além do --max-time do curl).
-        const child = spawn(curl, [
-            "--fail", "--location", "--silent", "--show-error",
-            "--proto-redir", "=https", "--max-redirs", "5",
-            "--max-time", "30", "-A", "voice-chat-updater", "--", url,
-        ], { windowsHide: true });
-        const out = [], err = [];
-        let outLen = 0, done = false;
-        const MAX = MAX_FETCH_BYTES;
-        const to = setTimeout(() => end(reject, new Error("curl: timeout")), 35000);
-        function end(fn, arg) {
-            if (done) return;
-            done = true;
-            clearTimeout(to);
-            try { child.kill(); } catch { /* já saiu */ }
-            fn(arg);
-        }
-        child.on("error", (e) => end(reject, new Error("curl: " + e.message)));
-        child.stdout.on("data", (c) => {
-            outLen += c.length;
-            if (outLen > MAX) return end(reject, new Error("curl: resposta excedeu 64MB"));
-            out.push(c);
-        });
-        child.stderr.on("data", (c) => err.push(c));
-        child.on("close", (code) => {
-            if (done) return;
-            done = true;
-            clearTimeout(to);
-            if (code !== 0) {
-                reject(new Error("curl: " + (Buffer.concat(err).toString().trim() || ("exit " + code))));
-                return;
-            }
-            resolve(Buffer.concat(out));
-        });
-    });
-}
-async function fetchBuf(url) {
-    try {
-        return await fetchViaNode(url);
-    } catch (e) {
-        // Só cai no curl em falha de REDE/TLS (o caso das redes que reassinam o
-        // HTTPS). Se já houve resposta HTTP (4xx/5xx) ou um redirect inseguro, o
-        // curl não ajudaria — propaga o erro original.
-        if (e && (e.httpStatus || /redirect inseguro/.test(e.message || ""))) throw e;
-        let buf = null;
-        try {
-            buf = await fetchViaCurl(url);
-        } catch (ce) {
-            throw new Error("download falhou (node: " + (e && e.message || e) + "; curl: " + (ce && ce.message || ce) + ")");
-        }
-        if (buf == null) throw e;   // sem curl (não-Windows / ausente): erro original
-        dbg("update: fetch nativo falhou (" + (e && e.message) + "); usei curl.exe do Windows (Schannel/trust store)");
-        return buf;
-    }
-}
-function pickPluginVersion(mp, name) {
-    const arr = mp && Array.isArray(mp.plugins) ? mp.plugins : [];
-    const p = arr.find((x) => x && x.name === name);
-    return p && typeof p.version === "string" ? p.version : "";
-}
-function releaseAssetBase(version) {
-    if (process.env.VOICE_UPDATE_BASE) return process.env.VOICE_UPDATE_BASE.replace(/\/?$/, "/");
-    return `https://github.com/AllanSantos-DV/copilot-marketplace/releases/download/${PLUGIN_NAME}-v${version}/`;
-}
-
-// --- Auto-aplicar update (worker/UI a quente; app-restart só se a LÓGICA do extension.mjs mudou) ---
-// Arquivos que o worker (processo filho) carrega: um restart do worker os aplica a quente.
-const WORKER_UPDATE_FILES = new Set(["voice_worker.py", "vox_sdk.py", "vox_stream.py", "_ed25519_ref.py", "requirements.txt"]);
-// A versão é sincronizada dentro do extension.mjs a cada release (gen-manifest), então o FILE
-// muda todo release. Para decidir se a LÓGICA mudou (e o app precisa reimportar o módulo),
-// hasheamos ignorando a linha da versão: release que só troca versão (ou só mexe em worker/UI)
-// NÃO conta como mudança de extension.mjs e é aplicado a quente.
-function extLogicNormalize(src) {
-    // Máscara da VERSÃO para o hash "de lógica". Robusto por design (gate):
-    //  - normaliza EOL (CRLF->LF) p/ ser insensível a fim de linha entre releases;
-    //  - âncora no INÍCIO da linha (flag m) p/ NUNCA casar a linha-isca 'const CURRENT_VERSION="0";'
-    //    daqui de dentro nem uma ocorrência em comentário; tolera espaçamento variável.
-    return String(src)
-        .replace(/\r\n/g, "\n")
-        .replace(/^const\s+CURRENT_VERSION\s*=\s*"[^"]*"\s*;/m, 'const CURRENT_VERSION="0";');
-}
-// Arquivos de LÓGICA da extensão (ESM/cross-process) cuja mudança exige RE-IMPORT -> app-restart. NÃO
-// inclui worker/SDK (hot via restart do worker), o hook (roda fresco a cada agentStop) nem a UI. O hash
-// de lógica cobre TODOS eles (concatenados, versão mascarada): senão um update que só mexe num módulo
-// de lógica não dispararia o app-restart e a extensão seguiria com o código antigo em memória.
-const LOGIC_FILES = ["extension.mjs", "voice-shared.cjs"];
-function computeLogicSha(getSrc) {
-    let acc = "";
-    for (const rel of LOGIC_FILES) acc += rel + "\0" + extLogicNormalize(getSrc(rel)) + "\0";
-    return sha256Hex(Buffer.from(acc, "utf8"));
-}
-const RUNNING_EXT_LOGIC_SHA = (() => {
-    try { return computeLogicSha((rel) => readFileSync(join(EXT_DIR, rel), "utf8")); } catch { return ""; }
-})();
-// Decisão PURA: dado o que mudou no stage, o que aplicar. needsAppRestart só quando a LÓGICA do
-// extension.mjs mudou (o bundle é co-versionado -> aplica tudo junto num restart do app, atômico).
-function classifyStagedUpdate(changedRels, extLogicChanged) {
-    const set = new Set(changedRels || []);
-    let workerChanged = false;
-    for (const f of WORKER_UPDATE_FILES) if (set.has(f)) { workerChanged = true; break; }
-    return { workerChanged, uiChanged: set.has("iframe.html"), needsAppRestart: !!extLogicChanged };
-}
+// --- Auto-update DA EXTENSÃO: funções puras em voice-update.mjs (versão/assinatura/fetch/logic-hash).
 // Versão EFETIVA instalada: o maior entre a baked (extension.mjs em memória) e a aplicada a quente.
 function effectiveVersion(state) {
     const applied = state && state.appliedVersion;
@@ -788,100 +506,7 @@ async function checkForUpdate(opts = {}) {
 // paths from the py launcher (registry-based, PATH-independent) + common install
 // dirs, falling back to bare PATH names only as a last resort. The interpreter
 // that reaches "ready" is cached so later starts no longer depend on PATH.
-const PYTHON_CACHE_FILE = join(ARTIFACTS, "python-path.json");
-function readPythonCache() {
-    try {
-        const p = JSON.parse(readFileSync(PYTHON_CACHE_FILE, "utf8"));
-        const path = p && typeof p.path === "string" ? p.path : "";
-        if (!path) return "";
-        if (/[\\/]/.test(path) && !existsSync(path)) return ""; // cached interpreter was removed
-        return path;
-    } catch { return ""; }
-}
-function savePythonPath(p) {
-    try { if (p && /[\\/]/.test(p)) writeFileSync(PYTHON_CACHE_FILE, JSON.stringify({ path: p })); } catch { }
-}
-function whichPython(name) {
-    try {
-        const whereExe = join(process.env.SystemRoot || "C:\\Windows", "System32", "where.exe");
-        const bin = existsSync(whereExe) ? whereExe : "where";
-        const r = spawnSync(bin, [name], { encoding: "utf8", windowsHide: true });
-        if (r && r.status === 0 && r.stdout) {
-            return r.stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
-        }
-    } catch { }
-    return [];
-}
-function pyLauncherPaths() {
-    // The py launcher lives at a fixed path and lists interpreters from the
-    // registry (PEP 514) — it works even when PATH has no Python at all.
-    try {
-        const pyExe = join(process.env.SystemRoot || "C:\\Windows", "py.exe");
-        const bin = existsSync(pyExe) ? pyExe : "py";
-        const r = spawnSync(bin, ["-0p"], { encoding: "utf8", windowsHide: true });
-        if (r && r.status === 0 && r.stdout) {
-            const out = [];
-            for (const line of r.stdout.split(/\r?\n/)) {
-                const m = line.match(/([A-Za-z]:\\[^\r\n*]*python\.exe)\s*$/i);
-                if (m) out.push(m[1].trim());
-            }
-            return out;
-        }
-    } catch { }
-    return [];
-}
-function commonPythonDirs() {
-    const out = [];
-    try {
-        for (const n of readdirSync("C:\\")) {
-            if (/^Python\d+$/i.test(n)) out.push(join("C:\\", n, "python.exe"));
-        }
-    } catch { }
-    try {
-        const base = join(process.env.LOCALAPPDATA || "", "Programs", "Python");
-        for (const n of readdirSync(base)) out.push(join(base, n, "python.exe"));
-    } catch { }
-    try {
-        const pyExe = join(process.env.SystemRoot || "C:\\Windows", "py.exe");
-        if (existsSync(pyExe)) out.push(pyExe);
-    } catch { }
-    return out.filter((p) => { try { return existsSync(p); } catch { return false; } });
-}
-// PURE ordering/dedup — the piece worth locking with a test (no I/O here).
-function orderPythonCandidates(sources) {
-    const raw = [
-        sources.override,
-        sources.cached,
-        ...(sources.launcher || []),   // registry-based, PATH-independent
-        ...(sources.common || []),     // filesystem, PATH-independent
-        ...(sources.where || []),      // PATH-based
-        ...(sources.bare || []),       // last-resort bare names
-    ].filter((s) => typeof s === "string" && s.trim());
-    const seen = new Set();
-    const out = [];
-    for (const c of raw) {
-        const v = c.trim();
-        const key = v.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(v);
-    }
-    return out;
-}
-function buildPythonCandidates() {
-    const bare = process.platform === "win32" ? ["python", "py", "python3"] : ["python3", "python"];
-    if (process.platform !== "win32") {
-        return orderPythonCandidates({ override: process.env.VOICE_PYTHON, cached: readPythonCache(), bare });
-    }
-    return orderPythonCandidates({
-        override: process.env.VOICE_PYTHON,
-        cached: readPythonCache(),
-        launcher: pyLauncherPaths(),
-        common: commonPythonDirs(),
-        where: whichPython("python").concat(whichPython("python3")),
-        bare,
-    });
-}
+// --- Python interpreter discovery: ver voice-python.mjs (independente do PATH) ---
 
 function ensureWorker() {
     if (worker || workerStarting || !primaryFork) return;
@@ -1324,7 +949,7 @@ function notifySessionDead() {
 
 function markSessionDead(e) {
     if (sessionDead) return;
-    sessionDead = true;
+    setSessionDead(true);
     log("session handle morto (não recuperável): " + (e && e.message ? e.message : e));
     // Para de se anunciar ao primary: a fork VIVA desta sessão (o painel real) reassume
     // o roteamento no próximo registro (≤4s). Uma mensagem clara só aparece se esta fork
@@ -1346,7 +971,7 @@ function hasOpenPanelHere() {
     return sessionHasClient(mySid());
 }
 
-async function handleVoiceTranscript(text) {
+export async function handleVoiceTranscript(text) {
     // Uma fork ZUMBI com a sessão MORTA não pode cumprir o turno: reporta falha (o primary re-rota
     // para uma fork VIVA). Uma fork com painel aberto nunca fica nesse estado (ver abaixo).
     if (sessionDead) {
@@ -1357,7 +982,7 @@ async function handleVoiceTranscript(text) {
     _phase = "voiceTurn:start";
     voiceInstructionPending =
         settings.authorSummary !== false || settings.cueCheckpoints !== false;
-    spokenCheckpoints = new Set();
+    spokenCheckpoints.clear();
     saveVoiceState();
     markTurn(mySid());
     notifyCanvas({ type: "status", state: "thinking" });
@@ -1493,10 +1118,6 @@ async function flushSpeech() {
 // `deliveredSeq` = highest seq already handed to the active client, so a reopened
 // session autoplays only the tail it hasn't heard yet. Persisted so it survives a
 // primary failover / extension restart.
-const AUDIO_HISTORY_MAX = 30;
-const AUDIO_QUEUE_FILE = join(ARTIFACTS, "audio-queue.json");
-const audioHistoryBySid = new Map();   // sid -> item[]
-const audioSeqBySid = new Map();       // sid -> last seq issued
 
 // ---- heartbeat de vida do fork por sessão (para o Stop hook detectar canvas CAÍDO) -------------
 // O canvas é registrado pelo joinSession DESTA fork e MORRE com o processo. Então
@@ -1588,297 +1209,6 @@ async function drainAllPendingSpeak() {
         }
     } catch { /* ignore */ }
 }
-const audioTurnBySid = new Map();      // sid -> current turn number
-const audioDeliveredBySid = new Map(); // sid -> highest seq SENT to a live client (dedup do push ao vivo)
-const audioHeardBySid = new Map();      // sid -> highest seq que o cliente CONFIRMOU ter TOCADO até o fim (cursor DURÁVEL de "consumido"; só avança via /played, NUNCA na entrega). É o que decide o autoplay ao reabrir: fechar no meio da fala NÃO marca como ouvido, então reabrir retoca o que faltou.
-
-function appendAudioItem(sid, partial) {
-    if (!sid) return null;
-    const seq = (audioSeqBySid.get(sid) || 0) + 1;
-    audioSeqBySid.set(sid, seq);
-    const turn = audioTurnBySid.get(sid) || 1;
-    const item = {
-        seq, id: `${sid}:${seq}`, turn,
-        type: partial.type, kind: partial.kind || null,
-        spoken: partial.spoken || "", full: partial.full || "",
-        audio: partial.audio || null, ts: Date.now(),
-    };
-    const hist = audioHistoryBySid.get(sid) || [];
-    hist.push(item);
-    // Cap to the newest N; keep deliveredSeq coherent if the cursor item is pruned.
-    while (hist.length > AUDIO_HISTORY_MAX) hist.shift();
-    audioHistoryBySid.set(sid, hist);
-    // A final reply closes the turn -> the next audio belongs to the next turn.
-    if (partial.type === "reply") audioTurnBySid.set(sid, turn + 1);
-    return item;
-}
-
-// Deliver to the active+connected client every history item it hasn't seen yet
-// (seq > deliveredSeq), in order, and advance the cursor. Idempotent: a second
-// call finds nothing new. Used on live append, on /focus and on reconnect.
-// Returns true iff it advanced the cursor (and thus persisted) — lets the caller
-// avoid a second whole-map write for the same audio.
-function pushAudio(sid) {
-    if (!sid || sid !== activeSid || !sessionHasClient(sid)) return false;
-    const hist = audioHistoryBySid.get(sid) || [];
-    if (!hist.length) return false;
-    const delivered = audioDeliveredBySid.get(sid) || 0;
-    const fresh = hist.filter((it) => it.seq > delivered);
-    if (!fresh.length) return false;
-    audioDeliveredBySid.set(sid, hist[hist.length - 1].seq);
-    persistAudioState();
-    for (const item of fresh) broadcastTo(sid, { type: "audio", item });
-    dbg(`pushAudio: delivered ${fresh.length} audio item(s) to sid=${sid}`);
-    return true;
-}
-
-// Public entry used by speakToCanvas: record the audio in history, then deliver
-// it live if this session is active (else it waits in history for the reopen).
-// ONE whole-map persist per audio: if pushAudio delivered (active session) it already
-// persisted the cursor advance; otherwise (background) we persist the appended item here.
-function playOrQueueAudio(sid, partial) {
-    const item = appendAudioItem(sid, partial);
-    if (!item) return;
-    if (!pushAudio(sid)) persistAudioState();
-}
-
-// The audio state the hello hands a (re)connecting client: the FULL per-session
-// history (for the navigable player) + playFromSeq = the first seq it hasn't
-// HEARD (ouvido de verdade), so the client autoplays only the tail that wasn't
-// played to completion yet. playFromSeq usa o cursor HEARD (durável), NÃO o de
-// entrega — assim fechar no meio da fala retoca ao reabrir. Avança o cursor de
-// ENVIO (delivered) p/ o topo só p/ o push ao vivo não reenviar o que o hello já mandou.
-function audioHistoryForHello(sid) {
-    const hist = audioHistoryBySid.get(sid) || [];
-    const playFromSeq = (audioHeardBySid.get(sid) || 0) + 1;
-    if (hist.length) {
-        audioDeliveredBySid.set(sid, hist[hist.length - 1].seq);   // cursor de ENVIO (não o de "ouvido")
-        persistAudioState();
-    }
-    return { items: hist, playFromSeq, max: AUDIO_HISTORY_MAX };
-}
-
-// O cliente confirmou que TOCOU o item `seq` até o fim -> avança o cursor DURÁVEL de
-// "ouvido" (monotônico; um ack de seq menor, ex. replay manual de item antigo, é no-op).
-// Só ISTO consome a fila de verdade: um áudio entregue mas não tocado (painel fechado no
-// meio) segue com seq > heard e retoca no próximo reabrir. Persiste (sobrevive restart).
-function markPlayed(sid, seq) {
-    if (!sid || !(seq > 0)) return false;
-    const last = audioSeqBySid.get(sid) || 0;
-    if (seq > last) seq = last;   // clamp: nunca parkear o cursor ALÉM do último seq emitido (cliente stale/malformado)
-    const cur = audioHeardBySid.get(sid) || 0;
-    if (seq <= cur) return false;
-    audioHeardBySid.set(sid, seq);
-    persistAudioState();
-    return true;
-}
-
-function readAudioStateMap() {
-    try { return JSON.parse(readFileSync(AUDIO_QUEUE_FILE, "utf8")) || {}; } catch { return {}; }
-}
-function persistAudioState() {
-    try {
-        const map = readAudioStateMap();   // parte do DISCO: preserva sids que ESTA fork não tem em memória.
-        for (const [sid, hist] of audioHistoryBySid) {   // (numa promoção o secundário só conhece um PREFIXO -> não pode apagar/truncar o resto)
-            if (!hist || !hist.length) continue;         // sid vazio em memória NÃO apaga o registro do disco
-            const prev = map[sid];
-            const memSeq = audioSeqBySid.get(sid) || 0;
-            const memHeard = audioHeardBySid.get(sid) || 0;
-            // GUARD de escrita (espelha o reload): se o DISCO está mais à frente que a visão desta fork
-            // (prefixo stale), NÃO clobbera — só sobe o heard. Impede regredir seq/heard e truncar o
-            // histórico durável (defense-in-depth p/ o dia em que "só o primário persiste" deixar de valer).
-            if (prev && !Array.isArray(prev) && (prev.seq || 0) > memSeq) {
-                prev.heard = Math.max(prev.heard || 0, memHeard);
-                continue;
-            }
-            map[sid] = {
-                items: hist, seq: memSeq,
-                turn: audioTurnBySid.get(sid) || 1, delivered: audioDeliveredBySid.get(sid) || 0,
-                heard: Math.max(memHeard, (prev && !Array.isArray(prev) && prev.heard) || 0),   // heard nunca regride no disco
-            };
-        }
-        const tmp = AUDIO_QUEUE_FILE + "." + process.pid + ".tmp";
-        writeFileSync(tmp, JSON.stringify(map));
-        renameSync(tmp, AUDIO_QUEUE_FILE);   // rename atômico (mesmo FS): um crash NO MEIO da escrita não deixa o arquivo TORN (readAudioStateMap veria {} = perde TODAS as filas no restart)
-    } catch { }
-}
-function restoreAudioHistory() {
-    try {
-        const map = readAudioStateMap();
-        for (const [sid, v] of Object.entries(map)) {
-            // New format: { items, seq, turn, delivered }. Legacy: a bare item[].
-            const items = Array.isArray(v) ? v : (v && Array.isArray(v.items) ? v.items : []);
-            if (!items.length) continue;
-            let maxSeq = 0;
-            items.forEach((it, i) => {                 // backfill legacy items
-                if (typeof it.seq !== "number") it.seq = i + 1;
-                if (typeof it.turn !== "number") it.turn = 1;
-                if (!it.id) it.id = `${sid}:${it.seq}`;
-                if (it.seq > maxSeq) maxSeq = it.seq;
-            });
-            audioHistoryBySid.set(sid, items);
-            audioSeqBySid.set(sid, Array.isArray(v) ? maxSeq : (v.seq || maxSeq));
-            audioTurnBySid.set(sid, Array.isArray(v) ? 1 : (v.turn || 1));
-            // `delivered` = cursor de ENVIO (dedup do push AO VIVO), NÃO de "ouvido". No restart é
-            // inerte p/ o replay (o replay é governado pelo HEARD: playFromSeq=heard+1) e o
-            // audioHistoryForHello re-seta delivered=último ao reabrir; mantém o valor persistido.
-            audioDeliveredBySid.set(sid, Array.isArray(v) ? 0 : (v.delivered || 0));
-            // Cursor DURÁVEL de "ouvido": back-compat -> se o formato antigo não tem `heard`,
-            // assume heard = delivered (o antigo tratava entrega como consumo). Só o áudio
-            // acumulado ANTES desta versão herda isso; o novo passa a exigir ack real.
-            audioHeardBySid.set(sid, Array.isArray(v) ? 0 : (v.heard != null ? v.heard : (v.delivered || 0)));
-        }
-    } catch { }
-}
-
-// PROMOÇÃO in-process (secundário -> primário): a memória desta fork é um PREFIXO congelado no
-// boot dela (secundários não geram áudio — forwardam /speak ao primário). O disco tem a verdade
-// que o primário MORTO persistiu. Recarrega do disco antes de servir hello/ack — adota o
-// histórico/seq quando o disco está à frente e é RAISE-only no heard — p/ (a) o clamp de
-// markPlayed ver o ÚLTIMO seq real (senão um ack legítimo do cliente é descartado = replay
-// duplicado) e (b) o novo primário persistir o histórico COMPLETO (senão o persist truncaria).
-function reloadAudioStateFromDisk() {
-    try {
-        const map = readAudioStateMap();
-        for (const [sid, v] of Object.entries(map)) {
-            if (Array.isArray(v) || !v) continue;
-            const items = Array.isArray(v.items) ? v.items : [];
-            if (!items.length) continue;
-            if ((v.seq || 0) >= (audioSeqBySid.get(sid) || 0)) {   // disco à frente-ou-igual -> adota a visão do disco
-                audioHistoryBySid.set(sid, items);
-                audioSeqBySid.set(sid, v.seq || 0);
-                audioTurnBySid.set(sid, v.turn || audioTurnBySid.get(sid) || 1);
-                audioDeliveredBySid.set(sid, v.delivered || 0);
-            }
-            audioHeardBySid.set(sid, Math.max(audioHeardBySid.get(sid) || 0, v.heard != null ? v.heard : 0));   // heard NUNCA regride
-        }
-    } catch { }
-}
-
-// --- Held voice-turn delivery (per-session, persisted) ----------------------
-// A transcript captured while the owner session is in the background must reach
-// THAT session's fork to run session.send(). The HTTP push can miss transiently
-// (owner panel closed -> server down but heartbeat still advertises the port; or
-// the fork has not re-registered yet). Turns are therefore held in a persisted
-// per-sid FIFO and delivered when the owner is provably reachable: right after it
-// (re-)registers (fresh, live URL), on focus, and via a safety sweep. Delivery is
-// idempotent (peek -> ack -> remove, one in-flight per sid) and each turn carries
-// an id the receiver uses to reject a duplicate after a failover.
-const PENDING_TURNS_FILE = join(ARTIFACTS, "pending-turns.json");
-const pendingTurnsBySid = new Map(); // sid -> [{ id, text, ts }]
-const drainingTurns = new Set();     // sids with an /inject in flight
-const TURN_TTL_MS = 90000;           // give up (and tell the user) after 90s
-function readPendingTurnsMap() {
-    try { return JSON.parse(readFileSync(PENDING_TURNS_FILE, "utf8")) || {}; } catch { return {}; }
-}
-function persistPendingTurns(sid) {
-    if (!sid) return;
-    try {
-        const map = readPendingTurnsMap();
-        const q = pendingTurnsBySid.get(String(sid)) || [];
-        if (q.length) map[String(sid)] = q; else delete map[String(sid)];
-        writeFileSync(PENDING_TURNS_FILE, JSON.stringify(map));
-    } catch { }
-}
-function restorePendingTurns() {
-    try {
-        const map = readPendingTurnsMap();
-        const now = Date.now();
-        for (const [sid, items] of Object.entries(map)) {
-            if (!Array.isArray(items)) continue;
-            const fresh = items.filter((it) => it && it.text && (now - (it.ts || 0)) < TURN_TTL_MS);
-            if (fresh.length) pendingTurnsBySid.set(String(sid), fresh);
-        }
-    } catch { }
-}
-function enqueueTurn(sid, text) {
-    const t = (text || "").trim();
-    if (!sid || !t) return null;
-    const q = pendingTurnsBySid.get(sid) || [];
-    const entry = { id: randomBytes(8).toString("hex"), text: t, ts: Date.now() };
-    q.push(entry);
-    pendingTurnsBySid.set(sid, q);
-    persistPendingTurns(sid);
-    return entry;
-}
-function pruneExpiredTurns(sid) {
-    const q = pendingTurnsBySid.get(sid);
-    if (!q || !q.length) return;
-    const now = Date.now();
-    const fresh = q.filter((it) => (now - (it.ts || 0)) < TURN_TTL_MS);
-    if (fresh.length === q.length) return;
-    const dropped = q.length - fresh.length;
-    if (fresh.length) pendingTurnsBySid.set(sid, fresh); else pendingTurnsBySid.delete(sid);
-    persistPendingTurns(sid);
-    dbg(`pending turn(s) expired for sid=${sid}: dropped ${dropped}`);
-    broadcastTo(sid, { type: "error", msg: "Não consegui entregar sua fala a esta sessão (ficou indisponível). Fale de novo, por favor." });
-}
-function drainTurnsToFork(sid, urlArg) {
-    if (!sid) return;
-    if (drainingTurns.has(sid)) return;            // an /inject is already in flight for this sid
-    pruneExpiredTurns(sid);
-    const q = pendingTurnsBySid.get(sid);
-    if (!q || !q.length) return;
-    const url = urlArg || forks.get(sid);
-    if (!url) return;                              // owner not reachable yet; a later (re-)register/focus/sweep retries
-    const head = q[0];
-    drainingTurns.add(sid);
-    dbg(`deliver turn -> sid=${sid} url=${url} id=${head.id} (queued=${q.length})`);
-    httpPostJson(url, "/inject", { text: head.text, id: head.id }).then((ok) => {
-        drainingTurns.delete(sid);
-        if (!ok) return;                           // keep the head queued; retry on next trigger
-        const cur = pendingTurnsBySid.get(sid);
-        if (cur && cur.length && cur[0].id === head.id) {
-            cur.shift();
-            if (cur.length) pendingTurnsBySid.set(sid, cur); else pendingTurnsBySid.delete(sid);
-            persistPendingTurns(sid);
-        }
-        drainTurnsToFork(sid, url);                // deliver the next, in FIFO order
-    });
-}
-function drainAllPendingTurns() {
-    for (const sid of [...pendingTurnsBySid.keys()]) drainTurnsToFork(sid);
-}
-// Receiver-side de-dup: a turn re-sent after a mid-inject failover must not run
-// session.send() twice (the user raged about duplicated audio; same rule here).
-const injectedTurnIds = new Set();
-const injectedTurnOrder = [];
-const injectingIds = new Set();   // ids com um turno EM ANDAMENTO (await session.send ainda não resolveu). Guarda contra DOUBLE-SEND: o dedup por id só grava NO SUCESSO, então se o primary re-injetar o mesmo id enquanto o 1º ainda está no ar (ex.: send VIVO > timeout do POST + sweep re-injeta), sem esta guarda o turno rodaria 2x.
-function seenInjectedId(id) { return !!id && injectedTurnIds.has(id); }
-function rememberInjectedId(id) {
-    if (!id || injectedTurnIds.has(id)) return;
-    injectedTurnIds.add(id);
-    injectedTurnOrder.push(id);
-    if (injectedTurnOrder.length > 300) injectedTurnIds.delete(injectedTurnOrder.shift());
-}
-
-// Recebe um turno entregue pelo primary. Retorna {ok, code, dup} para o handler traduzir
-// em STATUS HTTP — porque o primary decide reter/re-rotear pelo status 2xx (httpPostJson),
-// NÃO pelo corpo. Regras:
-//  - texto vazio → 400 (nunca deveria acontecer; não fica na fila).
-//  - id já visto → 200 dup (idempotente após um failover).
-//  - senão roda o turno e AGUARDA o session.send: sucesso → 200 e só ENTÃO memoriza o id
-//    (dedup só no sucesso, senão um retry após falha viraria dup e PERDERIA a fala);
-//    falha (sessão morta/transitória) → 503 para o primary MANTER na fila e re-rotear
-//    para uma fork viva (converge; nunca descarta o turno como o ok:true fire-and-forget
-//    antigo, que perdia a fala quando a sessão estava morta).
-async function injectTurn(text, id) {
-    const t = (text || "").trim();
-    if (!t) return { ok: false, code: 400 };
-    if (id && seenInjectedId(id)) return { ok: true, dup: true, code: 200 };
-    // Já em andamento (o 1º inject ainda aguarda o send): NÃO rode de novo — retorna 409
-    // (não-2xx, retryable) p/ o primary manter na fila sem duplicar a fala.
-    if (id && injectingIds.has(id)) return { ok: false, retry: true, code: 409 };
-    if (id) injectingIds.add(id);
-    try {
-        const ok = await handleVoiceTranscript(t);
-        if (!ok) return { ok: false, retry: true, code: 503 };
-        if (id) rememberInjectedId(id);
-        return { ok: true, code: 200 };
-    } finally {
-        if (id) injectingIds.delete(id);
-    }
-}
 
 async function speakToCanvas(sid, spoken, full, cue) {
     if (cue) {
@@ -1921,7 +1251,7 @@ function canPlayInSession(sid) {
     return !sid || !activeSid || sid === activeSid;
 }
 
-function sessionHasClient(sid) {
+export function sessionHasClient(sid) {
     if (!sid) return true;
     for (const csid of sseClients.values()) if (csid === sid) return true;
     return false;
@@ -1944,69 +1274,8 @@ async function routeSpeak({ spoken, full, cue, sid = mySid() }) {
     return forwardToPrimary("/speak", { sid, spoken, full, cue });
 }
 
-function cleanForSpeech(md) {
-    let t = String(md || "");
-    t = t.replace(/```[\s\S]*?```/g, " "); 
-    t = t.replace(/`([^`]+)`/g, "$1"); 
-    t = t.replace(/!\[[^\]]*\]\([^)]*\)/g, " "); 
-    t = t.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1"); 
-    t = t.replace(/^\s{0,3}#{1,6}\s+/gm, ""); 
-    t = t.replace(/^\s{0,3}>\s?/gm, ""); 
-    t = t.replace(/^\s*[-*+]\s+/gm, ""); 
-    t = t.replace(/^\s*\d+\.\s+/gm, ""); 
-    t = t.replace(/[*_~]{1,3}/g, ""); 
-    t = t.replace(/<[^>]+>/g, " "); 
-    t = t.replace(/\|/g, " "); 
-    t = t.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE0F}]/gu, "");
-    t = t.replace(/\r/g, "");
-    t = t.replace(/\n{2,}/g, ". ");
-    t = t.replace(/\n/g, ". ");
-    t = t.replace(/\s+/g, " ").trim();
-    t = t.replace(/(\.\s*){2,}/g, ". "); 
-    return t.trim();
-}
-
-function firstSentences(text, maxChars) {
-    if (text.length <= maxChars) return text;
-    const parts = text.match(/[^.!?]+[.!?]+/g) || [text];
-    let out = "";
-    for (const p of parts) {
-        if (out && (out + p).length > maxChars) break;
-        out += p;
-    }
-    if (!out) out = text.slice(0, maxChars);
-    return out.trim();
-}
-
-function extractAuthoredSummary(content) {
-    const idx = content.lastIndexOf(VOICE_SENTINEL);
-    if (idx === -1) return null;
-    const after = content.slice(idx + VOICE_SENTINEL.length).split(/\n{2,}/)[0];
-    return after.trim() || null;
-}
-
-function stripCheckpointLines(text) {
-    return String(text || "")
-        .split("\n")
-        .filter((ln) => !ln.includes(CHECKPOINT_SENTINEL))
-        .join("\n");
-}
-
-function makeSpoken(content) {
-    const authored = extractAuthoredSummary(content);
-    if (authored) {
-        let spoken = cleanForSpeech(authored);
-        if (spoken.length > 2400) spoken = firstSentences(spoken, 2400);
-        const body = stripCheckpointLines(content.slice(0, content.lastIndexOf(VOICE_SENTINEL))).trim();
-        const fullClean = cleanForSpeech(body || content);
-        const full = fullClean.length > 3000 ? fullClean.slice(0, 3000) : fullClean;
-        if (spoken) return { spoken, full, authored: true };
-    }
-    const cleaned = cleanForSpeech(stripCheckpointLines(content));
-    const full = cleaned.length > 3000 ? cleaned.slice(0, 3000) : cleaned;
-    const spoken = firstSentences(full, 450);
-    return { spoken, full, authored: false };
-}
+// Helpers de modelagem de texto p/ fala (cleanForSpeech/firstSentences/extractAuthoredSummary/
+// stripCheckpointLines/makeSpoken): puros, em voice-text.mjs.
 
 async function synthesize(text) {
     await mkdir(TTS_DIR, { recursive: true });
@@ -2072,7 +1341,6 @@ function warmTts() {
     workerSend({ cmd: "tts", id: "__warm__", text: "ok", warm: true });
 }
 
-const pendingTranscribe = new Map(); // id -> {resolve,reject,timer} for /transcribe (engine reuse)
 function transcribeViaWorker(path) {
     return new Promise((resolve, reject) => {
         if (!worker || !workerReady) { reject(new Error("motor de voz não está pronto")); return; }
@@ -2131,7 +1399,7 @@ const HTTP_POST_TIMEOUT_MS = 30000;   // teto p/ um POST entre forks. /inject ag
 // (register a cada 4s + inject/speak/focus/relay) em vez de abrir um socket novo por
 // chamada. Sem TLS, mesmo host -> ganho de handshake/FD sem custo de segurança.
 const loopbackAgent = new HttpAgent({ keepAlive: true, keepAliveMsecs: 15000, maxSockets: 8 });
-function httpPostJson(baseUrl, path, body, timeoutMs = HTTP_POST_TIMEOUT_MS) {
+export function httpPostJson(baseUrl, path, body, timeoutMs = HTTP_POST_TIMEOUT_MS) {
     return new Promise((resolve) => {
         try {
             const u = new URL(path, baseUrl);
@@ -2237,7 +1505,7 @@ async function stepDownForNewer(newerUrl, newerVer) {
     try {
         ephem = makeVoiceServer();
         await listenOnce(ephem, 0);
-        myBaseUrl = `http://127.0.0.1:${ephem.address().port}/`;
+        setMyBaseUrl(`http://127.0.0.1:${ephem.address().port}/`);
         log(`handover: server efêmero próprio em ${myBaseUrl} (rota da minha sessão preservada)`);
     } catch (e) {
         // ABORT: sem meu próprio server efêmero não há rota segura p/ a MINHA sessão. Ceder o primário aqui
@@ -2251,7 +1519,7 @@ async function stepDownForNewer(newerUrl, newerVer) {
         broadcast({ type: "worker", state: workerReady ? "ready" : "loading", device: lastDevice });   // limpa o "Ativando atualização…" (o worker segue vivo, eu sigo primário)
         return;
     }
-    primaryFork = false;
+    setPrimaryFork(false);
     shutdownWorkerForHandover();
     // Registra o server efêmero no bookkeeping por instância (funciona p/ primário cold-start E reclaim,
     // cujo entry era primary:false) e libera a porta canônica SEM await (as conexões SSE dos painéis
@@ -2313,7 +1581,7 @@ function tokenOK(req, url) {
 function claimVoiceOwnership(sid) {
     if (!sid) return;
     const s = String(sid);
-    activeSid = s;
+    setActiveSid(s);
     turnOwnerSid = s;
 }
 
@@ -2446,7 +1714,7 @@ async function handleRequest(req, res) {
         res.write(": connected\n\n");
         sseClients.set(res, sid);
         if (sid) drainPendingSpeak(sid).catch(() => { });   // canvas conectou -> toca o que o hook coletou
-        if (sid && !activeSid) activeSid = sid;
+        if (sid && !activeSid) setActiveSid(sid);
         if (primaryFork && settings.wakeWord) {
             try { workerSend({ cmd: "wake", on: true, phrases: [settings.wakePhrase] }); } catch { }
         }
@@ -2583,7 +1851,7 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && path === "/focus") {
         const body = await readBody(req);
         if (body && body.sid) {
-            activeSid = String(body.sid);
+            setActiveSid(String(body.sid));
             pushAudio(activeSid);
             drainTurnsToFork(activeSid);
         }
@@ -2647,7 +1915,7 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && path === "/send") {
         const body = await readBody(req);
-        if (body && body.sid) activeSid = String(body.sid);
+        if (body && body.sid) setActiveSid(String(body.sid));
         const text = (body && body.text ? String(body.text) : "").trim();
         if (text) dispatchVoiceTurn(text);
         return sendJson(res, { ok: !!text });
@@ -2843,7 +2111,7 @@ async function startServer() {
     }
 
     if (primary) {
-        primaryFork = true;
+        setPrimaryFork(true);
         if (!preferredPort) preferredPort = bound; 
         sharedToken = sharedToken || readSavedToken() || randomBytes(16).toString("hex");
         savePort(bound); 
@@ -2851,9 +2119,9 @@ async function startServer() {
     } else {
         sharedToken = readSavedToken(); 
     }
-    myBaseUrl = `http://127.0.0.1:${bound}/`;
+    setMyBaseUrl(`http://127.0.0.1:${bound}/`);
     if (!registered) {
-        registered = true;
+        setRegistered(true);
         registerSelf();
         if (!primary) {
             ensureSecondaryTimers();
@@ -2886,10 +2154,10 @@ async function reclaimPrimaryIfOrphaned(reason, force = false) {
             return false;
         }
         promotedServer = server;
-        primaryFork = true;
+        setPrimaryFork(true);
         stopSecondaryTimers();   // promovido: para os timers de secundário (senão um re-registro atrasado anuncia URL errada / vaza no próximo step-down)
         preferredPort = canonical;
-        myBaseUrl = `http://127.0.0.1:${canonical}/`;
+        setMyBaseUrl(`http://127.0.0.1:${canonical}/`);
         savePort(canonical);
         drainAllPendingSpeak().catch(() => { });   // promovido a primário -> drena o pendente do hook
         setFork(mySid(), myBaseUrl);
@@ -3004,7 +2272,7 @@ const canvas = createCanvas({
         if (!(ctx && ctx.sessionId)) log("open: ctx.sessionId ausente; usando mySid() como fallback — sid do painel pode ficar errado");
         // O open() roda no fork DONO do canvas desta sessão -> ctx.sessionId é o sid confiável desta
         // fork. Fixa o ownSid (uma vez) e grava o heartbeat já, mesmo que mySid() estivesse vazio.
-        if (ctx && ctx.sessionId && !ownSid) { ownSid = String(ctx.sessionId); writeForkHeartbeat(); }
+        if (ctx && ctx.sessionId && !ownSid) { setOwnSid(String(ctx.sessionId)); writeForkHeartbeat(); }
         let entry = servers.get(ctx.instanceId);
         if (!entry) {
             entry = (primaryFork && primaryServerEntry) ? primaryServerEntry : await startServer();
