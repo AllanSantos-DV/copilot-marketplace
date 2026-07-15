@@ -41,7 +41,7 @@ const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.5.14";
+const CURRENT_VERSION = "1.5.15";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -102,6 +102,8 @@ function pruneDeadSids() {
     }
 }
 let activeSid = null; 
+let ownSid = "";   // sid da PRÓPRIA sessão deste fork (p/ o heartbeat): mySid() pode vir vazio no load,
+                   // então capturamos do ctx.sessionId no open() do canvas (fonte confiável = esta sessão).
 let lastTtsPreviewSid = null;
 let turnOwnerSid = null; 
 let recordingActiveSid = null; 
@@ -1516,7 +1518,7 @@ function forkHeartbeatFile(sid) {
     return join(FORKS_DIR, String(sid || "nosid").replace(/[^A-Za-z0-9._-]/g, "_") + ".json");
 }
 function writeForkHeartbeat() {
-    const sid = mySid();
+    const sid = ownSid || mySid();
     if (!sid) return;
     // Só marca "vivo" se o handle do joinSession NÃO está morto. Assim o heartbeat NÃO mente:
     // um fork que descobriu que o handle caiu (markSessionDead, via send) para de atualizar o ts
@@ -2991,6 +2993,9 @@ const canvas = createCanvas({
         await mkdir(ARTIFACTS, { recursive: true }).catch(() => {});
         const panelSid = String((ctx && ctx.sessionId) || mySid());
         if (!(ctx && ctx.sessionId)) log("open: ctx.sessionId ausente; usando mySid() como fallback — sid do painel pode ficar errado");
+        // O open() roda no fork DONO do canvas desta sessão -> ctx.sessionId é o sid confiável desta
+        // fork. Fixa o ownSid (uma vez) e grava o heartbeat já, mesmo que mySid() estivesse vazio.
+        if (ctx && ctx.sessionId && !ownSid) { ownSid = String(ctx.sessionId); writeForkHeartbeat(); }
         let entry = servers.get(ctx.instanceId);
         if (!entry) {
             entry = (primaryFork && primaryServerEntry) ? primaryServerEntry : await startServer();
