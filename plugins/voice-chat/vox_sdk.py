@@ -49,7 +49,7 @@ from typing import Literal
 # ---------------------------------------------------------------------------
 # CONFIG canônica — fonte única (os MESMOS valores no SDK Node irmão).
 # ---------------------------------------------------------------------------
-SDK_VERSION = "1.2.0"
+SDK_VERSION = "1.5.0"
 
 RELEASES_API = ("https://api.github.com/repos/AllanSantos-DV/"
                 "copilot-marketplace/releases")
@@ -135,7 +135,8 @@ class Capabilities:
     def __init__(self, *, version=None, provider=None, hardware=None, profiles=None,
                  models_resident=None, models_allowed=None, models_known=MODELS,
                  audio_formats_available=None, audio_formats_known=AUDIO_FORMATS,
-                 priorities=PRIORITIES, voices=None, default_voice=None):
+                 priorities=PRIORITIES, voices=None, supported_voices=None,
+                 default_voice=None):
         self.version = version
         self.provider = provider
         self.hardware = hardware
@@ -148,6 +149,7 @@ class Capabilities:
         self.audio_formats_known = audio_formats_known                  # estático (superset)
         self.priorities = priorities                                    # estático
         self.voices = voices if voices is not None else []
+        self.supported_voices = supported_voices if supported_voices is not None else []
         self.default_voice = default_voice
 
     def __repr__(self) -> str:
@@ -358,6 +360,15 @@ class VoxEngineError(RuntimeError):
     """Motor de voz indisponível ou falha de framing (erro ALTO, sem mudo)."""
 
 
+class _PartialSend(Exception):
+    """Frame enviado só EM PARTE antes de falhar: NÃO é repetível (bytes já
+    chegaram ao motor -> reenviar corromperia o stream / duplicaria o pedido)."""
+
+    def __init__(self, sent: int):
+        super().__init__(f"envio parcial ({sent} bytes)")
+        self.sent = sent
+
+
 class VoxClient:
     """Cliente **síncrono e serializado** do daemon ``vox-engine`` via named pipe.
 
@@ -372,11 +383,22 @@ class VoxClient:
     adequado a um consumidor sequencial (ditado, TTS on-demand).
     """
 
-    def __init__(self, pipe: str = DEFAULT_PIPE, connect_timeout: float = 5.0):
+    def __init__(self, pipe: str = DEFAULT_PIPE, connect_timeout: float = 5.0, *,
+                 auto_reconnect: bool = False, reconnect_timeout: float = 0.25):
         self.pipe_name = pipe
         self._lock = threading.Lock()   # serializa 1 request/resposta
         self._fh = None
         self._rid = 0
+        # auto_reconnect (opt-in, retrocompatível): quando o handle morre, o cliente o
+        # REABRE sozinho — o consumidor não reimplementa a camada de reconexão. Disciplina
+        # (idêntica à do ditado/voice-chat, validada): REPETE o request só na falha de
+        # ESCRITA (o frame comprovadamente NÃO chegou -> idempotente-seguro); NUNCA repete
+        # em leitura/timeout (o motor PODE ter processado -> evita double-process). O handle
+        # morto é descartado e a PRÓXIMA chamada reconecta. reconnect_timeout é o "cushion"
+        # (curto: absorve um ERROR_PIPE_BUSY transitório do pipe compartilhado sem o stall
+        # do connect inicial).
+        self._auto_reconnect = bool(auto_reconnect)
+        self._reconnect_timeout = max(0.0, reconnect_timeout)
         deadline = time.time() + max(0.0, connect_timeout)
         last_err = None
         while True:
@@ -393,13 +415,17 @@ class VoxClient:
 
     @classmethod
     def try_connect(cls, pipe: str = DEFAULT_PIPE,
-                    connect_timeout: float = 2.0) -> "VoxClient | None":
+                    connect_timeout: float = 2.0, *,
+                    auto_reconnect: bool = False,
+                    reconnect_timeout: float = 0.25) -> "VoxClient | None":
         """Conecta se o daemon existir; senão devolve ``None`` (não levanta).
 
         É a política "reusa se existe": tenta o motor único e, se não estiver no
-        ar, o chamador cai para outra estratégia."""
+        ar, o chamador cai para outra estratégia. ``auto_reconnect`` propaga para o
+        cliente (self-healing opt-in)."""
         try:
-            return cls(pipe, connect_timeout)
+            return cls(pipe, connect_timeout, auto_reconnect=auto_reconnect,
+                       reconnect_timeout=reconnect_timeout)
         except (OSError, ValueError):
             return None
 
@@ -428,51 +454,128 @@ class VoxClient:
             buf += chunk
         return buf
 
+    def _try_reopen(self) -> bool:
+        """Reabre o handle do pipe com o cushion (``reconnect_timeout``). True se
+        reconectou. Só age com ``auto_reconnect``. Best-effort, nunca levanta.
+
+        DEVE ser chamado com ``self._lock`` já retido (é chamado de dentro do
+        ``_request``, que serializa) — não readquire o lock."""
+        if not self._auto_reconnect:
+            return False
+        self._close_fh()
+        deadline = time.time() + self._reconnect_timeout
+        while True:
+            try:
+                self._fh = open(self.pipe_name, "r+b", buffering=0)  # noqa: SIM115
+                return True
+            except OSError:
+                if time.time() >= deadline:
+                    self._fh = None
+                    return False
+                time.sleep(0.05)
+
+    def _send_frame(self, fh, header: dict, audio: bytes) -> None:
+        """Escreve UM frame COMPLETO. ``FileIO.write`` (buffering=0) pode fazer um
+        *short write* e devolver menos bytes SEM levantar — então escrevemos em laço
+        até esgotar. Distinção crítica p/ o auto_reconnect:
+          - 0 byte enviado antes da falha  -> levanta normal (frame NÃO chegou =>
+            o chamador pode reconectar+repetir com segurança);
+          - >0 byte enviado antes da falha -> levanta :class:`_PartialSend` (o frame
+            chegou EM PARTE => reenviar duplicaria/corromperia -> NÃO repetir)."""
+        data = encode_message(header, audio)
+        total = len(data)
+        sent = 0
+        try:
+            while sent < total:
+                # bytes (não memoryview): handles/mocks fazem .decode/slice sobre bytes.
+                n = fh.write(data if sent == 0 else data[sent:])
+                if n is None:          # handle não conta bytes (convenção/mocks) -> assume tudo
+                    sent = total
+                    break
+                if n <= 0:             # sem progresso: não laça infinito
+                    raise OSError("write não progrediu (motor não consumiu o frame)")
+                sent += n
+            fh.flush()
+        except Exception as exc:  # noqa: BLE001
+            if sent > 0:
+                raise _PartialSend(sent) from exc
+            raise
+
+    def _read_reply(self, fh, timeout: float) -> "tuple[dict, bytes]":
+        """Lê a resposta de ``fh`` com TETO de tamanho e TIMEOUT numa thread presa ao
+        handle. Timeout -> solta o handle e levanta; erro de frame -> fecha e levanta.
+        NUNCA é repetido pelo chamador (o motor pode já ter processado)."""
+        out: dict = {}
+
+        def _do_read():
+            try:
+                head = self._read_exact(fh, _HDR.size)
+                jl, al = _HDR.unpack(head)
+                if jl > MAX_JSON or al > MAX_AUDIO or jl == 0:
+                    raise ProtocolError(f"frame absurdo (jl={jl}, al={al})")
+                body = self._read_exact(fh, jl)
+                audio_out = self._read_exact(fh, al) if al else b""
+                out["resp"] = (json.loads(body.decode("utf-8")), audio_out)
+            except Exception as exc:  # noqa: BLE001
+                out["err"] = exc
+
+        rt = threading.Thread(target=_do_read, daemon=True)
+        rt.start()
+        rt.join(timeout)
+        if rt.is_alive():
+            # Não fechamos com read() pendente (bloquearia no lock do objeto);
+            # soltamos a referência viva — a thread morre quando o handle fechar.
+            if self._fh is fh:
+                self._fh = None
+            raise VoxEngineError(
+                f"timeout ({timeout:.0f}s) aguardando resposta do motor")
+        if "err" in out:
+            self._close_fh()
+            raise VoxEngineError(f"falha de protocolo: {out['err']}")
+        return out["resp"]
+
     def _request(self, header: dict, audio: bytes = b"",
                  timeout: float = 120.0) -> "tuple[dict, bytes]":
         """Envia 1 frame e lê a resposta com TETO de tamanho e TIMEOUT.
 
-        Serializado pelo lock (single-in-flight). A leitura roda numa thread presa
-        ao handle capturado aqui; ``join(timeout)`` garante que um motor travado no
-        meio do frame não congele o chamador — vira :class:`VoxEngineError`."""
+        Serializado pelo lock (single-in-flight). Com ``auto_reconnect``: um handle
+        morto é REABERTO de forma preguiçosa antes do envio, e uma falha de ESCRITA
+        dispara reconectar + REPETIR o envio UMA vez (o frame não chegou ao motor —
+        idempotente-seguro). Falha de LEITURA/TIMEOUT NUNCA é repetida (o motor pode
+        ter processado) — só solta o handle e levanta; a próxima chamada reconecta."""
         with self._lock:
+            # (1) handle morto -> reconecta preguiçoso (auto_reconnect) antes de enviar.
+            if self._fh is None and self._auto_reconnect:
+                self._try_reopen()
             fh = self._fh
             if fh is None:
                 raise VoxEngineError("conexão com o motor caiu")
+
+            # (2) envio; falha de ESCRITA => frame não chegou => reconecta + repete 1x.
+            #     envio PARCIAL (_PartialSend) => bytes já chegaram => NÃO repete.
             try:
-                fh.write(encode_message(header, audio))
-                fh.flush()
+                self._send_frame(fh, header, audio)
+            except _PartialSend as exc:
+                self._close_fh()
+                raise VoxEngineError(
+                    f"envio parcial ao motor ({exc.sent} bytes) — não repetível") from exc
             except Exception as exc:  # noqa: BLE001
                 self._close_fh()
-                raise VoxEngineError(f"falha ao enviar ao motor: {exc}") from exc
-            out: dict = {}
-
-            def _read_reply():
+                if not (self._auto_reconnect and self._try_reopen()):
+                    raise VoxEngineError(f"falha ao enviar ao motor: {exc}") from exc
+                fh = self._fh
                 try:
-                    head = self._read_exact(fh, _HDR.size)
-                    jl, al = _HDR.unpack(head)
-                    if jl > MAX_JSON or al > MAX_AUDIO or jl == 0:
-                        raise ProtocolError(f"frame absurdo (jl={jl}, al={al})")
-                    body = self._read_exact(fh, jl)
-                    audio_out = self._read_exact(fh, al) if al else b""
-                    out["resp"] = (json.loads(body.decode("utf-8")), audio_out)
-                except Exception as exc:  # noqa: BLE001
-                    out["err"] = exc
+                    self._send_frame(fh, header, audio)
+                except _PartialSend as exc2:
+                    self._close_fh()
+                    raise VoxEngineError(
+                        f"envio parcial ao motor ({exc2.sent} bytes) — não repetível") from exc2
+                except Exception as exc2:  # noqa: BLE001
+                    self._close_fh()
+                    raise VoxEngineError(f"falha ao enviar ao motor: {exc2}") from exc2
 
-            rt = threading.Thread(target=_read_reply, daemon=True)
-            rt.start()
-            rt.join(timeout)
-            if rt.is_alive():
-                # Não fechamos com read() pendente (bloquearia no lock do objeto);
-                # soltamos a referência viva — a thread morre quando o handle fechar.
-                if self._fh is fh:
-                    self._fh = None
-                raise VoxEngineError(
-                    f"timeout ({timeout:.0f}s) aguardando resposta do motor")
-            if "err" in out:
-                self._close_fh()
-                raise VoxEngineError(f"falha de protocolo: {out['err']}")
-            return out["resp"]
+            # (3) leitura; o envio JÁ foi bem-sucedido -> NÃO repete (evita double-process).
+            return self._read_reply(fh, timeout)
 
     # ---- comandos de alto nível ----
     def _next_rid(self) -> str:
@@ -513,6 +616,7 @@ class VoxClient:
             models_allowed=_l(h.get("allowed_models")),
             audio_formats_available=_l(h.get("encode_formats")),
             voices=_l(h.get("tts_voices")),
+            supported_voices=_l(h.get("supported_voices")),
             default_voice=h.get("default_voice"),
         )
 
@@ -1168,12 +1272,15 @@ def start_installed_daemon(pipe: str = DEFAULT_PIPE, *, run=None) -> bool:
         return False
 
 
-def _wait_for_pipe(pipe: str, boot_timeout: float) -> "VoxClient | None":
+def _wait_for_pipe(pipe: str, boot_timeout: float, *,
+                   auto_reconnect: bool = False,
+                   reconnect_timeout: float = 0.25) -> "VoxClient | None":
     """Espera o pipe subir (poll) até ``boot_timeout`` e devolve o cliente, ou
     ``None`` se não apareceu (provável crash de import no daemon)."""
     deadline = time.time() + max(0.0, boot_timeout)
     while time.time() < deadline:
-        c = VoxClient.try_connect(pipe, connect_timeout=1.0)
+        c = VoxClient.try_connect(pipe, connect_timeout=1.0, auto_reconnect=auto_reconnect,
+                                  reconnect_timeout=reconnect_timeout)
         if c is not None:
             return c
         time.sleep(0.5)
@@ -1376,6 +1483,8 @@ def _reuse_result(client: "VoxClient", *, auto_update: bool, http_get) -> dict:
 
 def ensure_vox_detailed(pipe: "str | None" = None, *, autostart: bool = True,
                         auto_update: bool = True, recycle_stale: bool = True,
+                        auto_reconnect: bool = False,
+                        reconnect_timeout: float = 0.25,
                         connect_timeout_ms: "int | None" = None,
                         boot_timeout_ms: "int | None" = None,
                         python_exe: "str | None" = None,
@@ -1386,6 +1495,10 @@ def ensure_vox_detailed(pipe: "str | None" = None, *, autostart: bool = True,
 
     ``action`` ∈ ``reused | installed | updated | up_to_date | offline_installed |
     failed | unavailable``.
+
+    ``auto_reconnect`` (opt-in): o :class:`VoxClient` devolvido se auto-cura — reabre o
+    handle quando o motor cai/recicla e repete o request só na falha de escrita (nunca
+    em leitura/timeout). O consumidor não reimplementa reconexão.
 
     Estados:
       1. **pipe no ar** ⇒ devolve o cliente conectado (``reused``) + sinaliza
@@ -1407,7 +1520,8 @@ def ensure_vox_detailed(pipe: "str | None" = None, *, autostart: bool = True,
               "updateAvailable": False, "action": "unavailable"}
 
     # ---- (1) daemon já no ar: reusar OU reciclar (se velho e ocioso) ----
-    client = VoxClient.try_connect(pipe, connect_timeout)
+    client = VoxClient.try_connect(pipe, connect_timeout, auto_reconnect=auto_reconnect,
+                                   reconnect_timeout=reconnect_timeout)
     if client is not None:
         running_ver = running_sessions = running_pid = None
         try:
@@ -1440,7 +1554,9 @@ def ensure_vox_detailed(pipe: "str | None" = None, *, autostart: bool = True,
             if stopped:
                 client = None   # cai no (2)/(3): instala a última + sobe o daemon novo
             else:
-                re = VoxClient.try_connect(pipe, connect_timeout)
+                re = VoxClient.try_connect(pipe, connect_timeout,
+                                           auto_reconnect=auto_reconnect,
+                                           reconnect_timeout=reconnect_timeout)
                 return {"client": re, "installedVersion": running_ver,
                         "latestVersion": latest_ver, "updateAvailable": True,
                         "action": "reused"}
@@ -1458,7 +1574,11 @@ def ensure_vox_detailed(pipe: "str | None" = None, *, autostart: bool = True,
     # dir duas vezes (deadlock). O lock cross-process vive DENTRO de
     # download_and_run_installer, que também re-checa versão-alvo sob o lock.
     # RE-CHECAR: outro cliente pode ter subido o daemon enquanto conectávamos.
-    client = VoxClient.try_connect(pipe, min(connect_timeout, 2.0))
+    # RE-CHECAR: outro cliente pode ter subido o daemon enquanto conectávamos. Propaga
+    # auto_reconnect/cushion — senão o cliente 'reused' desta corrida perde o self-healing.
+    client = VoxClient.try_connect(pipe, min(connect_timeout, 2.0),
+                                   auto_reconnect=auto_reconnect,
+                                   reconnect_timeout=reconnect_timeout)
     if client is not None:
         return _reuse_result(client, auto_update=auto_update, http_get=http_get)
 
@@ -1503,7 +1623,8 @@ def ensure_vox_detailed(pipe: "str | None" = None, *, autostart: bool = True,
     if not start_installed_daemon(pipe, run=run):
         result["action"] = "failed"
         return result
-    client = _wait_for_pipe(pipe, boot_timeout)
+    client = _wait_for_pipe(pipe, boot_timeout, auto_reconnect=auto_reconnect,
+                            reconnect_timeout=reconnect_timeout)
     if client is None:
         result["action"] = "failed"
         return result

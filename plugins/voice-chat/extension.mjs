@@ -26,6 +26,7 @@ import {
     pendingTranscribe,
     primaryFork, setPrimaryFork, activeSid, setActiveSid, myBaseUrl, setMyBaseUrl,
     registered, setRegistered, sessionDead, setSessionDead, ownSid, setOwnSid,
+    turnOwnerSid, setTurnOwnerSid, monitorSid, setMonitorSid,
 } from "./voice-state.mjs";
 import {
     appendAudioItem, pushAudio, playOrQueueAudio, audioHistoryForHello, markPlayed,
@@ -35,6 +36,13 @@ import {
     readPendingTurnsMap, persistPendingTurns, restorePendingTurns, enqueueTurn, pruneExpiredTurns,
     drainTurnsToFork, drainAllPendingTurns, seenInjectedId, rememberInjectedId, injectTurn,
 } from "./voice-turns.mjs";
+import {
+    ensureWorker, workerSend, restartWorker, manualRestartWorker, synthesize, transcribeViaWorker,
+    shutdownWorkerForHandover, workerReady, lastDevice, lastVoices,
+} from "./voice-worker.mjs";
+import {
+    mySid, canonicalBase, withSid, broadcast, broadcastTo, startHeartbeat, forwardToPrimary, readSavedPort, startServer, httpPostJson, pruneDeadSids,
+} from "./voice-net.mjs";
 
 const EXT_DIR = dirname(fileURLToPath(import.meta.url));
 const LEGACY_ARTIFACTS = join(EXT_DIR, "artifacts");
@@ -48,86 +56,53 @@ try {
 } catch {
     ARTIFACTS = LEGACY_ARTIFACTS;
 }
-const MODELS_DIR = join(ARTIFACTS, "models");
 const TTS_DIR = join(ARTIFACTS, "tts");
 const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
-const IFRAME_FILE = join(EXT_DIR, "iframe.html");
-const WORKER_FILE = join(EXT_DIR, "voice_worker.py");
-const DEBUG_LOG = join(ARTIFACTS, "debug.log");
+export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
-const PORT_FILE = join(ARTIFACTS, "server-port.json");
 
-const CURRENT_VERSION = "1.5.19";
+export const CURRENT_VERSION = "1.5.20";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
 // assets from the same repo. The source repo (copilot-voice) can stay private —
 // nothing is fetched from it, so no unauthenticated 404.
 const MARKETPLACE_MANIFEST_URL = process.env.VOICE_MARKETPLACE_MANIFEST || "https://raw.githubusercontent.com/AllanSantos-DV/copilot-marketplace/main/.github/plugin/marketplace.json";
-const RUNNING_AS_PLUGIN = /[\\/]installed-plugins[\\/]/.test(EXT_DIR);
+export const RUNNING_AS_PLUGIN = /[\\/]installed-plugins[\\/]/.test(EXT_DIR);
 const UPDATE_DISABLED = process.env.VOICE_UPDATE_DISABLED === "1" || RUNNING_AS_PLUGIN;
 const UPDATE_THROTTLE_MS = Number(process.env.VOICE_UPDATE_THROTTLE_MS) || 0;
 const UPDATE_STATE_FILE = join(ARTIFACTS, "update-state.json");
-const UPDATABLE_FILES = new Set(["extension.mjs", "voice-shared.cjs", "voice-core.mjs", "voice-python.mjs", "voice-update.mjs", "voice-text.mjs", "voice-state.mjs", "voice-audio.mjs", "voice-turns.mjs", "voice_worker.py", "vox_sdk.py", "vox_stream.py", "_ed25519_ref.py", "iframe.html", "requirements.txt", "hooks.json", "voice-summary-stop.cjs"]);
+const UPDATABLE_FILES = new Set(["extension.mjs", "voice-shared.cjs", "voice-core.mjs", "voice-python.mjs", "voice-update.mjs", "voice-text.mjs", "voice-state.mjs", "voice-audio.mjs", "voice-turns.mjs", "voice-worker.mjs", "voice-net.mjs", "voice_worker.py", "vox_sdk.py", "vox_stream.py", "vox_audio_devices.py", "vox_capture.py", "_ed25519_ref.py", "iframe.html", "requirements.txt", "hooks.json", "voice-summary-stop.cjs", "voice-canvas-guard.cjs"]);
 
 // Python interpreters are discovered dynamically (see buildPythonCandidates).
 
-const CONVERSE_ONSET_MS = Number(process.env.VOICE_CONVERSE_ONSET_MS) || 20000;
+export const CONVERSE_ONSET_MS = Number(process.env.VOICE_CONVERSE_ONSET_MS) || 20000;
 
-let session; 
+export let session; 
 
-let preferredPort = 0;
-let sharedToken = "";
-const DEAD_PRIMARY_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EPIPE", "ENOTFOUND"]);
-let reclaiming = false;
-let lastReclaimAttempt = 0;
-let promotedServer = null;
-let primaryServerEntry = null;
+export let primaryServerEntry = null;
+export function setPrimaryServerEntry(v) { primaryServerEntry = v; }
 // Handover automático consciente de versão: um primário de código VELHO cede a porta+worker
 // para uma fork MAIS NOVA — ativa um update do extension.mjs SEM fechar o app / matar processo.
-let handingOver = false;             // step-down de versão em andamento (throttle + guarda anti-respawn do worker)
-let suppressReclaimUntil = 0;        // após ceder, NÃO reassumir a porta por um tempo (deixa a nova pegar; ANTI-FLAP)
-let secondaryTimersOn = false;       // timers de re-registro/probe (idempotente entre startServer e step-down)
-const HANDOVER_GRACE_MS = 8000;
+export let handingOver = false;             // step-down de versão em andamento (throttle + guarda anti-respawn do worker)
+export function setHandingOver(v) { handingOver = v; }
+export const HANDOVER_GRACE_MS = 8000;
 // ANTI-FLAP GLOBAL: durante um handover, QUALQUER fork (inclusive um secundário velho bystander que
 // não cedeu) deve suspender o reclaim na janela — senão ele fisga a porta recém-liberada e vira um
 // primário VELHO espúrio. suppressReclaimUntil é por-fork; este arquivo compartilha a janela.
-const HANDOVER_LOCK_FILE = join(ARTIFACTS, "handover.lock");
-function writeHandoverLock(until) { try { writeFileSync(HANDOVER_LOCK_FILE, String(until)); } catch { } }
-function handoverLockActive() {
-    try { return Date.now() < (parseInt(readFileSync(HANDOVER_LOCK_FILE, "utf8"), 10) || 0); } catch { return false; }
-}
 
-function setFork(sid, url) { forks.set(sid, url); forkSeen.set(sid, Date.now()); }
-const FORK_TTL_MS = 600000;   // 10min sem re-registro => sid morto (uma fork viva re-registra a cada 4s; uma morta/sessionDead para). NUNCA remove a própria (mySid).
-function pruneDeadSids() {
-    const now = Date.now();
-    const me = mySid();
-    for (const [sid, ts] of forkSeen) {
-        if (sid !== me && now - ts > FORK_TTL_MS) { forks.delete(sid); forkSeen.delete(sid); }
-    }
-    for (const [sid, v] of recentSpoken) {
-        if (now - (v && v.ts || 0) > FORK_TTL_MS) recentSpoken.delete(sid);
-    }
-}
-let lastTtsPreviewSid = null;
-let turnOwnerSid = null; 
-let recordingActiveSid = null; 
+
+
+
+export const FORK_TTL_MS = 600000;   // 10min sem re-registro => sid morto (uma fork viva re-registra a cada 4s; uma morta/sessionDead para). NUNCA remove a própria (mySid).
+
+export let lastTtsPreviewSid = null;
+export function setLastTtsPreviewSid(v) { lastTtsPreviewSid = v; }
+export let recordingActiveSid = null; 
 let recordingActiveTimer = null; 
-let monitorSid = null; 
-function mySid() {
-    return process.env.SESSION_ID || (session && session.sessionId) || "";
-}
-function canonicalBase() {
-    const p = preferredPort || readSavedPort();
-    return p ? `http://127.0.0.1:${p}/` : null;
-}
-function withSid(u, sid = mySid()) {
-    // O token de loopback é entregue à canvas via cookie de mesma origem + injeção no
-    // corpo do HTML (ver o handler GET /), nunca na query da URL do painel — assim não
-    // vaza por referrer/histórico/log. A página lê o token para o header x-voice-token.
-    return u + (u.includes("?") ? "&" : "?") + "sid=" + encodeURIComponent(sid);
-}
+
+
+
 const DEFAULT_SETTINGS = {
     voice: "Microsoft Maria Desktop",
     rate: 0,
@@ -144,7 +119,8 @@ const DEFAULT_SETTINGS = {
     handsfree: false,
     micDevice: null,
 };
-let settings = { ...DEFAULT_SETTINGS };
+export let settings = { ...DEFAULT_SETTINGS };
+export function setSettings(v) { settings = v; }
 
 // Modelo por TOOL (v1.5.16+): o agente usa a tool `falar` para produzir áudio QUANDO quiser (inclusive
 // antes de uma pergunta, várias vezes por turno). O Stop hook exige >=1 chamada de `falar` por turno.
@@ -164,29 +140,8 @@ const CHECKPOINT_INSTRUCTION =
     "Emita apenas em marcos relevantes (não a cada passo pequeno) e NUNCA em tarefas curtas. Esses 📍 " +
     "são lidos em voz alta como sinal de direção: mantenha-os curtos, naturais, sem markdown nem código.";
 
-let worker = null;
-let workerReady = false;
-let workerStarting = false;
-let pyIndex = 0;
-let pyCandidates = null;   // concrete interpreters for the current start sequence
-let pyExhaustCount = 0;    // consecutive full-discovery exhaustions (bounded retry)
-let activePy = "";         // interpreter used by the in-flight start (cached on ready)
-let crashCount = 0;
-const WORKER_STABLE_MS = 30000;
-let readyAt = 0;
-let workerStartAt = 0;
-let lastLoadingMsg = "";
-let lastLoadingAt = 0;
-let lastLoadingBusy = false;   // a última fase de "loading" é uma operação LONGA e LEGÍTIMA (install/update do motor)? Se sim, o watchdog NÃO reinicia (matar no meio do install corromperia o venv).
-let startupWatchdog = null;
-let stabilityTimer = null;
-let intentionalRestart = false;
-let wedgeRestarts = 0;   // auto-reinícios consecutivos de um boot TRAVADO (worker vivo, mudo e que nunca ficou pronto); zerado ao ficar pronto, limitado por WEDGE_MAX_RESTARTS.
-let lastDevice = "cpu";
-let lastMics = { devices: [], current: null, default: null };
 // Catálogo de vozes de TTS: VEM SÓ DO MOTOR (evento worker "voices"). Sem lista local
 // de fallback — se o motor não reportar, fica vazio e a UI mostra "indisponível" ALTO.
-let lastVoices = { voices: [], default: null };
 
 let pendingVoiceTurn = false;
 let voiceInstructionPending = false; 
@@ -194,10 +149,9 @@ let latestReply = "";
 let lastSpokenContent = "";
 let idleFallback = null;
 const IDLE_FALLBACK_MS = 15000; 
-let ttsSeq = 0;
 let _phase = "boot"; 
 
-function log(msg, level = "debug") {
+export function log(msg, level = "debug") {
     dbg(msg);
     try {
         // session.log() é uma RPC ASSÍNCRONA (Promise). O try/catch NÃO pega uma
@@ -219,7 +173,7 @@ async function loadSettings() {
     }
 }
 
-async function saveSettings() {
+export async function saveSettings() {
     try {
         await mkdir(ARTIFACTS, { recursive: true });
         await writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2), "utf8");
@@ -316,7 +270,7 @@ function restoreVoiceState() {
     clearVoiceState();
 }
 
-function sanitizeSettings(b) {
+export function sanitizeSettings(b) {
     const out = {};
     if (typeof b.voice === "string") out.voice = b.voice;
     if (typeof b.ttsVoice === "string" && b.ttsVoice.trim()) out.ttsVoice = b.ttsVoice.trim();
@@ -335,48 +289,20 @@ function sanitizeSettings(b) {
     return out;
 }
 
-function broadcast(obj) {
-    const line = `data: ${JSON.stringify(obj)}\n\n`;
-    for (const res of sseClients.keys()) {
-        try {
-            res.write(line);
-        } catch {
-        }
-    }
-}
 
-export function broadcastTo(sid, obj) {
-    if (!sid) { dbg("broadcastTo: empty sid, dropping event " + (obj && obj.type)); return; }
-    const line = `data: ${JSON.stringify(obj)}\n\n`;
-    for (const [res, csid] of sseClients) {
-        if (csid !== sid) continue;
-        try {
-            res.write(line);
-        } catch {
-        }
-    }
-}
 
-let heartbeatTimer = null;
-function startHeartbeat() {
-    if (heartbeatTimer) return;
-    heartbeatTimer = setInterval(() => {
-        for (const res of [...sseClients.keys()]) {
-            try { res.write(": ping\n\n"); }
-            catch { sseClients.delete(res); }
-        }
-    }, 15000);
-    if (heartbeatTimer.unref) heartbeatTimer.unref();
-}
 
-function readUpdateState() {
+
+
+
+export function readUpdateState() {
     try {
         return JSON.parse(readFileSync(UPDATE_STATE_FILE, "utf8"));
     } catch {
         return {};
     }
 }
-function writeUpdateState(s) {
+export function writeUpdateState(s) {
     try {
         writeFileSync(UPDATE_STATE_FILE, JSON.stringify(s));
     } catch (e) {
@@ -385,17 +311,17 @@ function writeUpdateState(s) {
 }
 // --- Auto-update DA EXTENSÃO: funções puras em voice-update.mjs (versão/assinatura/fetch/logic-hash).
 // Versão EFETIVA instalada: o maior entre a baked (extension.mjs em memória) e a aplicada a quente.
-function effectiveVersion(state) {
+export function effectiveVersion(state) {
     const applied = state && state.appliedVersion;
     return (applied && verGt(applied, CURRENT_VERSION)) ? applied : CURRENT_VERSION;
 }
 // pendingUpdate p/ a UI: só quando há um app-restart pendente E é mais novo que o efetivo.
-function pendingRestartVersion(state) {
+export function pendingRestartVersion(state) {
     const pv = state && state.pendingVersion;
     return (pv && verGt(pv, effectiveVersion(state))) ? pv : null;
 }
 
-async function checkForUpdate(opts = {}) {
+export async function checkForUpdate(opts = {}) {
     const force = opts.force === true;
     if (UPDATE_DISABLED || !primaryFork) return { status: "disabled" };
     const st = readUpdateState();
@@ -508,382 +434,7 @@ async function checkForUpdate(opts = {}) {
 // that reaches "ready" is cached so later starts no longer depend on PATH.
 // --- Python interpreter discovery: ver voice-python.mjs (independente do PATH) ---
 
-function ensureWorker() {
-    if (worker || workerStarting || !primaryFork) return;
-    pyIndex = 0;
-    pyCandidates = null;   // rebuild discovery fresh for this start sequence
-    startWorker();
-}
-
-function startWorker() {
-    workerStarting = true;
-    if (!pyCandidates || !pyCandidates.length) pyCandidates = buildPythonCandidates();
-    if (!pyCandidates.length) pyCandidates = process.platform === "win32" ? ["python", "py"] : ["python3", "python"];
-    const py = pyCandidates[pyIndex] || pyCandidates[pyCandidates.length - 1];
-    activePy = py;
-    const env = {
-        ...process.env,
-        VOICE_MODEL_ROOT: MODELS_DIR,
-        VOICE_LANG: settings.language,
-        VOICE_TTS_MODEL: settings.ttsVoice || "",
-        VOICE_WAKE_PHRASES: settings.wakePhrase || "escuta jarvis",
-        VOICE_MIC_DEVICE: settings.micDevice == null ? "" : String(settings.micDevice),
-        PYTHONIOENCODING: "utf-8",
-        PYTHONUNBUFFERED: "1",
-    };
-
-    let child;
-    try {
-        child = spawn(py, ["-u", WORKER_FILE], {
-            cwd: EXT_DIR,
-            env,
-            stdio: ["pipe", "pipe", "pipe"],
-        });
-    } catch (e) {
-        workerStarting = false;
-        tryNextPy("spawn threw: " + e.message);
-        return;
-    }
-
-    worker = child;
-    try {
-        if (child.pid) setPriority(child.pid, osConstants.priority.PRIORITY_BELOW_NORMAL);
-    } catch (e) {
-        dbg("setPriority(worker) failed: " + (e && e.message));
-    }
-    let sawReady = false;
-    let errored = false;
-
-    child.on("error", (e) => {
-        log("worker spawn error: " + e.message);
-        errored = true;
-        worker = null;
-        workerStarting = false;
-        if (!sawReady) tryNextPy(e.message);
-    });
-
-    const rl = createInterface({ input: child.stdout });
-    rl.on("line", (line) => {
-        line = line.trim();
-        if (!line) return;
-        let ev;
-        try {
-            ev = JSON.parse(line);
-        } catch {
-            log("worker non-json: " + line.slice(0, 160));
-            return;
-        }
-        if (ev.event === "ready") {
-            sawReady = true;
-            crashCount = 0;
-            pyExhaustCount = 0;
-            savePythonPath(activePy); // this interpreter works — reuse it, PATH-free
-        }
-        onWorkerEvent(ev);
-    });
-
-    const errRl = createInterface({ input: child.stderr });
-    errRl.on("line", (line) => {
-        if (line.trim()) dbg("py: " + line.trim());
-    });
-
-    child.on("exit", (code, sig) => {
-        log(`worker exited code=${code} sig=${sig}`);
-        worker = null;
-        workerReady = false;
-        workerStarting = false;
-        clearStartupWatchdog();
-        if (stabilityTimer) { clearTimeout(stabilityTimer); stabilityTimer = null; }
-        for (const [id, p] of pendingTts) {
-            clearTimeout(p.timer);
-            try { p.reject(new Error("motor de voz encerrou durante a síntese")); } catch {  }
-            pendingTts.delete(id);
-        }
-        if (intentionalRestart) {
-            intentionalRestart = false;
-            crashCount = 0;
-            broadcast({ type: "worker", state: "loading", msg: "Reiniciando motor de voz…" });
-            setTimeout(ensureWorker, 300);
-            return;
-        }
-        if (handingOver) return;   // handover de versão: a fork NOVA abre o worker; não respawn aqui (evita 2 workers)
-        if (errored) return; 
-        const wasStable = sawReady && readyAt && (Date.now() - readyAt >= WORKER_STABLE_MS);
-        if (!wasStable) crashCount++;
-        if (crashCount > 4) {
-            broadcast({
-                type: "worker",
-                state: "error",
-                msg: "O motor de voz falhou repetidamente. Verifique os logs da extensão.",
-            });
-            return;
-        }
-        broadcast({ type: "worker", state: "loading", msg: "Reiniciando motor de voz…" });
-        setTimeout(ensureWorker, 1500);
-    });
-
-    broadcast({ type: "worker", state: "loading", msg: "Iniciando motor de voz…" });
-    armStartupWatchdog();
-    workerStarting = false; 
-}
-
-function clearStartupWatchdog() {
-    if (startupWatchdog) { clearInterval(startupWatchdog); startupWatchdog = null; }
-}
-
-// Auto-recuperação de um boot TRAVADO. O motor (daemon vox-engine) pode ficar saudável
-// enquanto o WORKER prende no connect (ex.: open() de um named pipe ocupado): fica vivo,
-// ocioso e nunca emite "ready" — a UI eternizava "Iniciando motor de voz…". O respawn por
-// SAÍDA (child "exit") NÃO cobre isso: um worker travado não sai. Então o watchdog decide,
-// pelo estado observável, AUTO-REINICIAR o worker (restart provou resolver em ~1s).
-const WEDGE_QUIET_SECS = 40;     // sem progresso E sem "ready" por este tempo ⇒ travado
-const WEDGE_MAX_RESTARTS = 3;    // auto-reinícios antes de desistir com erro ALTO
-// Decisão PURA (sem timers/efeitos) p/ ser testável de forma adversarial. NUNCA reinicia
-// durante uma operação longa e LEGÍTIMA (busy: install/update do motor, silenciosa por
-// minutos) — matar o worker no meio ORFANARIA a árvore do install.ps1 e um respawn
-// iniciaria uma 2ª instalação concorrente, corrompendo o venv. Silêncio só conta como
-// wedge FORA de uma fase busy.
-function startupWatchdogAction({ workerReady, hasWorker, quietFor, busy, wedgeRestarts }) {
-    if (workerReady || !hasWorker) return { action: "stop" };
-    if (!busy && quietFor >= WEDGE_QUIET_SECS) {
-        return wedgeRestarts >= WEDGE_MAX_RESTARTS ? { action: "giveup" } : { action: "restart" };
-    }
-    if (quietFor >= 25) return { action: "narrate" };
-    return { action: "none" };
-}
-function armStartupWatchdog() {
-    clearStartupWatchdog();
-    workerStartAt = Date.now();
-    lastLoadingAt = 0;
-    lastLoadingBusy = false;
-    // The motor start must never be a silent infinite spinner. While it is coming up
-    // (no "ready" yet), keep logging elapsed + last phase; once the worker goes quiet
-    // (no progress event for a while) and is NOT in a busy install phase, take it as a
-    // WEDGE and auto-restart it (bounded). Otherwise surface elapsed time + the
-    // debug.log path so the user can SEE where it is stuck.
-    startupWatchdog = setInterval(() => {
-        if (workerReady || !worker) { clearStartupWatchdog(); return; }
-        const secs = Math.round((Date.now() - workerStartAt) / 1000);
-        const quietFor = Math.round((Date.now() - (lastLoadingAt || workerStartAt)) / 1000);
-        const phase = lastLoadingMsg || "iniciando";
-        dbg(`worker startup watchdog: ${secs}s total, quiet ${quietFor}s, busy=${lastLoadingBusy}, phase="${phase}"`);
-        const act = startupWatchdogAction({
-            workerReady, hasWorker: !!worker, quietFor, busy: lastLoadingBusy, wedgeRestarts,
-        });
-        if (act.action === "restart") {
-            wedgeRestarts++;
-            log(`worker startup WEDGED (quiet ${quietFor}s, phase="${phase}", total ${secs}s) → auto-reinício ${wedgeRestarts}/${WEDGE_MAX_RESTARTS}. Log: ${DEBUG_LOG}`);
-            broadcast({ type: "worker", state: "loading", msg: `O motor de voz travou em "${phase}" — reiniciando (${wedgeRestarts}/${WEDGE_MAX_RESTARTS})…`, secs, stalled: true });
-            clearStartupWatchdog();   // limpa JÁ: worker.kill() é assíncrono; não conte com o "exit" chegar antes do próximo tick (senão double-restart). O respawn re-arma.
-            restartWorker();
-            return;
-        }
-        if (act.action === "giveup") {
-            clearStartupWatchdog();
-            log(`worker startup: desisti após ${wedgeRestarts} auto-reinícios (fase="${phase}", ${secs}s)`);
-            broadcast({ type: "worker", state: "error", msg: `O motor de voz não respondeu após ${wedgeRestarts} reinícios (fase: ${phase}, ${secs}s). Verifique o log: ${DEBUG_LOG}` });
-            return;
-        }
-        if (act.action === "narrate") {
-            const msg = secs >= 90
-                ? `Motor sem resposta há ${quietFor}s (fase: ${phase}, total ${secs}s). Log: ${DEBUG_LOG}`
-                : `${phase} — ${secs}s`;
-            broadcast({ type: "worker", state: "loading", msg, secs, stalled: quietFor >= 60 });
-        }
-    }, 10000);
-    if (startupWatchdog.unref) startupWatchdog.unref();
-}
-
-function tryNextPy(reason) {
-    pyIndex++;
-    if (pyCandidates && pyIndex < pyCandidates.length) {
-        log(`retry python candidate '${pyCandidates[pyIndex]}' (${reason})`);
-        setTimeout(startWorker, 200);
-        return;
-    }
-    // Every candidate failed. Do NOT brick permanently — a machine that has Python
-    // may just need PATH/env to settle, and discovery is rebuilt each attempt.
-    pyIndex = 0;
-    pyCandidates = null;
-    pyExhaustCount++;
-    if (pyExhaustCount <= 3) {
-        log(`python discovery exhausted (${reason}); retry #${pyExhaustCount} in 8s`);
-        broadcast({ type: "worker", state: "loading", msg: "Procurando o Python do motor de voz…" });
-        setTimeout(() => { workerStarting = false; ensureWorker(); }, 8000);
-        return;
-    }
-    broadcast({
-        type: "worker",
-        state: "error",
-        msg: "Não foi possível iniciar o Python do motor de voz. Instale o Python 3 e reabra o painel.",
-    });
-}
-
-function workerSend(obj) {
-    if (worker && worker.stdin && worker.stdin.writable) {
-        try {
-            worker.stdin.write(JSON.stringify(obj) + "\n");
-            return true;
-        } catch (e) {
-            log("worker write failed: " + e.message);
-        }
-    }
-    return false;
-}
-
-function restartWorker() {
-    if (!worker) {
-        ensureWorker();
-        return;
-    }
-    intentionalRestart = true;
-    try { workerSend({ cmd: "shutdown" }); } catch {  }
-    try { worker.kill(); } catch {  }
-}
-
-// Reinício por INTENÇÃO EXPLÍCITA do usuário (botão / POST /restart-worker). Renova o
-// orçamento de auto-reinício: sem isto, um giveup anterior (wedgeRestarts no teto, que só
-// zera num "ready") faria o watchdog recém-armado desistir na 1ª verificação — matando o
-// restart manual com um erro falso "não respondeu após N reinícios", sem uma única tentativa.
-function manualRestartWorker() {
-    wedgeRestarts = 0;
-    broadcast({ type: "worker", state: "loading", msg: "Reiniciando a captura de voz…" });
-    restartWorker();
-}
-
-function onWorkerEvent(ev) {
-    switch (ev.event) {
-        case "ready":
-            workerReady = true;
-            clearStartupWatchdog();
-            wedgeRestarts = 0;   // boot saudável: renova o orçamento de auto-reinício
-            readyAt = Date.now();
-            lastDevice = ev.device || "cpu";
-            if (stabilityTimer) clearTimeout(stabilityTimer);
-            stabilityTimer = setTimeout(() => { crashCount = 0; stabilityTimer = null; }, WORKER_STABLE_MS);
-            broadcast({ type: "worker", state: "ready", device: lastDevice });
-            warmTts();
-            if (settings.wakeWord) {
-                workerSend({ cmd: "wake", on: true, phrases: [settings.wakePhrase] });
-            }
-            break;
-        case "loading":
-            lastLoadingMsg = ev.msg || lastLoadingMsg;
-            lastLoadingAt = Date.now();
-            lastLoadingBusy = !!ev.busy;   // install/update (busy) é longo e legítimo: o watchdog NÃO reinicia nessa fase
-            broadcast({ type: "worker", state: "loading", msg: ev.msg, pct: ev.pct });
-            break;
-        case "level":
-            broadcastTo(turnOwnerSid || activeSid, { type: "level", rms: ev.rms, peak: ev.peak });
-            break;
-        case "recording":
-            broadcastTo(turnOwnerSid || activeSid, { type: "recording", state: ev.state });
-            break;
-        case "monitor_level":
-            if (monitorSid) broadcastTo(monitorSid, { type: "monitorLevel", rms: ev.rms, peak: ev.peak });
-            break;
-        case "transcript": {
-            const t = (ev.text || "").trim();
-            const confirm = settings.confirmTranscript === true && !!t;
-            // The recorder sid travels WITH the capture through the worker and is
-            // echoed back here, so routing is correct even if a primary failover or
-            // focus change mutated the in-memory turnOwnerSid/activeSid globals.
-            const owner = ev.sid || turnOwnerSid || activeSid;
-            turnOwnerSid = null;
-            clearRecordingActive();
-            broadcastTo(owner, { type: "transcript", text: ev.text || "", confirm, note: ev.note, peak: ev.peak, micOk: ev.micOk });
-            if (t && !confirm) dispatchVoiceTurn(t, owner);
-            break;
-        }
-        case "error":
-            clearRecordingActive();
-            turnOwnerSid = null;
-            // Liveness: um worker que EMITE erro está vivo e ciclando (o loop de boot
-            // retenta) — não é um wedge mudo. Renova o "quiet" p/ o self-heal NÃO
-            // reiniciar por cima de um erro ALTO (reiniciar não conserta motor-down),
-            // e encerra qualquer fase busy (a operação longa terminou em erro).
-            lastLoadingAt = Date.now();
-            lastLoadingBusy = false;
-            if (ev.fatal) {
-                workerReady = false;
-                broadcast({ type: "worker", state: "error", msg: ev.msg });
-            } else {
-                broadcast({ type: "error", msg: ev.msg });
-            }
-            break;
-        case "tts": {
-            if (ev.id === "__warm__") {
-                broadcast({ type: "worker", state: "voiceReady" });
-                break;
-            }
-            const p = pendingTts.get(ev.id);
-            if (p) {
-                pendingTts.delete(ev.id);
-                if (p.timer) clearTimeout(p.timer);
-                if (ev.ok && existsSync(p.wavFile)) p.resolve();
-                else p.reject(new Error(ev.msg || "falha na síntese de voz"));
-            }
-            break;
-        }
-        case "transcribed": {
-            const p = pendingTranscribe.get(ev.id);
-            if (p) {
-                pendingTranscribe.delete(ev.id);
-                if (p.timer) clearTimeout(p.timer);
-                if (ev.ok) p.resolve((ev.text || "").trim());
-                else p.reject(new Error(ev.msg || "falha na transcrição"));
-            }
-            break;
-        }
-        case "tts_voice":
-            broadcast({ type: "worker", state: "voiceReady" });
-            if (ev.ok) previewVoice();
-            else if (ev.msg) broadcast({ type: "error", msg: ev.msg });
-            break;
-        case "wake":
-            broadcast({ type: "wake", state: ev.state, phrase: ev.phrase, msg: ev.msg ?? ev.message });
-            break;
-        case "mics":
-            lastMics = { devices: ev.devices || [], current: ev.current ?? null, default: ev.default ?? null };
-            broadcast({ type: "mics", ...lastMics });
-            break;
-        case "mic-fallback":
-            // o mic selecionado sumiu (ex.: bluetooth descarregou) e o worker voltou ao padrão
-            // do Windows sozinho. LIMPA o pino PERSISTIDO — senão o próximo spawn re-envia o
-            // índice morto (VOICE_MIC_DEVICE) e, como os índices do PortAudio deslocam quando
-            // um device some, poderia casar OUTRO microfone vivo e capturar o errado calado.
-            // MAS só limpa se ainda for o índice que MORREU (ev.from): sob flapping (BT cai->volta
-            // e o user re-seleciona antes do evento chegar) não pisa na reseleção nova.
-            if (settings.micDevice != null && (ev.from == null || settings.micDevice === ev.from)) {
-                settings.micDevice = null; saveSettings().catch(() => { });
-            }
-            broadcast({ type: "mic-fallback", to: ev.to || "default" });
-            break;
-        case "voices":
-            // Catálogo do motor (fonte única). ok:false / lista vazia é repassado como
-            // está — a UI mostra "vozes indisponíveis" ALTO, sem mascarar com lista local.
-            lastVoices = { voices: Array.isArray(ev.voices) ? ev.voices : [], default: ev.default_voice ?? null };
-            broadcast({ type: "voices", ...lastVoices, ok: ev.ok, msg: ev.msg });
-            break;
-        case "command": {
-            const c = (ev.text || "").trim();
-            dbg(`wake command: ${c.slice(0, 120)}`);
-            if (c) {
-                const owner = turnOwnerSid || activeSid;
-                turnOwnerSid = null;
-                broadcastTo(owner, { type: "transcript", text: c, confirm: false });
-                dispatchVoiceTurn(c, owner);
-            }
-            break;
-        }
-        case "status":
-        case "pong":
-        default:
-            break;
-    }
-}
-
-function dispatchVoiceTurn(text, sidArg) {
+export function dispatchVoiceTurn(text, sidArg) {
     const t = (text || "").trim();
     if (!t) return;
     const want = sidArg || activeSid;
@@ -1175,7 +726,7 @@ async function _processDrainFile(proc, fallbackSid) {
     }
     try { unlinkSync(proc); } catch { /* ignore */ }
 }
-async function drainPendingSpeak(sid) {
+export async function drainPendingSpeak(sid) {
     if (!sid || !primaryFork) return;   // só o primário sintetiza/enfileira/toca
     if (!workerReady) return;           // motor OFF -> deixa o texto na fila de síntese (drena qdo ligar)
     const f = pendingSpeakFile(sid);
@@ -1194,7 +745,7 @@ function writePendingSpeak(sid, text) {
         return true;
     } catch { return false; }
 }
-async function drainAllPendingSpeak() {
+export async function drainAllPendingSpeak() {
     if (!primaryFork) return;
     try {
         if (!existsSync(PENDING_SPEAK_DIR)) return;
@@ -1210,7 +761,7 @@ async function drainAllPendingSpeak() {
     } catch { /* ignore */ }
 }
 
-async function speakToCanvas(sid, spoken, full, cue) {
+export async function speakToCanvas(sid, spoken, full, cue) {
     if (cue) {
         // Progress cue text updates the UI immediately (silent); the AUDIO only
         // plays if this session is active, otherwise it joins the per-session FIFO
@@ -1263,10 +814,7 @@ async function speakCue(text, kind) {
     await routeSpeak({ spoken: clean, cue: kind });
 }
 
-function forwardToPrimary(path, body) {
-    const base = canonicalBase();
-    return base ? httpPostJson(base, path, body) : Promise.resolve(false);
-}
+
 
 async function routeSpeak({ spoken, full, cue, sid = mySid() }) {
     if (!spoken) return false;
@@ -1277,322 +825,56 @@ async function routeSpeak({ spoken, full, cue, sid = mySid() }) {
 // Helpers de modelagem de texto p/ fala (cleanForSpeech/firstSentences/extractAuthoredSummary/
 // stripCheckpointLines/makeSpoken): puros, em voice-text.mjs.
 
-async function synthesize(text) {
-    await mkdir(TTS_DIR, { recursive: true });
-    const id = `${Date.now()}-${ttsSeq++}`;
-    const wavFile = join(TTS_DIR, `reply-${id}.wav`);
-    const speakText = text && text.trim() ? text : "Sem conteúdo para ler.";
-    try {
-        await synthViaWorker(id, speakText, wavFile);
-    } catch (e) {
-        // O TTS vem SÓ do motor único — SEM fallback SAPI/local. O erro sobe ALTO
-        // para o chamador surfaçar (a UI mostra "Falha na síntese de voz").
-        log("tts do motor falhou (motor único, sem fallback): " + e.message);
-        throw e;
-    }
-    cleanupOldWavs().catch(() => {});
-    return basename(wavFile);
-}
 
-async function previewVoice() {
-    try {
-        const wav = await synthesize("Voz alterada. Agora estou falando assim.");
-        if (lastTtsPreviewSid) broadcastTo(lastTtsPreviewSid, { type: "voicePreview", audio: "/tts/" + wav });
-    } catch (e) {
-        dbg("voice preview failed: " + (e && e.message));
-    }
-}
 
-function ttsSpeed(rate) {
-    const r = typeof rate === "number" ? rate : 0;
-    return Math.max(0.7, Math.min(1.4, 1 + r * 0.03));
-}
-
-function synthViaWorker(id, text, wavFile) {
-    return new Promise((resolve, reject) => {
-        if (!worker || !workerReady) {
-            reject(new Error("motor de voz não está pronto"));
-            return;
-        }
-        const timer = setTimeout(() => {
-            if (pendingTts.has(id)) {
-                pendingTts.delete(id);
-                reject(new Error("tempo esgotado na síntese de voz"));
-            }
-        }, 30000);
-        pendingTts.set(id, { resolve, reject, timer, wavFile });
-        const ok = workerSend({
-            cmd: "tts",
-            id,
-            text,
-            out: wavFile,
-            speed: ttsSpeed(settings.rate),
-            sid: settings.ttsSid || 0,
-        });
-        if (!ok) {
-            clearTimeout(timer);
-            pendingTts.delete(id);
-            reject(new Error("falha ao enviar texto ao motor de voz"));
-        }
-    });
-}
-
-function warmTts() {
-    workerSend({ cmd: "tts", id: "__warm__", text: "ok", warm: true });
-}
-
-function transcribeViaWorker(path) {
-    return new Promise((resolve, reject) => {
-        if (!worker || !workerReady) { reject(new Error("motor de voz não está pronto")); return; }
-        const id = "tr-" + randomBytes(6).toString("hex");
-        const timer = setTimeout(() => {
-            if (pendingTranscribe.has(id)) { pendingTranscribe.delete(id); reject(new Error("tempo esgotado na transcrição")); }
-        }, 60000);
-        pendingTranscribe.set(id, { resolve, reject, timer });
-        const ok = workerSend({ cmd: "transcribe_file", id, path });
-        if (!ok) { clearTimeout(timer); pendingTranscribe.delete(id); reject(new Error("falha ao enviar áudio ao motor de voz")); }
-    });
-}
-
-async function cleanupOldWavs() {
-    try {
-        const files = (await readdir(TTS_DIR)).filter((f) => f.endsWith(".wav"));
-        if (files.length <= 8) return;
-        // Never prune a wav still referenced by any session's audio HISTORY — those
-        // must stay re-playable. basename() maps the "/tts/<file>.wav" url to a file.
-        const kept = new Set();
-        for (const hist of audioHistoryBySid.values()) {
-            for (const it of hist) if (it && it.audio) kept.add(basename(it.audio));
-        }
-        const prunable = files.filter((f) => !kept.has(f));
-        if (prunable.length <= 8) return;
-        const withTime = await Promise.all(
-            prunable.map(async (f) => ({ f, m: (await stat(join(TTS_DIR, f))).mtimeMs })),
-        );
-        withTime.sort((a, b) => b.m - a.m);
-        for (const { f } of withTime.slice(8)) unlink(join(TTS_DIR, f)).catch(() => {});
-    } catch {
-    }
-}
-
-function readBody(req) {
-    return new Promise((resolve) => {
-        const chunks = [];
-        req.on("data", (c) => chunks.push(c));
-        req.on("end", () => {
-            try {
-                // Buffer.concat + toString: `b += c` coage cada Buffer p/ string por chunk
-                // (O(n²) em corpos grandes) E pode QUEBRAR um caractere UTF-8 multibyte
-                // dividido entre dois chunks -> JSON.parse falharia. Concatenar os bytes e
-                // decodificar 1x é mais rápido e correto.
-                const b = Buffer.concat(chunks).toString("utf8");
-                resolve(b ? JSON.parse(b) : {});
-            } catch {
-                resolve({});
-            }
-        });
-    });
-}
-
-const HTTP_POST_TIMEOUT_MS = 30000;   // teto p/ um POST entre forks. /inject agora AGUARDA session.send; sem teto, um send VIVO travado deixaria o req pendurado -> drainingTurns(sid) nunca liberado -> a fila daquele sid emperra. No timeout resolvemos false: o turno segue na fila e re-roteia.
 // Keep-alive só p/ loopback (forks na mesma máquina): reusa o socket entre POSTs
 // (register a cada 4s + inject/speak/focus/relay) em vez de abrir um socket novo por
 // chamada. Sem TLS, mesmo host -> ganho de handshake/FD sem custo de segurança.
-const loopbackAgent = new HttpAgent({ keepAlive: true, keepAliveMsecs: 15000, maxSockets: 8 });
-export function httpPostJson(baseUrl, path, body, timeoutMs = HTTP_POST_TIMEOUT_MS) {
-    return new Promise((resolve) => {
-        try {
-            const u = new URL(path, baseUrl);
-            const data = Buffer.from(JSON.stringify(body || {}));
-            const isLoopback = u.hostname === "127.0.0.1" || u.hostname === "localhost";
-            const req = httpRequest(
-                {
-                    hostname: u.hostname,
-                    port: u.port,
-                    path: u.pathname,
-                    method: "POST",
-                    agent: isLoopback ? loopbackAgent : undefined,
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Content-Length": data.length,
-                        ...(sharedToken ? { "x-voice-token": sharedToken } : {}),
-                    },
-                },
-                (res) => {
-                    res.on("data", () => {});
-                    res.on("end", () => resolve(res.statusCode >= 200 && res.statusCode < 300));
-                },
-            );
-            if (timeoutMs > 0) {
-                req.setTimeout(timeoutMs, () => {
-                    // Não deixa o drain preso num send que nunca responde: aborta e reporta
-                    // falha (o turno fica na fila e re-roteia p/ uma fork viva).
-                    try { req.destroy(); } catch { }
-                    resolve(false);
-                });
-            }
-            req.on("error", (e) => {
-                if (!primaryFork && e && DEAD_PRIMARY_CODES.has(e.code) && baseUrl === canonicalBase()) {
-                    reclaimPrimaryIfOrphaned("forward " + e.code).catch(() => { });
-                }
-                resolve(false);
-            });
-            req.write(data);
-            req.end();
-        } catch {
-            resolve(false);
-        }
-    });
-}
 
-function registerSelf() {
-    if (!myBaseUrl) return;
-    if (sessionDead) return;   // fork morta não se anuncia: deixa a fork viva desta sessão assumir o roteamento
-    if (!primaryFork && myBaseUrl === canonicalBase()) return;   // INVARIANTE ESTRUTURAL: uma não-primária NUNCA anuncia a porta canônica (senão vaza esta sessão p/ o novo primário). Independe de handingOver.
-    if (primaryFork) {
-        setFork(mySid(), myBaseUrl);
-        return;
-    }
-    const base = canonicalBase();
-    if (base) httpPostJson(base, "/register", { sid: mySid(), url: myBaseUrl, version: CURRENT_VERSION });
-}
+
+
 
 // Timers de secundário (re-registro a cada 4s + probe do primário). Idempotente: chamado no
 // cold-start (startServer) E quando um primário cede e volta a ser secundário (step-down).
-let _secRegTimer = null, _secProbeTimer = null;
-function ensureSecondaryTimers() {
-    if (secondaryTimersOn) return;
-    secondaryTimersOn = true;
-    _secRegTimer = setInterval(registerSelf, 4000);
-    if (_secRegTimer.unref) _secRegTimer.unref();
-    _secProbeTimer = setInterval(probePrimary, 7000 + Math.floor(Math.random() * 3000));
-    if (_secProbeTimer.unref) _secProbeTimer.unref();
-}
+
 // Ao PROMOVER um secundário a primário, os timers de secundário (re-registro/probe) precisam PARAR:
 // senão um re-registro atrasado anuncia uma URL errada, e o step-down futuro tem um timer fantasma
 // anunciando a canônica na janela (o vazamento cross-sessão que o gate pegou).
-function stopSecondaryTimers() {
-    if (_secRegTimer) { clearInterval(_secRegTimer); _secRegTimer = null; }
-    if (_secProbeTimer) { clearInterval(_secProbeTimer); _secProbeTimer = null; }
-    secondaryTimersOn = false;
-}
+
 
 // Cede o microfone ÚNICO: encerra o worker SEM respawn (a fork nova abre o dela). O guard
 // `handingOver` no exit handler impede o respawn de crash.
-function shutdownWorkerForHandover() {
-    if (!worker) return;
-    try { workerSend({ cmd: "shutdown" }); } catch { }
-    try { worker.kill(); } catch { }
-    worker = null; workerReady = false; workerStarting = false;
-}
 
 // Este primário roda código VELHO e uma fork MAIS NOVA apareceu: cede a ela de forma limpa —
 // solta o worker, libera a porta canônica e cutuca a nova p/ reassumir JÁ. Vira secundário.
 // suppressReclaimUntil impede reassumir a porta de volta na janela (anti-flap). É o que ativa
 // um update do extension.mjs sem o usuário fechar o app.
-async function stepDownForNewer(newerUrl, newerVer) {
-    if (handingOver || !primaryFork) return;
-    handingOver = true;
-    log(`handover: cedendo primário p/ v${newerVer} (${newerUrl}); eu=v${CURRENT_VERSION}`);
-    broadcast({ type: "worker", state: "loading", msg: `Ativando atualização (v${newerVer})…` });
-    const graceUntil = Date.now() + HANDOVER_GRACE_MS;
-    suppressReclaimUntil = graceUntil;
-    writeHandoverLock(graceUntil);   // ANTI-FLAP global: bystanders velhos também suspendem o reclaim na janela
-    // ORDEM CRÍTICA (gate): subo meu server EFÊMERO e reaponto myBaseUrl ANTES de qualquer await e ANTES
-    // de virar não-primário. Assim NUNCA existe uma janela em que eu (não-primário) anuncie a porta
-    // canônica (agora do novo primário) — o que injetaria minhas falas na sessão DELE (vazamento).
-    let ephem = null;
-    try {
-        ephem = makeVoiceServer();
-        await listenOnce(ephem, 0);
-        setMyBaseUrl(`http://127.0.0.1:${ephem.address().port}/`);
-        log(`handover: server efêmero próprio em ${myBaseUrl} (rota da minha sessão preservada)`);
-    } catch (e) {
-        // ABORT: sem meu próprio server efêmero não há rota segura p/ a MINHA sessão. Ceder o primário aqui
-        // deixaria myBaseUrl canônica (vaza minha fala p/ a sessão do novo primário) ou me deixaria sem rota.
-        // Então NÃO cedo: reverto tudo e sigo primário; a fork nova tenta de novo no próximo /register (4s).
-        dbg("handover: falha ao subir server efêmero, ABORTANDO step-down (sigo primário): " + (e && e.message));
-        try { if (ephem) ephem.close(); } catch { }
-        handingOver = false;
-        suppressReclaimUntil = 0;
-        writeHandoverLock(0);   // limpa o lock global: bystanders não devem suspender o reclaim por um handover que não aconteceu
-        broadcast({ type: "worker", state: workerReady ? "ready" : "loading", device: lastDevice });   // limpa o "Ativando atualização…" (o worker segue vivo, eu sigo primário)
-        return;
-    }
-    setPrimaryFork(false);
-    shutdownWorkerForHandover();
-    // Registra o server efêmero no bookkeeping por instância (funciona p/ primário cold-start E reclaim,
-    // cujo entry era primary:false) e libera a porta canônica SEM await (as conexões SSE dos painéis
-    // ficam abertas por DESIGN no handover -> server.close(cb) NUNCA chamaria o cb; destruo os sockets
-    // e sigo). O novo primário assume a canônica.
-    for (const [id, entry] of servers) {
-        if (entry && (entry.primary || (entry.server && (entry.server === promotedServer || (primaryServerEntry && entry.server === primaryServerEntry.server))))) {
-            servers.set(id, { ...entry, server: ephem, url: myBaseUrl, primary: false });
-        }
-    }
-    const oldSrv = promotedServer || (primaryServerEntry && primaryServerEntry.server);
-    promotedServer = null;
-    primaryServerEntry = null;
-    if (oldSrv) {
-        try { for (const res of [...sseClients.keys()]) { try { res.end(); } catch { } sseClients.delete(res); } } catch { }
-        try { oldSrv.close(); } catch { }   // fire-and-forget: sockets destruídos acima; a porta libera
-    }
-    ensureSecondaryTimers();
-    httpPostJson(newerUrl, "/reclaim-now", { from: CURRENT_VERSION }).catch(() => { });   // reassuma JÁ (não espere o probe dela)
-    registerSelf();   // já com o myBaseUrl efêmero -> o novo primário roteia minhas falas de volta p/ MIM
-    setTimeout(() => { handingOver = false; registerSelf(); }, 2000);
-}
+
 
 // Reassume o primário com re-tentativas (o antigo pode levar um instante p/ liberar a porta).
 // `force` no reclaim pula o throttle de 2s (é um pedido EXPLÍCITO de handover, não um probe).
-async function reclaimWithRetry(reason, attempts = 12) {
-    for (let i = 0; i < attempts; i++) {
-        if (primaryFork) return true;
-        if (await reclaimPrimaryIfOrphaned(reason, true)) return true;
-        await new Promise((r) => setTimeout(r, 250));
-    }
-    return false;
-}
 
-function sendJson(res, obj, code = 200) {
-    res.writeHead(code, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(obj));
-}
 
-function cookieToken(req) {
-    const raw = req.headers.cookie;
-    if (!raw) return "";
-    for (const part of raw.split(";")) {
-        const eq = part.indexOf("=");
-        if (eq > 0 && part.slice(0, eq).trim() === "vt") {
-            try { return decodeURIComponent(part.slice(eq + 1).trim()); } catch { return part.slice(eq + 1).trim(); }
-        }
-    }
-    return "";
-}
-function tokenOK(req, url) {
-    if (!sharedToken) return true; 
-    // Header (POST), cookie de mesma origem (SSE, que não manda header) e query (fallback
-    // legado, quando um webview cross-origin descarta o cookie) — todos aceitos.
-    const got = req.headers["x-voice-token"] || cookieToken(req) || url.searchParams.get("t") || "";
-    return got === sharedToken;
-}
 
-function claimVoiceOwnership(sid) {
+
+
+
+
+export function claimVoiceOwnership(sid) {
     if (!sid) return;
     const s = String(sid);
     setActiveSid(s);
-    turnOwnerSid = s;
+    setTurnOwnerSid(s);
 }
 
-function setRecordingActive(sid) {
+export function setRecordingActive(sid) {
     recordingActiveSid = sid;
     if (recordingActiveTimer) clearTimeout(recordingActiveTimer);
     recordingActiveTimer = setTimeout(() => { recordingActiveSid = null; recordingActiveTimer = null; }, 60000);
     if (recordingActiveTimer.unref) recordingActiveTimer.unref();
 }
 
-function clearRecordingActive() {
+export function clearRecordingActive() {
     recordingActiveSid = null;
     if (recordingActiveTimer) { clearTimeout(recordingActiveTimer); recordingActiveTimer = null; }
 }
@@ -1604,609 +886,53 @@ function hasVisibleVoiceClients(exceptSid = "") {
     return false;
 }
 
-function startMonitor(sid) {
+export function startMonitor(sid) {
     if (!primaryFork || !sid) return;
-    monitorSid = sid;
+    setMonitorSid(sid);
     ensureWorker();
     try { workerSend({ cmd: "monitor", on: true }); } catch { }
 }
 
-function stopMonitor(sid) {
+export function stopMonitor(sid) {
     if (!primaryFork) return;
     if (sid && monitorSid !== sid) return;
-    monitorSid = null;
+    setMonitorSid(null);
     try { workerSend({ cmd: "monitor", on: false }); } catch { }
 }
 
-function quiesceClosedPanelCapture(sid, opts = {}) {
+export function quiesceClosedPanelCapture(sid, opts = {}) {
     if (!primaryFork) return;
     const cancelRecording = opts.cancelRecording !== false;
     if (cancelRecording && recordingActiveSid && (!sid || recordingActiveSid === sid)) {
         try { workerSend({ cmd: "cancel" }); } catch { }
         clearRecordingActive();
     }
-    if (turnOwnerSid === sid) turnOwnerSid = null;
+    if (turnOwnerSid === sid) setTurnOwnerSid(null);
     if (monitorSid === sid) stopMonitor(sid);
     if (settings.wakeWord && !hasVisibleVoiceClients(sid)) {
         try { workerSend({ cmd: "wake", on: false }); } catch { }
     }
 }
 
-async function handleRequest(req, res) {
-    const url = new URL(req.url, "http://127.0.0.1");
-    const path = url.pathname;
-    if ((req.method === "POST" || path === "/events") && !tokenOK(req, url)) {
-        res.writeHead(403, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: false, error: "forbidden" }));
-        return;
-    }
 
-    if (req.method === "GET" && path === "/ping") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true, primary: primaryFork, sid: mySid() }));
-        return;
-    }
 
-    if (req.method === "POST" && path === "/transcribe") {
-        // Engine-reuse endpoint: a sibling extension POSTs a WAV (base64) and gets
-        // back the transcript. Token-gated (sharedToken). Stateless: never touches
-        // the live mic / wake pipeline.
-        ensureWorker();
-        if (!workerReady) { return sendJson(res, { ok: false, error: "voice_warming", msg: "motor de voz ainda carregando — tente novamente em alguns segundos" }, 503); }
-        const body = await readBody(req);
-        let b64 = body && typeof body.audio === "string" ? body.audio : "";
-        if (b64.startsWith("data:")) { const i = b64.indexOf(","); if (i >= 0) b64 = b64.slice(i + 1); }
-        if (!b64 || b64.length < 32) { return sendJson(res, { ok: false, error: "no_audio" }, 400); }
-        let buf;
-        try { buf = Buffer.from(b64, "base64"); } catch { return sendJson(res, { ok: false, error: "bad_base64" }, 400); }
-        if (buf.length > 30 * 1024 * 1024) { return sendJson(res, { ok: false, error: "too_large" }, 413); }
-        let wavPath;
-        try {
-            mkdirSync(join(ARTIFACTS, "transcribe"), { recursive: true });
-            wavPath = join(ARTIFACTS, "transcribe", randomBytes(8).toString("hex") + ".wav");
-            writeFileSync(wavPath, buf);
-        } catch (e) { return sendJson(res, { ok: false, error: "write_failed", msg: e.message }, 500); }
-        try {
-            const text = await transcribeViaWorker(wavPath);
-            return sendJson(res, { ok: true, text });
-        } catch (e) {
-            return sendJson(res, { ok: false, error: "transcribe_failed", msg: String(e.message || e) }, 500);
-        } finally {
-            try { unlinkSync(wavPath); } catch {}
-        }
-    }
 
-    if (req.method === "GET" && (path === "/" || path === "/index.html")) {
-        try {
-            let html = await readFile(IFRAME_FILE, "utf8");
-            const headers = { "Content-Type": "text/html; charset=utf-8" };
-            if (sharedToken) {
-                // Entrega o token de loopback no CORPO do HTML (var inline), nunca na URL do
-                // painel — então não vaza por referrer/histórico/log. A página o usa no header
-                // x-voice-token dos POSTs. Um cookie de mesma origem também é setado para o SSE
-                // (EventSource não manda header) autenticar sem token na URL; se um webview
-                // cross-origin descartar o cookie, a página cai para a query com este mesmo
-                // valor. Sem HttpOnly (a página lê), sem Secure (loopback http), SameSite=Strict.
-                html = html.replace("/*__VOICE_BOOT__*/", "window.__voiceToken=" + JSON.stringify(sharedToken) + ";");
-                headers["Set-Cookie"] = `vt=${encodeURIComponent(sharedToken)}; Path=/; SameSite=Strict`;
-            }
-            res.writeHead(200, headers);
-            res.end(html);
-        } catch (e) {
-            res.writeHead(500);
-            res.end("iframe load error: " + e.message);
-        }
-        return;
-    }
 
-    if (req.method === "GET" && path === "/events") {
-        const sid = url.searchParams.get("sid") || "";
-        if (!sid) {
-            res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ ok: false, error: "missing sid" }));
-            return;
-        }
-        res.writeHead(200, {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            Connection: "keep-alive",
-        });
-        res.write(": connected\n\n");
-        sseClients.set(res, sid);
-        if (sid) drainPendingSpeak(sid).catch(() => { });   // canvas conectou -> toca o que o hook coletou
-        if (sid && !activeSid) setActiveSid(sid);
-        if (primaryFork && settings.wakeWord) {
-            try { workerSend({ cmd: "wake", on: true, phrases: [settings.wakePhrase] }); } catch { }
-        }
-        const _us = readUpdateState();
-        const pendingUpdate = pendingRestartVersion(_us);
-        res.write(
-            `data: ${JSON.stringify({
-                type: "hello",
-                settings,
-                worker: workerReady ? "ready" : "loading",
-                voices: lastVoices,
-                audioHistory: audioHistoryForHello(sid),
-                pendingUpdate,
-                version: effectiveVersion(_us),
-                pluginManaged: RUNNING_AS_PLUGIN,
-            })}\n\n`,
-        );
-        if (!workerReady) {
-            res.write(
-                `data: ${JSON.stringify({
-                    type: "worker",
-                    state: "loading",
-                    msg: "Iniciando motor de voz…",
-                })}\n\n`,
-            );
-        }
-        req.on("close", () => {
-            sseClients.delete(res);
-            if (primaryFork && sid) {
-                const t1 = setTimeout(() => {
-                    if (!sessionHasClient(sid)) quiesceClosedPanelCapture(sid, { cancelRecording: false });
-                }, 5000);
-                if (t1.unref) t1.unref();
-                const t2 = setTimeout(() => {
-                    if (!sessionHasClient(sid) && recordingActiveSid === sid) {
-                        try { workerSend({ cmd: "cancel" }); } catch { }
-                        clearRecordingActive();
-                    }
-                }, 15000);
-                if (t2.unref) t2.unref();
-            }
-        });
-        ensureWorker();
-        // Reopening the session that is already active: deliver any held audio now.
-        // pushAudio is idempotent (delivers only seq > deliveredSeq) so this never
-        // double-plays what the hello already handed over.
-        if (sid === activeSid) pushAudio(sid);
-        return;
-    }
 
-    if (req.method === "POST" && path === "/quiesce") {
-        const body = await readBody(req);
-        if (body && body.sid) quiesceClosedPanelCapture(String(body.sid));
-        return sendJson(res, { ok: true });
-    }
 
-    if (req.method === "POST" && path === "/monitor/start") {
-        const body = await readBody(req);
-        const sid = body && body.sid ? String(body.sid) : "";
-        if (!sid) return sendJson(res, { ok: false, error: "missing sid" });
-        if (recordingActiveSid) return sendJson(res, { ok: false, busy: true });
-        startMonitor(sid);
-        return sendJson(res, { ok: true });
-    }
 
-    if (req.method === "POST" && path === "/monitor/stop") {
-        const body = await readBody(req);
-        stopMonitor(body && body.sid ? String(body.sid) : null);
-        return sendJson(res, { ok: true });
-    }
 
-    if (req.method === "POST" && path === "/rec/start") {
-        const body = await readBody(req);
-        const reqSid = body && body.sid ? String(body.sid) : "";
-        if (recordingActiveSid && reqSid && recordingActiveSid !== reqSid) {
-            dbg(`rec/start busy: mic in use by ${recordingActiveSid}, requested by ${reqSid}`);
-            broadcastTo(reqSid, { type: "busy", msg: "O microfone está em uso por outra sessão." });
-            return sendJson(res, { ok: false, busy: true });
-        }
-        if (reqSid) { claimVoiceOwnership(reqSid); setRecordingActive(reqSid); }
-        ensureWorker();
-        workerSend({ cmd: "start", sid: reqSid });
-        return sendJson(res, { ok: true });
-    }
-    if (req.method === "POST" && path === "/rec/stop") {
-        workerSend({ cmd: "stop" });
-        return sendJson(res, { ok: true });
-    }
-    if (req.method === "POST" && path === "/rec/cancel") {
-        workerSend({ cmd: "cancel" });
-        clearRecordingActive();
-        turnOwnerSid = null;
-        return sendJson(res, { ok: true });
-    }
 
-    if (req.method === "POST" && path === "/converse") {
-        const body = await readBody(req);
-        if (body && body.sid) claimVoiceOwnership(body.sid); 
-        if (settings.wakeWord) {
-            ensureWorker();
-            workerSend({ cmd: "converse", timeoutMs: CONVERSE_ONSET_MS });
-        }
-        return sendJson(res, { ok: !!settings.wakeWord });
-    }
 
-    if (req.method === "POST" && path === "/register") {
-        const body = await readBody(req);
-        if (body && body.sid && body.url) {
-            const sid = String(body.sid), url = String(body.url);
-            const ver = body.version ? String(body.version) : "";
-            if (ver) forkVersions.set(sid, ver);
-            const changed = forks.get(sid) !== url;
-            setFork(sid, url);
-            if (changed) dbg(`registered fork sid=${sid}${ver ? " v" + ver : ""}`);
-            // The URL just arrived from a live server -> deliver any held turns now
-            // against this fresh URL (fixes stale-URL and late-register drops).
-            drainTurnsToFork(sid, url);
-            // Auto-handover: uma fork MAIS NOVA registrou -> este primário (código velho) cede a
-            // porta+worker p/ ela. Ativa um update do extension.mjs sem fechar o app.
-            if (primaryFork && !handingOver && shouldStepDownForNewer(CURRENT_VERSION, ver)) {
-                stepDownForNewer(url, ver).catch((e) => dbg("stepDownForNewer: " + (e && e.message)));
-                return sendJson(res, { ok: true, reclaim: true });
-            }
-        }
-        return sendJson(res, { ok: true });
-    }
 
-    if (req.method === "POST" && path === "/reclaim-now") {
-        // Um primário mais VELHO cedeu p/ mim (versão mais nova): reassumo a porta JÁ.
-        reclaimWithRetry("handover-poke").catch(() => { });
-        return sendJson(res, { ok: true });
-    }
 
-    if (req.method === "POST" && path === "/focus") {
-        const body = await readBody(req);
-        if (body && body.sid) {
-            setActiveSid(String(body.sid));
-            pushAudio(activeSid);
-            drainTurnsToFork(activeSid);
-        }
-        dbg(`focus -> activeSid=${activeSid}`);
-        return sendJson(res, { ok: true, activeSid });
-    }
 
-    if (req.method === "POST" && path === "/played") {
-        // O iframe confirmou que TOCOU um item até o fim -> avança o cursor DURÁVEL de
-        // "ouvido". É o ÚNICO ponto que consome a fila de verdade (entrega != ouvido).
-        // A história vive no PRIMÁRIO; um secundário que receba isto encaminha p/ lá.
-        const body = await readBody(req);
-        const sid = body && body.sid ? String(body.sid) : "";
-        const seq = body && Number.isFinite(body.seq) ? Math.floor(body.seq) : 0;
-        if (sid && seq > 0) {
-            if (primaryFork) markPlayed(sid, seq);
-            else forwardToPrimary("/played", { sid, seq });
-        }
-        return sendJson(res, { ok: true });
-    }
 
-    if (req.method === "POST" && path === "/applied") {
-        try {
-            const st = readUpdateState();
-            delete st.pendingVersion;
-            writeUpdateState(st);
-        } catch {
-        }
-        dbg("update applied by user; pendingVersion cleared");
-        return sendJson(res, { ok: true });
-    }
 
-    if (req.method === "POST" && path === "/inject") {
-        const body = await readBody(req);
-        const r = await injectTurn(body && body.text, body && body.id ? String(body.id) : "");
-        // STATUS reflete o resultado real: 503 numa falha faz o primary RETER o turno e
-        // re-rotear p/ uma fork viva (httpPostJson resolve por 2xx). Nunca mais um ok:true
-        // fire-and-forget que descartava a fala numa sessão morta.
-        const payload = r.dup ? { ok: true, dup: true } : (r.retry ? { ok: false, retry: true } : { ok: r.ok });
-        return sendJson(res, payload, r.code);
-    }
 
-    if (req.method === "POST" && path === "/speak") {
-        const body = await readBody(req);
-        const raw = String((body && body.spoken) || "").trim();
-        // O Stop hook manda o resumo CRU (linha 🔊 sem tratamento). Limpamos aqui, no servidor,
-        // pra TODO chamador do /speak (hook, forward de secundário) chegar limpo no TTS. cleanForSpeech
-        // é idempotente, então re-limpar texto já-limpo (cue/forward) não muda nada.
-        const spoken = body && body.cue ? raw : cleanForSpeech(raw);
-        const sid = body && body.sid ? String(body.sid) : "";
-        if (!sid) return sendJson(res, { ok: false, error: "missing sid" });
-        if (spoken) speakToCanvas(sid, spoken, body.full, body.cue);
-        return sendJson(res, { ok: !!spoken });
-    }
 
-    if (req.method === "POST" && path === "/relay") {
-        const body = await readBody(req);
-        if (body && body.sid && body.event) broadcastTo(String(body.sid), body.event);
-        return sendJson(res, { ok: true });
-    }
 
-    if (req.method === "POST" && path === "/send") {
-        const body = await readBody(req);
-        if (body && body.sid) setActiveSid(String(body.sid));
-        const text = (body && body.text ? String(body.text) : "").trim();
-        if (text) dispatchVoiceTurn(text);
-        return sendJson(res, { ok: !!text });
-    }
 
-    if (req.method === "POST" && path === "/settings") {
-        const body = await readBody(req);
-        const prevLang = settings.language;
-        const prevWake = settings.wakeWord;
-        const prevPhrase = settings.wakePhrase;
-        const prevTtsVoice = settings.ttsVoice;
-        settings = { ...settings, ...sanitizeSettings(body) };
-        await saveSettings();
-        if (settings.language !== prevLang) {
-            workerSend({ cmd: "set", language: settings.language });
-        }
-        if (settings.ttsVoice !== prevTtsVoice) {
-            lastTtsPreviewSid = body && body.sid ? String(body.sid) : activeSid;
-            workerSend({ cmd: "tts_voice", voice: settings.ttsVoice });
-        }
-        if (settings.wakeWord !== prevWake || settings.wakePhrase !== prevPhrase) {
-            ensureWorker();
-            workerSend({ cmd: "wake", on: settings.wakeWord, phrases: [settings.wakePhrase] });
-        }
-        return sendJson(res, { ok: true, settings });
-    }
-
-    if (req.method === "POST" && path === "/check-update") {
-        const r = await checkForUpdate({ force: true });
-        const ok = r.status !== "error" && r.status !== "disabled";
-        return sendJson(res, { ok, status: r.status, version: r.version, current: effectiveVersion(readUpdateState()), needsAppRestart: !!r.needsAppRestart, error: r.error });
-    }
-
-    if (req.method === "GET" && path === "/mics") {
-        ensureWorker();
-        workerSend({ cmd: "list_mics" });
-        return sendJson(res, { ok: true, ...lastMics });
-    }
-
-    if (req.method === "GET" && path === "/voices") {
-        ensureWorker();
-        workerSend({ cmd: "list_voices" });
-        return sendJson(res, { ok: true, ...lastVoices });
-    }
-
-    if (req.method === "POST" && path === "/set-mic") {
-        const body = await readBody(req);
-        const dev = body && (body.device === null || typeof body.device === "number") ? body.device : null;
-        settings.micDevice = dev;
-        await saveSettings();
-        ensureWorker();
-        workerSend({ cmd: "set_mic", device: dev });
-        return sendJson(res, { ok: true, device: dev });
-    }
-
-    if (req.method === "POST" && path === "/restart-worker") {
-        manualRestartWorker();
-        return sendJson(res, { ok: true });
-    }
-
-    if (req.method === "GET" && path.startsWith("/tts/")) {
-        const name = basename(path);
-        if (!/^[\w.\-]+\.wav$/.test(name)) {
-            res.writeHead(404);
-            res.end();
-            return;
-        }
-        const file = join(TTS_DIR, name);
-        const rs = createReadStream(file);
-        rs.on("error", () => {
-            if (!res.headersSent) res.writeHead(404);
-            res.end();
-        });
-        res.on("close", () => rs.destroy()); 
-        rs.once("open", () => {
-            res.writeHead(200, { "Content-Type": "audio/wav" });
-            rs.pipe(res);
-        });
-        return;
-    }
-
-    res.writeHead(404);
-    res.end("not found");
-}
-
-function readSavedPort() {
-    try {
-        const n = Number(JSON.parse(readFileSync(PORT_FILE, "utf8"))?.port);
-        if (Number.isInteger(n) && n >= 1024 && n <= 65535) return n;
-    } catch {
-    }
-    return 0;
-}
-
-function readSavedToken() {
-    try {
-        const t = JSON.parse(readFileSync(PORT_FILE, "utf8"))?.token;
-        if (typeof t === "string" && /^[a-f0-9]{8,}$/.test(t)) return t;
-    } catch {
-    }
-    return "";
-}
-
-function savePort(port) {
-    try {
-        writeFileSync(PORT_FILE, JSON.stringify({ port, token: sharedToken }));
-    } catch (e) {
-        log("savePort failed: " + e.message);
-    }
-}
-
-function claimPortFileExclusive(port) {
-    const tmp = PORT_FILE + "." + process.pid + ".tmp";
-    try {
-        writeFileSync(tmp, JSON.stringify({ port, token: sharedToken }));
-        linkSync(tmp, PORT_FILE);
-        return true;
-    } catch (e) {
-        if (e && e.code === "EEXIST") return false;
-        log("claimPortFileExclusive failed: " + e.message);
-        return false;
-    } finally {
-        try { unlinkSync(tmp); } catch { }
-    }
-}
-
-function listenOnce(server, port) {
-    return new Promise((resolve, reject) => {
-        const onErr = (e) => {
-            server.removeListener("listening", onOk);
-            reject(e);
-        };
-        const onOk = () => {
-            server.removeListener("error", onErr);
-            resolve();
-        };
-        server.once("error", onErr);
-        server.once("listening", onOk);
-        server.listen(port, "127.0.0.1");
-    });
-}
-
-function makeVoiceServer() {
-    return createServer((req, res) => {
-        handleRequest(req, res).catch((e) => {
-            log("request error: " + e.message);
-            try {
-                res.writeHead(500);
-                res.end();
-            } catch {
-            }
-        });
-    });
-}
-
-async function startServer() {
-    const server = makeVoiceServer();
-
-    let bound = 0;
-    const canonical = preferredPort || readSavedPort();
-    if (canonical) {
-        for (let attempt = 0; attempt < 4; attempt++) {
-            try {
-                await listenOnce(server, canonical);
-                bound = canonical;
-                break;
-            } catch (e) {
-                if (e && e.code === "EADDRINUSE") {
-                    await new Promise((r) => setTimeout(r, 200));
-                    continue;
-                }
-                break; 
-            }
-        }
-    }
-    let primary;
-    if (bound) {
-        primary = true; 
-    } else {
-        await listenOnce(server, 0);
-        bound = server.address().port;
-        if (canonical) {
-            primary = false;
-        } else {
-            sharedToken = readSavedToken() || randomBytes(16).toString("hex");
-            if (claimPortFileExclusive(bound)) {
-                primary = true;
-            } else {
-                primary = false;
-                dbg("cold-start: lost port-file race, becoming secondary");
-            }
-        }
-    }
-
-    if (primary) {
-        setPrimaryFork(true);
-        if (!preferredPort) preferredPort = bound; 
-        sharedToken = sharedToken || readSavedToken() || randomBytes(16).toString("hex");
-        savePort(bound); 
-        drainAllPendingSpeak().catch(() => { });   // servidor ATIVO -> drena o que o hook coletou offline
-    } else {
-        sharedToken = readSavedToken(); 
-    }
-    setMyBaseUrl(`http://127.0.0.1:${bound}/`);
-    if (!registered) {
-        setRegistered(true);
-        registerSelf();
-        if (!primary) {
-            ensureSecondaryTimers();
-        }
-    }
-    return { server, url: `http://127.0.0.1:${bound}/`, primary };
-}
-
-async function reclaimPrimaryIfOrphaned(reason, force = false) {
-    if (primaryFork || reclaiming) return false;
-    if (!force && Date.now() < suppressReclaimUntil) return false;   // acabei de ceder p/ versão mais nova: NÃO reassuma (anti-flap por-fork)
-    if (!force && handoverLockActive()) return false;                // handover em curso (por QUALQUER fork): bystander velho não fisga a porta (anti-flap global)
-    if (!force && Date.now() - lastReclaimAttempt < 2000) return false;
-    reclaiming = true;
-    lastReclaimAttempt = Date.now();
-    try {
-        const canonical = preferredPort || readSavedPort();
-        if (!canonical) return false;
-        sharedToken = sharedToken || readSavedToken() || randomBytes(16).toString("hex");
-        const server = makeVoiceServer();
-        try {
-            await listenOnce(server, canonical);
-        } catch (e) {
-            if (e && e.code === "EADDRINUSE") {
-                sharedToken = readSavedToken() || sharedToken;
-                try { server.close(); } catch { }   // libera o objeto server que não chegou a bindar (higiene; nit do gate)
-                return false;
-            }
-            try { server.close(); } catch { }
-            return false;
-        }
-        promotedServer = server;
-        setPrimaryFork(true);
-        stopSecondaryTimers();   // promovido: para os timers de secundário (senão um re-registro atrasado anuncia URL errada / vaza no próximo step-down)
-        preferredPort = canonical;
-        setMyBaseUrl(`http://127.0.0.1:${canonical}/`);
-        savePort(canonical);
-        drainAllPendingSpeak().catch(() => { });   // promovido a primário -> drena o pendente do hook
-        setFork(mySid(), myBaseUrl);
-        // RECONCILIA o bookkeeping p/ ESPELHAR um primário de cold-start: as entradas de painel desta fork eram
-        // secundárias, apontando p/ um server efêmero AGORA órfão (esta fork passou a servir pela canônica). Sem
-        // isso, um step-down futuro não acha a entrada primária -> o server efêmero novo não é rastreado (vaza) e
-        // o onClose fecha o server ERRADO. Reaponto as entradas p/ o server canônico promovido, marco primary:true,
-        // seto primaryServerEntry e fecho o secundário órfão.
-        primaryServerEntry = null;
-        for (const [id, entry] of servers) {
-            if (entry && entry.server && entry.server !== server) {
-                try { entry.server.close(); } catch { }   // fecha o secundário órfão (a fork agora serve pela canônica)
-            }
-            const rebuilt = { ...entry, server, url: myBaseUrl, primary: true };
-            servers.set(id, rebuilt);
-            if (!primaryServerEntry) primaryServerEntry = rebuilt;
-        }
-        reloadAudioStateFromDisk();   // promovido: adota o áudio DURÁVEL do disco (o primário morto persistiu além do meu prefixo) ANTES de servir hello/ack
-        log(`reclaimPrimary: promoted to primary on ${canonical} (${reason})`);
-        broadcast({ type: "worker", state: "loading", msg: "Reassumindo motor de voz…" });
-        ensureWorker();
-        return true;
-    } finally {
-        reclaiming = false;
-    }
-}
-
-function probePrimary() {
-    if (primaryFork) return;
-    const base = canonicalBase();
-    if (!base) return;
-    let done = false;
-    try {
-        const u = new URL("/ping", base);
-        const req = httpGet(
-            { hostname: u.hostname, port: u.port, path: "/ping", timeout: 2500 },
-            (res) => {
-                res.on("data", () => { });
-                res.on("end", () => { });
-            },
-        );
-        req.on("error", (e) => {
-            if (done) return;
-            done = true;
-            if (e && DEAD_PRIMARY_CODES.has(e.code)) reclaimPrimaryIfOrphaned("probe " + e.code).catch(() => { });
-        });
-        req.on("timeout", () => { try { req.destroy(); } catch { } });
-    } catch { }
-}
 
 const canvas = createCanvas({
     id: "voice-chat",
@@ -2276,7 +1002,7 @@ const canvas = createCanvas({
         let entry = servers.get(ctx.instanceId);
         if (!entry) {
             entry = (primaryFork && primaryServerEntry) ? primaryServerEntry : await startServer();
-            if (entry.primary) primaryServerEntry = entry;
+            if (entry.primary) setPrimaryServerEntry(entry);
             servers.set(ctx.instanceId, entry);
         }
         if (entry.primary) {

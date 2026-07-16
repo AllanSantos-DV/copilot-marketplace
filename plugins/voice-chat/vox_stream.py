@@ -38,6 +38,7 @@ WHISPER_MAX_S = 28.0
 
 OnSegment = Callable[[int, str], None]
 OnSegmentResult = Callable[[int, dict], None]
+OnRms = Callable[[int, float], None]
 
 # Teto de segmentos pendentes aguardando STT. Se o motor não acompanha, o buffer
 # para em ``max_pending`` (ring: descarta o mais antigo) em vez de crescer sem limite.
@@ -173,7 +174,8 @@ class StreamingTranscriber:
                  model: "str | None" = None, sr: int = SAMPLE_RATE,
                  chunk_target_s: float = CHUNK_TARGET_S, hard_s: float = WHISPER_MAX_S,
                  on_segment: Optional[OnSegment] = None, timeout: float = 60.0,
-                 max_pending: int = _MAX_PENDING):
+                 max_pending: int = _MAX_PENDING, min_rms: float = 0.0,
+                 on_rms: Optional[OnRms] = None):
         self._client = client
         self._lang = lang
         self._session = session
@@ -182,11 +184,15 @@ class StreamingTranscriber:
         self._model = model
         self._timeout = timeout
         self._on_segment = on_segment
+        self._min_rms = min_rms
+        self._on_rms = on_rms
         self._seg = StreamSegmenter(sr=sr, chunk_target_s=chunk_target_s, hard_s=hard_s)
         self._q: "queue.Queue[tuple[int, np.ndarray] | None]" = queue.Queue(maxsize=max_pending)
         self._results: "dict[int, str]" = {}
         self._results_lock = threading.Lock()
         self._errors: "list[str]" = []
+        self._skipped_silence = 0
+        self._cancelled = False
         self._next_idx = 0
         self._worker = threading.Thread(target=self._run, name="vox-stream-stt", daemon=True)
         self._worker.start()
@@ -220,7 +226,28 @@ class StreamingTranscriber:
             item = self._q.get()
             if item is None:
                 return
+            if self._cancelled:
+                continue                         # cancel(): descarta sem transcrever
             idx, seg = item
+            rms = _seg_rms(seg)
+            if self._on_rms is not None:
+                try:
+                    self._on_rms(idx, rms)
+                except Exception:  # noqa: BLE001
+                    pass
+            if self._min_rms > 0.0 and rms < self._min_rms:
+                # Segmento abaixo do limiar de energia: silêncio/ruído, NÃO fala. Pular o STT
+                # evita a alucinação clássica do Whisper ("obrigado"/"thank you") sobre silêncio.
+                # Registra resultado vazio (mantém ordem/índice).
+                self._skipped_silence += 1
+                with self._results_lock:
+                    self._results[idx] = ""
+                if self._on_segment:
+                    try:
+                        self._on_segment(idx, "")
+                    except Exception:  # noqa: BLE001
+                        pass
+                continue
             try:
                 res = self._client.transcribe(
                     seg, lang=self._lang, session=self._session,
@@ -257,6 +284,26 @@ class StreamingTranscriber:
     @property
     def errors(self) -> "list[str]":
         return list(self._errors)
+
+    @property
+    def skipped_silence(self) -> int:
+        return self._skipped_silence
+
+    def cancel(self) -> None:
+        """Aborta: descarta os segmentos PENDENTES sem transcrever e encerra o worker.
+        Diferente de ``finish()`` (que drena a cauda E transcreve), ``cancel()`` esvazia a
+        fila e sinaliza o worker a sair — para o usuário que ABORTA (ex.: PTT cancelado). Um
+        segmento já EM TRÂNSITO no motor conclui (não dá p/ interromper a chamada), mas nada
+        novo é transcrito. Idempotente e seguro após um ``finish()`` anterior."""
+        self._cancelled = True
+        try:
+            while True:
+                self._q.get_nowait()             # descarta os pendentes não iniciados
+        except queue.Empty:
+            pass
+        if self._worker.is_alive():
+            self._q.put(None)
+            self._worker.join()
 
 
 # ---------------------------------------------------------------------------

@@ -237,7 +237,7 @@ export function releaseAssetBase(version) {
 
 // --- Auto-aplicar update (worker/UI a quente; app-restart só se a LÓGICA mudou) ---
 // Arquivos que o worker (processo filho) carrega: um restart do worker os aplica a quente.
-const WORKER_UPDATE_FILES = new Set(["voice_worker.py", "vox_sdk.py", "vox_stream.py", "_ed25519_ref.py", "requirements.txt"]);
+const WORKER_UPDATE_FILES = new Set(["voice_worker.py", "vox_sdk.py", "vox_stream.py", "vox_audio_devices.py", "vox_capture.py", "_ed25519_ref.py", "requirements.txt"]);
 // A versão é sincronizada dentro do extension.mjs a cada release (gen-manifest), então o FILE
 // muda todo release. Para decidir se a LÓGICA mudou (e o app precisa reimportar o módulo),
 // hasheamos ignorando a linha da versão: release que só troca versão (ou só mexe em worker/UI)
@@ -249,13 +249,13 @@ export function extLogicNormalize(src) {
     //    daqui de dentro nem uma ocorrência em comentário; tolera espaçamento variável.
     return String(src)
         .replace(/\r\n/g, "\n")
-        .replace(/^const\s+CURRENT_VERSION\s*=\s*"[^"]*"\s*;/m, 'const CURRENT_VERSION="0";');
+        .replace(/^(?:export\s+)?const\s+CURRENT_VERSION\s*=\s*"[^"]*"\s*;/m, 'const CURRENT_VERSION="0";');
 }
 // Arquivos de LÓGICA da extensão (ESM/cross-process) cuja mudança exige RE-IMPORT -> app-restart. NÃO
 // inclui worker/SDK (hot via restart do worker), o hook (roda fresco a cada agentStop) nem a UI. O hash
 // de lógica cobre TODOS eles (concatenados, versão mascarada): senão um update que só mexe num módulo
 // de lógica não dispararia o app-restart e a extensão seguiria com o código antigo em memória.
-export const LOGIC_FILES = ["extension.mjs", "voice-shared.cjs", "voice-core.mjs", "voice-python.mjs", "voice-update.mjs", "voice-text.mjs", "voice-state.mjs", "voice-audio.mjs", "voice-turns.mjs"];
+export const LOGIC_FILES = ["extension.mjs", "voice-shared.cjs", "voice-core.mjs", "voice-python.mjs", "voice-update.mjs", "voice-text.mjs", "voice-state.mjs", "voice-audio.mjs", "voice-turns.mjs", "voice-worker.mjs", "voice-net.mjs"];
 export function computeLogicSha(getSrc) {
     let acc = "";
     for (const rel of LOGIC_FILES) acc += rel + "\0" + extLogicNormalize(getSrc(rel)) + "\0";

@@ -1061,10 +1061,18 @@ function selectVoice() {
 }
 function populateVoices(d) {
   voicesList = (d && Array.isArray(d.voices)) ? d.voices : [];
+  const supported = (d && Array.isArray(d.supported)) ? d.supported : [];
   voicesDefault = (d && d.default) || null;
   const sel = $("setVoice"), sub = $("voiceSub"); if (!sel) return;
   sel.innerHTML = "";
-  if (!voicesList.length) {
+  // Catálogo COMPLETO = instaladas + suportadas baixáveis (dedup por nome). Selecionar uma
+  // não-instalada é seguro: o motor baixa na 1ª fala (tts). Resolve a "máquina nova só com
+  // uma voz feia" — o usuário vê e escolhe uma voz melhor mesmo sem ela estar no disco ainda.
+  const byName = new Map();
+  for (const v of voicesList) byName.set(v.name, { ...v, installed: true });
+  for (const v of supported) if (v && v.name && !byName.has(v.name)) byName.set(v.name, { ...v, installed: false });
+  const merged = [...byName.values()];
+  if (!merged.length) {
     // Estado VISÍVEL de indisponibilidade — nada de lista local mascarando o erro.
     const o = document.createElement("option");
     o.value = ""; o.textContent = "Vozes indisponíveis (motor offline)";
@@ -1073,12 +1081,17 @@ function populateVoices(d) {
     return;
   }
   sel.disabled = false;
-  for (const v of voicesList) {
+  merged.sort((a, b) => (a.installed === b.installed) ? 0 : (a.installed ? -1 : 1));  // instaladas primeiro
+  for (const v of merged) {
     const o = document.createElement("option");
     o.value = v.name;
-    o.textContent = prettyVoiceLabel(v) + (v.name === voicesDefault ? " (padrão)" : "");
+    let label = prettyVoiceLabel(v);
+    if (v.name === voicesDefault) label += " (padrão)";
+    if (!v.installed) label += " ⇩ baixar";
+    o.textContent = label;
     sel.appendChild(o);
   }
+  voicesList = merged;   // inclui baixáveis -> selectVoice()/change reconhecem nomes não-instalados
   selectVoice();
 }
 function micActiveLabel(cur) {

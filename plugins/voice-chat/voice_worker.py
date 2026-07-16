@@ -125,6 +125,12 @@ _ensure_deps()
 
 import numpy as np
 
+# SDK flats re-vendorizados (vox-engine SDK 1.5.0): segmentação+STT em streaming
+# (StreamingTranscriber/StreamSegmenter) e enumeração/resolução de dispositivos de
+# entrada (vox_audio_devices). vox_stream depende de numpy -> importado APÓS numpy.
+from vox_stream import StreamingTranscriber, StreamSegmenter
+import vox_audio_devices
+
 MODEL_ROOT = os.environ.get("VOICE_MODEL_ROOT") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "artifacts", "models"
 )
@@ -402,11 +408,16 @@ def _download_file(url, dst, timeout=180, on_pct=None, attempts=3):
 def voices_event(nfo):
     """Monta o evento 'voices' a partir do ``info()`` do motor. O catálogo de vozes
     e a voz padrão são do vox-engine (fonte única) — se o motor não reporta, vai lista
-    VAZIA (a UI mostra 'indisponível' ALTO; nunca uma lista local mascarando o erro)."""
+    VAZIA (a UI mostra 'indisponível' ALTO; nunca uma lista local mascarando o erro).
+    ``supported`` (SDK 1.5.0) é o catálogo de vozes BAIXÁVEIS sob demanda (cada item
+    {name,lang,type,quality,installed}); a UI mostra instaladas + baixáveis e o motor
+    baixa a escolhida na 1ª fala — resolve a 'máquina nova só com uma voz feia'."""
     nfo = nfo or {}
     voices = nfo.get("tts_voices")
+    supported = nfo.get("supported_voices")
     return {"event": "voices",
             "voices": voices if isinstance(voices, list) else [],
+            "supported": supported if isinstance(supported, list) else [],
             "default_voice": nfo.get("default_voice")}
 
 
@@ -559,22 +570,41 @@ def _meter_should_emit(rms, peak, last_rms, last_peak):
     return abs(rms - last_rms) > METER_DELTA_RMS or abs(peak - last_peak) > METER_DELTA_PEAK
 
 
+class _DecodeClient:
+    """Adapta o decodificador injetado (``fn(seg) -> texto``, já serializado e com defer
+    de TTS) para a interface ``client.transcribe(seg, **kwargs)`` que o
+    :class:`StreamingTranscriber` do SDK espera. Ignora os kwargs de roteamento (o closure
+    já fixou lang/session/estado) e acumula o tempo de STT para o ``ms`` do envelope. Aplica
+    o piso de 0,1s do decode antigo (segmentos ínfimos não vão ao motor)."""
+
+    def __init__(self, fn):
+        self._fn = fn
+        self.proc_ms = 0
+
+    def transcribe(self, seg, **_kwargs):
+        if seg is None or seg.size < int(0.1 * SAMPLE_RATE):
+            return ""
+        t0 = time.time()
+        try:
+            return self._fn(seg) or ""
+        finally:
+            self.proc_ms += int((time.time() - t0) * 1000)
+
+
 class Recorder:
     def __init__(self):
-        self._frames = []
-        self._lock = threading.Lock()
         self._last_rms = 0.0
         self._last_peak = 0.0
         self._max_peak = 0.0
         self._recording = False
         self._meter_thread = None
-        self._decode_fn = None       
-        self._streamer = None
-        self._tail = None            
-        self._partials = []          
-        self._dur_samples = 0        
-        self._proc_ms = 0            
-        self._quiet = False          
+        self._decode_fn = None
+        self._st = None              # StreamingTranscriber (segmentação+STT do SDK) por captura
+        self._client = None          # adaptador _decode_fn -> client.transcribe do SDK
+        self._partials = []          # textos dos segmentos (p/ chunks); o texto final vem de finish()
+        self._dur_samples = 0
+        self._proc_ms = 0
+        self._quiet = False
 
     def set_decoder(self, fn):
         """Inject the decode function (wraps the recognizer)."""
@@ -585,12 +615,17 @@ class Recorder:
             log(f"stream status: {status}")
         if not self._recording:
             return
-        with self._lock:
-            self._frames.append(block)
+        # medidor + peak da captura INTEIRA (para o envelope e o mic-health gate): MEU, não do SDK
+        # (peak = max-abs; o on_rms do SDK é RMS por-segmento, escala diferente — não substitui).
         self._last_rms = float(np.sqrt(np.mean(block ** 2)) if block.size else 0.0)
         self._last_peak = float(np.max(np.abs(block)) if block.size else 0.0)
         if self._last_peak > self._max_peak:
             self._max_peak = self._last_peak
+        self._dur_samples += int(block.size)
+        # segmentação + STT sobreposto: alimenta o StreamingTranscriber vendorizado (SDK).
+        # A segmentação é leve (frame-rms/cut sobre o bloco); o STT pesado roda na thread do SDK.
+        if self._st is not None:
+            self._st.feed(block)
 
     def _meter_loop(self):
         last_rms = last_peak = -1.0
@@ -602,64 +637,11 @@ class Recorder:
                 last_rms, last_peak = rms, peak
             time.sleep(0.12)
 
-    def _decode_seg(self, seg):
-        if self._decode_fn is None or seg.size < int(0.1 * SAMPLE_RATE):
-            return
-        t0 = time.time()
-        try:
-            text = self._decode_fn(seg)
-        except Exception as exc:
-            log(f"decode error: {exc}")
-            return
-        self._proc_ms += int((time.time() - t0) * 1000)
+    def _on_segment(self, idx, text):
+        # on_segment do SDK dispara "" p/ silêncio/falha de STT (mantém a ordem/índice) — FILTRA
+        # vazio: não conta como chunk. O texto final agregado vem de finish() (em ordem).
         if text:
             self._partials.append(text)
-
-    def _pull_frames(self):
-        with self._lock:
-            blocks = self._frames
-            self._frames = []
-        if not blocks:
-            return
-        chunk = np.concatenate(blocks).astype(np.float32)
-        self._dur_samples += chunk.size
-        self._tail = chunk if self._tail is None else np.concatenate([self._tail, chunk])
-
-    def _target_len(self):
-        """Samples for the next block (fixed ~CHUNK_TARGET_S window)."""
-        return int(min(CHUNK_TARGET_S, WHISPER_MAX_S) * SAMPLE_RATE)
-
-    def _consume(self, final=False):
-        """Pull buffered audio and decode complete blocks. Block size is a fixed
-        ~CHUNK_TARGET_S target, but each cut is deferred to a real pause (silence) so a
-        word is never sliced; the 28s Whisper ceiling is the only forced cut. On
-        final, flush the tail (splitting only if it somehow exceeds the ceiling)."""
-        self._pull_frames()
-        target = self._target_len()
-        while self._tail is not None and self._tail.size >= target:
-            cut = _cut_point(self._tail, SAMPLE_RATE, target / SAMPLE_RATE,
-                             hard_s=WHISPER_MAX_S, defer=True)
-            if cut is None:
-                break  
-            seg = self._tail[:cut]
-            self._tail = self._tail[cut:]
-            self._decode_seg(seg)
-        if final and self._tail is not None and self._tail.size > 0:
-            hard = int(WHISPER_MAX_S * SAMPLE_RATE)
-            while self._tail.size > hard:
-                cut = _cut_point(self._tail, SAMPLE_RATE, WHISPER_MAX_S)
-                self._decode_seg(self._tail[:cut])
-                self._tail = self._tail[cut:]
-            self._decode_seg(self._tail)
-            self._tail = None
-
-    def _stream_loop(self):
-        while self._recording:
-            time.sleep(0.4)
-            try:
-                self._consume(final=False)
-            except Exception as exc:
-                log(f"streamer error: {exc}")
 
     def begin(self, quiet=False):
         """Start capturing. The mic stream is owned by AudioHub, which pushes blocks
@@ -671,20 +653,26 @@ class Recorder:
         if self._recording:
             return
         self._quiet = quiet
-        with self._lock:
-            self._frames = []
-        self._tail = None
-        self._partials = []
+        self._max_peak = 0.0
         self._dur_samples = 0
         self._proc_ms = 0
-        self._max_peak = 0.0
+        self._partials = []
+        # StreamingTranscriber do SDK: dono da segmentação (StreamSegmenter) + STT sobreposto
+        # numa thread própria (aposenta Recorder._consume/_stream_loop + _cut_point/_frame_rms).
+        # O _decode_fn injetado (fn(seg)->texto, serializado, defer de TTS) é adaptado à interface
+        # client.transcribe. min_rms=0.0 preserva o comportamento atual (gate anti-silêncio é opt-in).
+        if self._decode_fn is not None:
+            self._client = _DecodeClient(self._decode_fn)
+            self._st = StreamingTranscriber(
+                self._client, on_segment=self._on_segment, min_rms=0.0,
+                sr=SAMPLE_RATE, chunk_target_s=CHUNK_TARGET_S, hard_s=WHISPER_MAX_S)
+        else:
+            self._client = None
+            self._st = None
         self._recording = True
         if not quiet:
             self._meter_thread = threading.Thread(target=self._meter_loop, daemon=True)
             self._meter_thread.start()
-        if self._decode_fn is not None:
-            self._streamer = threading.Thread(target=self._stream_loop, daemon=True)
-            self._streamer.start()
         if not quiet:
             emit({"event": "recording", "state": True})
 
@@ -695,35 +683,35 @@ class Recorder:
             emit({"event": "recording", "state": False})
 
     def _join_streamer(self):
-        if self._streamer is not None:
-            try:
-                self._streamer.join(timeout=60)
-            except Exception:
-                pass
-            self._streamer = None
+        # StreamingTranscriber.finish()/cancel() já drena/encerra a thread de STT do SDK;
+        # não há mais thread de streaming própria do Recorder para juntar. Mantido no-op p/
+        # compat com chamadas existentes.
+        return
 
     def _reset(self):
-        self._tail = None
+        self._st = None
+        self._client = None
         self._partials = []
         self._dur_samples = 0
         self._proc_ms = 0
-        with self._lock:
-            self._frames = []
 
     def stop(self):
-        """Stop recording and return {text, dur_ms, ms, chunks}. Long dictations
-        were mostly decoded during recording; only the tail is left here."""
-        with self._lock:
-            had_frames = bool(self._frames)
-        if not self._recording and self._tail is None and not self._partials and not had_frames:
+        """Stop recording and return {text, dur_ms, ms, peak, chunks}. Long dictations
+        were mostly decoded during recording; finish() drains the tail (STT of the last
+        segments) and returns the joined text in order — so 'stop' never loses the last
+        utterance."""
+        if not self._recording and self._st is None and not self._partials:
             return {"text": "", "dur_ms": 0, "ms": 0, "chunks": 0}
         self._end()
-        self._join_streamer()        
-        self._consume(final=True)
-        text = " ".join(self._partials).strip()
+        text = ""
+        if self._st is not None:
+            text = self._st.finish()          # drena a cauda + espera o worker do SDK + junta em ordem
+            for _err in self._st.errors:      # observabilidade: STT/fila do SDK caem em .errors (o
+                log(f"decode error: {_err}")  # decode antigo logava direto) — re-superfície no log
+        proc_ms = self._client.proc_ms if self._client is not None else self._proc_ms
         res = {"text": text,
                "dur_ms": int(1000 * self._dur_samples / SAMPLE_RATE),
-               "ms": self._proc_ms,
+               "ms": int(proc_ms),
                "peak": round(self._max_peak, 5),
                "chunks": len(self._partials)}
         self._reset()
@@ -731,7 +719,8 @@ class Recorder:
 
     def cancel(self):
         self._end()
-        self._join_streamer()
+        if self._st is not None:
+            self._st.cancel()                 # descarta pendentes SEM transcrever (abort do PTT)
         self._reset()
 
 
@@ -1466,64 +1455,10 @@ class AudioHub:
                 self._wake.arm_converse(timeout_s)
 
 
-def _frame_rms(samples, sr, frame_ms=20):
-    """Return (rms_per_frame, frame_len) for a coarse energy envelope."""
-    fl = max(1, int(sr * frame_ms / 1000))
-    n = samples.size // fl
-    if n == 0:
-        val = float(np.sqrt(np.mean(samples ** 2))) if samples.size else 0.0
-        return np.array([val], dtype=np.float32), fl
-    trimmed = samples[: n * fl].reshape(n, fl)
-    rms = np.sqrt(np.mean(trimmed ** 2, axis=1)).astype(np.float32)
-    return rms, fl
-
-
-def _cut_point(samples, sr, max_s=WHISPER_MAX_S, hard_s=None, defer=False):
-    """Index (samples) at which to cut a leading chunk, preferring a quiet point so
-    words aren't sliced. Builds a 20ms energy envelope and, from (max_s-5s) up to the
-    hard ceiling, cuts at the quietest frame. When defer=True it returns None if that
-    quietest frame isn't actually a pause (well below the local speech level) and the
-    buffer hasn't yet reached hard_s -- telling the caller to wait for more audio so
-    the cut lands in real silence instead of mid-word. The hard ceiling (default
-    max_s) is the only forced cut. In offline mode (defer=False) a remaining buffer
-    that already fits in max_s is returned whole."""
-    n = samples.size
-    soft = int(max_s * sr)
-    hard = int((hard_s if hard_s is not None else max_s) * sr)
-    if n <= soft and not defer:
-        return n
-    rms, fl = _frame_rms(samples, sr)
-    lo = max(int(0.5 * sr), soft - int(5 * sr))   
-    hi = min(n, hard)                              
-    f_lo = lo // fl
-    f_hi = min(len(rms) - 1, hi // fl)
-    if f_hi <= f_lo:
-        if defer and n < hard:
-            return None                            
-        return min(soft, n)
-    win = rms[f_lo : f_hi + 1]
-    j = int(np.argmin(win))
-    cut = (f_lo + j) * fl
-    if cut <= 0:
-        cut = min(soft, n)
-    if defer:
-        speech = max(float(np.percentile(win, 75)), 1e-6)
-        is_pause = float(win[j]) < max(0.30 * speech, 0.004)
-        if not is_pause and n < hard:
-            return None                            
-    return cut
-
-
-def segment_audio(samples, sr, max_s=WHISPER_MAX_S):
-    """Split samples into <= max_s chunks, cutting at quiet points. (Used for the
-    one-shot offline path; the live recorder decodes incrementally instead.)"""
-    segs = []
-    start, n = 0, samples.size
-    while start < n:
-        cut = _cut_point(samples[start:], sr, max_s)
-        segs.append(samples[start : start + cut])
-        start += cut
-    return [s for s in segs if s.size > 0]
+# Segmentação por pausa (frame_rms/cut_point/segment_audio) foi APOSENTADA: agora vem do SDK
+# vendorizado — StreamSegmenter/cut_point/frame_rms em vox_stream.py (byte-idêntico ao canônico).
+# O caminho ao vivo usa StreamingTranscriber (segmenta+STT numa thread); o transcribe_file usa
+# StreamSegmenter direto. Removidas as cópias locais para não divergir do canônico.
 
 
 def detect_mic():
@@ -1551,7 +1486,6 @@ def list_mics():
     except Exception as exc:
         return {"devices": [], "current": SELECTED_MIC, "default": None, "error": str(exc)}
     default_in = None
-    out, seen = [], set()
     with _PA_LOCK:   # exclui um Pa_Terminate concorrente (reinit) durante a enumeração
         try:
             dd = sd.default.device
@@ -1559,20 +1493,20 @@ def list_mics():
         except Exception:
             default_in = None
         try:
-            devs = sd.query_devices()
+            devs = list(sd.query_devices())
+            hapis = list(sd.query_hostapis())
         except Exception as exc:
             return {"devices": [], "current": SELECTED_MIC, "default": default_in, "error": str(exc)}
-    for i, d in enumerate(devs):
-        if int(d.get("max_input_channels", 0)) < 1:
-            continue
-        name = str(d.get("name", "") or "").strip()
-        key = name.lower()
-        if not name or key in seen:
-            continue
-        seen.add(key)
-        out.append({"index": i, "name": name,
-                    "channels": int(d.get("max_input_channels", 0)),
-                    "is_default": (default_in is not None and i == default_in)})
+    # Dedup/format delegado ao SDK vendorizado (vox_audio_devices): trata truncação MME (31 chars)
+    # e preferência de host API (WASAPI/DirectSound antes de MME/WDM-KS) — melhor que o dedup por
+    # nome-cru local. A ENUMERAÇÃO (sob _PA_LOCK) e o lifecycle continuam meus; enriqueço com
+    # channels (que o modelo puro do SDK não carrega) para preservar o shape da UI.
+    out = []
+    for e in vox_audio_devices.list_input_devices(devices=devs, default_index=default_in, hostapis=hapis):
+        d = devs[e["index"]] if 0 <= e["index"] < len(devs) else {}
+        out.append({"index": e["index"], "name": e["name"],
+                    "channels": int(d.get("max_input_channels", 0)) if isinstance(d, dict) else 0,
+                    "is_default": bool(e["is_default"])})
     return {"devices": out, "current": SELECTED_MIC, "default": default_in}
 
 
@@ -2047,8 +1981,10 @@ def main():
                             xp = np.linspace(0.0, 1.0, arr.size, dtype=np.float64)
                             xq = np.linspace(0.0, 1.0, n_out, dtype=np.float64)
                             arr = np.interp(xq, xp, arr).astype(np.float32)
+                    _fseg = StreamSegmenter(sr=SAMPLE_RATE)
+                    _file_segs = _fseg.feed(arr) + _fseg.flush()
                     parts = [decode_seg(seg, raise_on_motor_fail=True)
-                             for seg in segment_audio(arr, SAMPLE_RATE)]
+                             for seg in _file_segs]
                     text = " ".join(p for p in parts if p).strip()
                     emit({"event": "transcribed", "id": rid, "ok": True, "text": text})
                 except VoxEngineError as exc:

@@ -7,6 +7,13 @@
         "command": "node voice-summary-stop.cjs",
         "timeout": 12
       }
+    ],
+    "postToolUseFailure": [
+      {
+        "type": "command",
+        "command": "node voice-canvas-guard.cjs",
+        "timeout": 8
+      }
     ]
   }
 }

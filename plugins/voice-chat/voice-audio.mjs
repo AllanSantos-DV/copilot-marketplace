@@ -11,7 +11,8 @@ import {
     activeSid,
     audioHistoryBySid, audioSeqBySid, audioTurnBySid, audioDeliveredBySid, audioHeardBySid,
 } from "./voice-state.mjs";
-import { broadcastTo, sessionHasClient } from "./extension.mjs";
+import { broadcastTo } from "./voice-net.mjs";
+import { sessionHasClient } from "./extension.mjs";
 
 const ARTIFACTS = shared.resolveDataDir();
 const AUDIO_QUEUE_FILE = join(ARTIFACTS, "audio-queue.json");
