@@ -84,8 +84,18 @@ export function audioHistoryForHello(sid) {
     return { items: hist, playFromSeq, max: AUDIO_HISTORY_MAX };
 }
 
-// O cliente confirmou que TOCOU o item `seq` até o fim -> avança o cursor DURÁVEL de
-// "ouvido" (monotônico; um ack de seq menor, ex. replay manual de item antigo, é no-op).
+// LEITURA PURA (contrato de PARCEIRO — ex.: copilot-mobile via GET /audio): devolve o histórico de
+// áudio da sessão SEM NENHUM efeito colateral — NÃO entrega ao vivo, NÃO avança cursor delivered/heard,
+// NÃO persiste, NÃO seta activeSid, NÃO drena pending. Retorna uma CÓPIA (slice) p/ o chamador não
+// mexer no array interno. `since` (opcional) filtra seq > since p/ polling incremental. sid desconhecido
+// ou sem áudio ⇒ { items: [] }. É o único jeito seguro de um parceiro reusar o áudio sem tocar na sessão.
+export function audioHistoryReadOnly(sid, since) {
+    if (!sid) return { items: [] };
+    const hist = audioHistoryBySid.get(sid) || [];
+    const from = Number.isFinite(since) && since > 0 ? since : 0;
+    const items = from ? hist.filter((it) => it.seq > from) : hist.slice();
+    return { items };
+}
 // Só ISTO consome a fila de verdade: um áudio entregue mas não tocado (painel fechado no
 // meio) segue com seq > heard e retoca no próximo reabrir. Persiste (sobrevive restart).
 export function markPlayed(sid, seq) {

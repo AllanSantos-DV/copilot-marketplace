@@ -24,7 +24,7 @@ import {
     ensureWorker, workerSend, manualRestartWorker, transcribeViaWorker,
     shutdownWorkerForHandover, workerReady, lastDevice, lastVoices, lastMics,
 } from "./voice-worker.mjs";
-import { pushAudio, audioHistoryForHello, markPlayed, reloadAudioStateFromDisk } from "./voice-audio.mjs";
+import { pushAudio, audioHistoryForHello, audioHistoryReadOnly, markPlayed, reloadAudioStateFromDisk } from "./voice-audio.mjs";
 import { injectTurn, drainTurnsToFork } from "./voice-turns.mjs";
 import {
     speakToCanvas, claimVoiceOwnership, setRecordingActive, clearRecordingActive, startMonitor, stopMonitor,
@@ -249,7 +249,7 @@ export function tokenOK(req, url) {
 export async function handleRequest(req, res) {
     const url = new URL(req.url, "http://127.0.0.1");
     const path = url.pathname;
-    if ((req.method === "POST" || path === "/events") && !tokenOK(req, url)) {
+    if ((req.method === "POST" || path === "/events" || path === "/audio") && !tokenOK(req, url)) {
         res.writeHead(403, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: "forbidden" }));
         return;
@@ -588,6 +588,21 @@ export async function handleRequest(req, res) {
     if (req.method === "POST" && path === "/restart-worker") {
         manualRestartWorker();
         return sendJson(res, { ok: true });
+    }
+
+    // GET /audio?sid=<sid>[&since=<seq>] — LEITURA PURA do histórico de áudio da sessão (contrato de
+    // PARCEIRO, ex.: copilot-mobile). ZERO efeito colateral: NÃO drena pending, NÃO seta activeSid, NÃO
+    // avança cursor delivered/heard, NÃO persiste, NÃO liga worker. Só espelha o mesmo histórico que o
+    // hello do /events entrega. Token-gated (x-voice-token), como o /events — carrega texto da sessão.
+    // Retorna itens ordenados por seq asc; `since` filtra seq>since (polling incremental); sid sem áudio
+    // ⇒ items:[] com 200. O wav de cada item fica em GET /tts/<name>.wav (busque logo: retenção enxuta).
+    if (req.method === "GET" && path === "/audio") {
+        const sid = url.searchParams.get("sid") || "";
+        if (!sid) return sendJson(res, { ok: false, error: "missing sid" }, 400);
+        const sinceRaw = url.searchParams.get("since");
+        const since = sinceRaw != null ? parseInt(sinceRaw, 10) : 0;
+        const { items } = audioHistoryReadOnly(sid, Number.isFinite(since) ? since : 0);
+        return sendJson(res, { ok: true, sid, items, engineReady: workerReady });
     }
 
     if (req.method === "GET" && path.startsWith("/tts/")) {
