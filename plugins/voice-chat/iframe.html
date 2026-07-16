@@ -233,6 +233,10 @@
           title="Escuta: ativação por voz — diga a frase-gatilho, sem as mãos">
     <span class="ic">👂</span><span>Escuta</span>
   </button>
+  <button id="interruptBtn" class="toggle-chip" type="button" aria-pressed="false"
+          title="Interromper: a fala CORTA o turno em andamento do agente e entra na hora. Desligado (padrão): a fala espera o turno atual terminar. Com uma pergunta aberta, a fala sempre responde a pergunta.">
+    <span class="ic">⚡</span><span>Interromper</span>
+  </button>
 </div>
 
 <main>
@@ -363,6 +367,10 @@
     <div class="row">
       <div><label>Ativação por voz</label><div class="sub">diga a frase-gatilho, sem as mãos (mic sempre ligado)</div></div>
       <label class="switch"><input id="setWake" type="checkbox" /><span></span></label>
+    </div>
+    <div class="row">
+      <div><label>Interromper</label><div class="sub">a fala corta o turno atual do agente (padrão: espera terminar)</div></div>
+      <label class="switch"><input id="setInterrupt" type="checkbox" /><span></span></label>
     </div>
     <div class="row">
       <div><label>Frase-gatilho</label><div class="sub">a IA escuta por esta frase</div></div>
@@ -919,14 +927,17 @@ $("updateBtn").addEventListener("click", async () => {
 });
 
 function reflectToggles() {
-  const hf = $("setHandsfree").checked, wk = $("setWake").checked;
+  const hf = $("setHandsfree").checked, wk = $("setWake").checked, it = $("setInterrupt").checked;
   $("hfBtn").classList.toggle("active", hf);
   $("hfBtn").setAttribute("aria-pressed", String(hf));
   $("wakeBtn").classList.toggle("active", wk);
   $("wakeBtn").setAttribute("aria-pressed", String(wk));
+  $("interruptBtn").classList.toggle("active", it);
+  $("interruptBtn").setAttribute("aria-pressed", String(it));
 }
 $("hfBtn").addEventListener("click", () => { $("setHandsfree").checked = !$("setHandsfree").checked; pushSettings(); });
 $("wakeBtn").addEventListener("click", () => { $("setWake").checked = !$("setWake").checked; pushSettings(); });
+$("interruptBtn").addEventListener("click", () => { $("setInterrupt").checked = !$("setInterrupt").checked; pushSettings(); });
 
 function pushSettings() {
   const s = {
@@ -941,6 +952,7 @@ function pushSettings() {
     wakeWord: $("setWake").checked,
     wakePhrase: ($("setWakePhrase").value || "").trim() || "escuta jarvis",
     handsfree: $("setHandsfree").checked,
+    interruptMode: $("setInterrupt").checked,
   };
   handsfree = $("setHandsfree").checked;
   try { localStorage.setItem("voiceHandsfree", handsfree ? "1" : "0"); } catch (e) {}
@@ -951,7 +963,7 @@ function pushSettings() {
   reflectToggles();
   post("/settings", s);
 }
-["setVoice","setRate","setLang","setFull","setConfirm","setAuthor","setCueStart","setCueCheckpoints","setHandsfree","setWake","setWakePhrase"]
+["setVoice","setRate","setLang","setFull","setConfirm","setAuthor","setCueStart","setCueCheckpoints","setHandsfree","setWake","setWakePhrase","setInterrupt"]
   .forEach((id) => $(id).addEventListener("change", pushSettings));
 
 (function initVolume() {
@@ -987,6 +999,7 @@ function applySettings(s) {
   $("setCueCheckpoints").checked = s.cueCheckpoints !== false;
   $("setWake").checked = !!s.wakeWord;
   if (typeof s.handsfree === "boolean") { $("setHandsfree").checked = s.handsfree; handsfree = s.handsfree; }
+  if (typeof s.interruptMode === "boolean") { $("setInterrupt").checked = s.interruptMode; }
   if (s.wakePhrase) $("setWakePhrase").value = s.wakePhrase;
   updateWakeBadge();
   reflectToggles();

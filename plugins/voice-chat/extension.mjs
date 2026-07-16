@@ -61,7 +61,7 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 
-export const CURRENT_VERSION = "1.5.25";
+export const CURRENT_VERSION = "1.5.26";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -117,6 +117,7 @@ const DEFAULT_SETTINGS = {
     wakeWord: false,
     wakePhrase: "escuta jarvis",
     handsfree: false,
+    interruptMode: false,
     micDevice: null,
 };
 export let settings = { ...DEFAULT_SETTINGS };
@@ -145,6 +146,7 @@ const CHECKPOINT_INSTRUCTION =
 
 let pendingVoiceTurn = false;
 let voiceInstructionPending = false; 
+let pendingUserInputId = null;   // requestId de um ask_user ABERTO (SDK user_input.requested) -> a fala responde ele
 let latestReply = "";
 let lastSpokenContent = "";
 let idleFallback = null;
@@ -285,6 +287,7 @@ export function sanitizeSettings(b) {
     if (typeof b.wakePhrase === "string" && b.wakePhrase.trim())
         out.wakePhrase = b.wakePhrase.trim().slice(0, 60);
     if (typeof b.handsfree === "boolean") out.handsfree = b.handsfree;
+    if (typeof b.interruptMode === "boolean") out.interruptMode = b.interruptMode;
     if (b.micDevice === null || typeof b.micDevice === "number") out.micDevice = b.micDevice;
     return out;
 }
@@ -541,6 +544,28 @@ export async function handleVoiceTranscript(text) {
         notifySessionDead();
         return false;
     }
+    // ROTEAMENTO 1 — ask_user ABERTO: responde a PERGUNTA (freeform) em vez de um send novo. Sem isto, o
+    // send ficaria preso na fila ATRÁS do pedido pendente e a fala "sumia" (o chat funciona porque digitar
+    // com pergunta aberta responde o campo). Se a resposta falhar (já resolvida por outro cliente), cai pro
+    // send normal abaixo. Não dispara o setup de turno de voz (cues) — é uma resposta, não um turno novo.
+    if (pendingUserInputId && session.rpc && session.rpc.ui && session.rpc.ui.handlePendingUserInput) {
+        const rid = pendingUserInputId;
+        try {
+            // SDK: UIHandlePendingResult = { success: boolean }. success=false quando o requestId é
+            // desconhecido/expirado/JÁ resolvido por outro cliente (ex.: GitHub) -> NÃO respondemos;
+            // caímos pro send normal abaixo (não descarta a fala). (verificado em rpc.d.ts UIHandlePendingResult)
+            const r = await session.rpc.ui.handlePendingUserInput({ requestId: rid, response: { answer: text, wasFreeform: true } });
+            if (r && r.success) {
+                if (pendingUserInputId === rid) pendingUserInputId = null;   // não limpa um pedido NOVO aberto durante o await
+                dbg(`ask_user respondido por voz (freeform): requestId=${rid}`);
+                return true;
+            }
+            dbg(`handlePendingUserInput success=false (rid=${rid}); caindo pro send normal`);
+        } catch (e) {
+            dbg(`handlePendingUserInput falhou (rid=${rid}): ${e && e.message}; caindo pro send normal`);
+        }
+        if (pendingUserInputId === rid) pendingUserInputId = null;   // este pedido não resolveu -> segue como send (sem re-tentar o mesmo)
+    }
     pendingVoiceTurn = true;
     _phase = "voiceTurn:start";
     voiceInstructionPending =
@@ -554,7 +579,10 @@ export async function handleVoiceTranscript(text) {
     let lastErr = null;
     for (let attempt = 1; attempt <= SEND_DEAD_RETRIES; attempt++) {
         try {
-            const messageId = await session.send({ prompt: text });
+            // ROTEAMENTO 2 — modo de entrega escolhido pelo usuário (chip "Interromper"): "immediate"
+            // INTERROMPE o turno em andamento do agente; "enqueue" (padrão) espera o turno atual acabar.
+            const mode = settings.interruptMode ? "immediate" : "enqueue";
+            const messageId = await session.send({ prompt: text, mode });
             _phase = "voiceTurn:sent";
             // Cue "Ok, comecei" SÓ depois do send ACEITO (numa fork zumbi o send lança antes → sem cue
             // dobrado no failover; também é mais honesto).
@@ -1100,6 +1128,17 @@ session = await joinSession({
 });
 session.on("assistant.message", onAssistantMessage);
 session.on("session.idle", onIdle);
+// Rastreia um ask_user ABERTO (evento do SDK) p/ rotear a fala como RESPOSTA daquela pergunta em vez de
+// um send novo (que ficaria preso na fila ATRÁS do pedido pendente). Guarda só o requestId; a resposta é
+// SEMPRE freeform (decisão do dono: todo ask_user abre campo livre, injetamos nele). completed limpa.
+session.on("user_input.requested", (e) => {
+    const rid = e && e.data && e.data.requestId;
+    if (rid) { pendingUserInputId = rid; dbg(`ask_user aberto: requestId=${rid}`); }
+});
+session.on("user_input.completed", (e) => {
+    const rid = e && e.data && e.data.requestId;
+    if (rid && pendingUserInputId === rid) { pendingUserInputId = null; dbg(`ask_user resolvido: requestId=${rid}`); }
+});
 restoreVoiceState();
 restoreAudioHistory();
 restorePendingTurns();
