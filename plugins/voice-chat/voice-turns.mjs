@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import shared from "./voice-shared.cjs";
-import { dbg, readJson } from "./voice-core.mjs";
+import { dbg, readJson, writeJsonAtomic } from "./voice-core.mjs";
 import {
     pendingTurnsBySid, drainingTurns, injectedTurnIds, injectedTurnOrder, injectingIds, forks,
 } from "./voice-state.mjs";
@@ -35,8 +35,8 @@ export function persistPendingTurns(sid) {
         const map = readPendingTurnsMap();
         const q = pendingTurnsBySid.get(String(sid)) || [];
         if (q.length) map[String(sid)] = q; else delete map[String(sid)];
-        writeFileSync(PENDING_TURNS_FILE, JSON.stringify(map));
-    } catch { }
+        writeJsonAtomic(PENDING_TURNS_FILE, map);   // ATÔMICO (tmp+rename): o primário E o fork dono escrevem
+    } catch { }                                     // este arquivo concorrentemente -> nunca deixar torn/half-write.
 }
 export function restorePendingTurns() {
     try {
@@ -71,10 +71,29 @@ export function pruneExpiredTurns(sid) {
     dbg(`pending turn(s) expired for sid=${sid}: dropped ${dropped}`);
     broadcastTo(sid, { type: "error", msg: "Não consegui entregar sua fala a esta sessão (ficou indisponível). Fale de novo, por favor." });
 }
+// Reconcilia a fila EM MEMÓRIA do primário contra o DISCO (fonte da verdade). O fork DONO, ao auto-entregar
+// (selfDeliverOwnTurns), REMOVE o turno do disco mas o primário mantém a cópia em memória (nunca relê disco
+// em runtime). Sem isto, após um RESTART do fork dono (injectedTurnIds em memória zera), o re-push do primário
+// re-injetaria a fala (DOBRADA) e/ou o TTL expiraria a "zumbi" com um falso "não entreguei" (achado do review).
+// Solta um turno só quando o disco o confirma AUSENTE E ele já tem idade (>3s) — a guarda de idade protege
+// contra uma leitura de disco transitoriamente vazia race-ando com um enqueue recém-escrito. Seguro porque
+// persistPendingTurns agora é ATÔMICO (writeJsonAtomic): {} no disco = vazio de verdade, não meio-escrito.
+export function reconcileAgainstDisk(sid) {
+    const q = pendingTurnsBySid.get(sid);
+    if (!q || !q.length) return;
+    const map = readPendingTurnsMap();
+    const onDisk = new Set((Array.isArray(map[sid]) ? map[sid] : []).map((e) => e && e.id));
+    const now = Date.now();
+    const kept = q.filter((e) => e && (onDisk.has(e.id) || (now - (e.ts || 0)) < 3000));
+    if (kept.length === q.length) return;
+    if (kept.length) pendingTurnsBySid.set(sid, kept); else pendingTurnsBySid.delete(sid);
+    dbg(`reconcileAgainstDisk sid=${sid}: soltou ${q.length - kept.length} turno(s) já auto-entregue(s)`);
+}
 export function drainTurnsToFork(sid, urlArg) {
     if (!sid) return;
     if (drainingTurns.has(sid)) return;            // an /inject is already in flight for this sid
     pruneExpiredTurns(sid);
+    reconcileAgainstDisk(sid);                      // solta o que o fork DONO já auto-entregou (removeu do disco)
     const q = pendingTurnsBySid.get(sid);
     if (!q || !q.length) return;
     const url = urlArg || forks.get(sid);
@@ -96,6 +115,50 @@ export function drainTurnsToFork(sid, urlArg) {
 }
 export function drainAllPendingTurns() {
     for (const sid of [...pendingTurnsBySid.keys()]) drainTurnsToFork(sid);
+}
+
+// PULL DETERMINÍSTICO (entrega própria, sem HTTP): o fork DONO da sessão injeta os PRÓPRIOS turnos
+// IN-PROCESS (session.send local via injectTurn), lendo a fila do DISCO — independente do painel/servidor
+// efêmero estar de pé. Resolve o furo em que trocar de sessão fecha o servidor do fork dono e o turno
+// ficava preso até o retorno: o fork segue VIVO em background (heartbeat+sweep de 5s), então ele mesmo
+// drena a própria fila. Idempotente: injectTurn deduplica por id (sem double-send com um push do primário
+// concorrente). Só remove do disco no sucesso; falha transitória fica na fila p/ o próximo sweep.
+let _selfDraining = false;
+export async function selfDeliverOwnTurns(ownSid) {
+    const sid = String(ownSid || "");
+    if (!sid || _selfDraining) return false;
+    // Hidrata a memória a partir do DISCO (o primário enfileira no disco; este fork pode ter bootado antes
+    // do turno existir, então não o teria em memória). Depois poda expirados.
+    const map = readPendingTurnsMap();
+    const disk = Array.isArray(map[sid]) ? map[sid] : [];
+    if (disk.length) {
+        const mem = pendingTurnsBySid.get(sid) || [];
+        const seen = new Set(mem.map((e) => e && e.id));
+        const merged = mem.concat(disk.filter((e) => e && e.id && !seen.has(e.id)));
+        pendingTurnsBySid.set(sid, merged);
+    }
+    pruneExpiredTurns(sid);
+    if (!(pendingTurnsBySid.get(sid) || []).length) return false;
+    _selfDraining = true;
+    let delivered = false;
+    try {
+        // FIFO: injeta a cabeça in-process; no sucesso, remove e segue. Um in-flight por vez (o guard acima).
+        for (;;) {
+            const q = pendingTurnsBySid.get(sid) || [];
+            const head = q[0];
+            if (!head) break;
+            const r = await injectTurn(head.text, head.id);   // IN-PROCESS: handleVoiceTranscript -> session.send local
+            if (!(r && (r.ok || r.dup))) break;               // transitório -> mantém na fila p/ o próximo sweep
+            const cur = pendingTurnsBySid.get(sid);
+            if (cur && cur.length && cur[0].id === head.id) {
+                cur.shift();
+                if (cur.length) pendingTurnsBySid.set(sid, cur); else pendingTurnsBySid.delete(sid);
+                persistPendingTurns(sid);
+                delivered = true;
+            } else break;
+        }
+    } finally { _selfDraining = false; }
+    return delivered;
 }
 // Receiver-side de-dup: a turn re-sent after a mid-inject failover must not run
 // session.send() twice (the user raged about duplicated audio; same rule here).

@@ -5,7 +5,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { dirname, join, basename } from "node:path";
 import { readFile, writeFile, mkdir, readdir, stat, unlink } from "node:fs/promises";
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, appendFileSync, statSync, renameSync, copyFileSync, linkSync, readdirSync } from "node:fs";
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, appendFileSync, statSync, renameSync, copyFileSync, linkSync, readdirSync, watch } from "node:fs";
 import { setPriority, constants as osConstants } from "node:os";
 import { randomBytes } from "node:crypto";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
@@ -34,7 +34,7 @@ import {
 } from "./voice-audio.mjs";
 import {
     readPendingTurnsMap, persistPendingTurns, restorePendingTurns, enqueueTurn, pruneExpiredTurns,
-    drainTurnsToFork, drainAllPendingTurns, seenInjectedId, rememberInjectedId, injectTurn,
+    drainTurnsToFork, drainAllPendingTurns, selfDeliverOwnTurns, seenInjectedId, rememberInjectedId, injectTurn,
 } from "./voice-turns.mjs";
 import {
     ensureWorker, workerSend, restartWorker, manualRestartWorker, synthesize, transcribeViaWorker,
@@ -61,7 +61,7 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 
-export const CURRENT_VERSION = "1.5.24";
+export const CURRENT_VERSION = "1.5.25";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -1107,8 +1107,28 @@ startHeartbeat();
 writeForkHeartbeat();   // canvas registrado (joinSession OK) -> marca esta fork viva p/ o Stop hook
 const _forkHb = setInterval(writeForkHeartbeat, 5000);
 if (_forkHb.unref) _forkHb.unref();
-const _turnSweep = setInterval(drainAllPendingTurns, 5000);
+const _turnSweep = setInterval(() => {
+    drainAllPendingTurns();                          // primário: empurra p/ forks com painel ABERTO (HTTP, caminho rápido)
+    selfDeliverOwnTurns(mySid()).catch(() => { });   // ESTE fork: entrega os PRÓPRIOS turnos IN-PROCESS (determinístico,
+                                                     // funciona em BACKGROUND/sem painel — o furo do "espera eu voltar")
+}, 5000);
 if (_turnSweep.unref) _turnSweep.unref();
+// Trigger EVENT-DRIVEN (quase instantâneo): assim que o primário GRAVA um turno na fila em disco, o fork
+// DONO drena o próprio IN-PROCESS na hora (~ms) — sem esperar o sweep de 5s, que fica só como REDE DE
+// SEGURANÇA (fs.watch pode perder evento). Debounce curto absorve os múltiplos eventos de uma escrita.
+let _turnWatchT = null;
+try {
+    // Observa o dir ONDE o voice-turns realmente grava a fila (shared.resolveDataDir()), não ARTIFACTS —
+    // que pode divergir no fallback legacy (achado do review). unref + listener de 'error' p/ um dir
+    // removido/renomeado degradar pro sweep de 5s sem virar uncaughtException.
+    const _turnWatcher = watch(shared.resolveDataDir(), (_evt, fname) => {
+        if (String(fname || "") !== "pending-turns.json") return;
+        clearTimeout(_turnWatchT);
+        _turnWatchT = setTimeout(() => { selfDeliverOwnTurns(mySid()).catch(() => { }); }, 40);
+    });
+    _turnWatcher.on("error", () => { /* dir sumiu/renomeou -> só perde o fast-path; o sweep de 5s cobre */ });
+    if (_turnWatcher.unref) _turnWatcher.unref();
+} catch { /* fs.watch indisponível nesta plataforma -> o sweep de 5s cobre */ }
 // Sweep do PRIMÁRIO que drena a fila-em-arquivo do Stop hook (pending/<sid>.jsonl) a cada 2s: com
 // o painel ABERTO e o primário estável, nenhum hello/promoção dispara por turno, então SEM este
 // sweep o resumo 🔊 ficaria no disco sem tocar. drainAllPendingSpeak é no-op fora do primário.
