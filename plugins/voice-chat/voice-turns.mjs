@@ -11,7 +11,8 @@ import { dbg, readJson } from "./voice-core.mjs";
 import {
     pendingTurnsBySid, drainingTurns, injectedTurnIds, injectedTurnOrder, injectingIds, forks,
 } from "./voice-state.mjs";
-import { broadcastTo, httpPostJson, handleVoiceTranscript } from "./extension.mjs";
+import { broadcastTo, httpPostJson } from "./voice-net.mjs";
+import { handleVoiceTranscript } from "./extension.mjs";
 
 const ARTIFACTS = shared.resolveDataDir();
 // --- Held voice-turn delivery (per-session, persisted) ----------------------

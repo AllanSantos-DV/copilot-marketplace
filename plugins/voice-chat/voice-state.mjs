@@ -68,3 +68,14 @@ export function setSessionDead(v) { sessionDead = v; }
 // então o open() do canvas fixa isto a partir do ctx.sessionId confiável.
 export let ownSid = "";
 export function setOwnSid(v) { ownSid = v; }
+
+// sid do turno de voz em andamento (o dono da captura). Escrito TANTO pela entry
+// (claim/quiesce/step-down) QUANTO pelo hub de eventos do worker -> dual-writer,
+// por isso mora aqui com setter (não pode ser export-let de um único módulo).
+export let turnOwnerSid = null;
+export function setTurnOwnerSid(v) { turnOwnerSid = v; }
+
+// sid que está monitorando o nível do microfone (VU meter). A entry escreve, o
+// worker lê -> centralizado aqui para evitar re-churn quando o net for extraído.
+export let monitorSid = null;
+export function setMonitorSid(v) { monitorSid = v; }

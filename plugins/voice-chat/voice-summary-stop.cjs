@@ -29,25 +29,33 @@ function readTurnSpeak(transcriptPath) {
   let lines;
   try { lines = fs.readFileSync(transcriptPath, 'utf8').split('\n'); }
   catch { return { readable: false }; }
-  let sawUser = false, spoke = false, hadText = false;
+  // `spoke` = houve ALGUM `falar` no turno (mantido p/ compat + reset do contador). `unspokenTail` =
+  // tamanho do texto do assistente que veio DEPOIS do ÚLTIMO `falar` (o resumo NÃO-falado do fim). Um
+  // `falar` "cobre" o texto até ele -> zeramos o tail nele. Assim `falar` no COMEÇO não satisfaz o
+  // resumo do FIM: o furo real (cue inicial contava como resumo) some.
+  let sawUser = false, spoke = false, hadText = false, unspokenTail = 0;
   for (const raw of lines) {
     const t = raw.trim();
     if (!t) continue;
     let e;
     try { e = JSON.parse(t); } catch { continue; }
     if (!e || !e.type) continue;
-    if (e.type === 'user.message') { sawUser = true; spoke = false; hadText = false; continue; }   // novo turno -> zera o escopo
-    if (e.type === 'tool.execution_start' && e.data && typeof e.data.toolName === 'string' && isFalarTool(e.data.toolName)) spoke = true;
-    else if (e.type === 'assistant.message' && e.data && typeof e.data.content === 'string' && e.data.content.trim()) hadText = true;
+    if (e.type === 'user.message') { sawUser = true; spoke = false; hadText = false; unspokenTail = 0; continue; }   // novo turno -> zera o escopo
+    if (e.type === 'tool.execution_start' && e.data && typeof e.data.toolName === 'string' && isFalarTool(e.data.toolName)) { spoke = true; unspokenTail = 0; }   // `falar` cobre o texto até aqui
+    else if (e.type === 'assistant.message' && e.data && typeof e.data.content === 'string' && e.data.content.trim()) { hadText = true; unspokenTail += e.data.content.trim().length; }   // texto não-falado desde o último `falar`
   }
-  return { readable: true, sawUser, spoke, hadText };
+  return { readable: true, sawUser, spoke, hadText, unspokenTail };
 }
-// PURO (testável): 'ok' | 'block' a partir do estado do turno + suppressBlock (cap consecutivo).
+// Piso do resumo FALÁVEL: texto não-falado no fim ABAIXO disso é fecho trivial (ex.: "pronto, commitado")
+// e NÃO cobra; a partir daqui é conteúdo com valor que deve virar áudio. Tunável.
+const SUMMARY_MIN_CHARS = 40;
+// PURO (testável): 'ok' | 'block'. Bloqueia só quando há texto SUBSTANCIAL não-falado no FIM do turno
+// (mede `unspokenTail`, não "chamou falar em algum lugar") — corrige o furo do cue inicial.
 function decideSpeakEnforcement(state, suppressBlock) {
-  if (!state || !state.readable) return 'ok';        // sem transcript legível -> não trava o turno
-  if (state.spoke) return 'ok';                       // já chamou `falar` -> ok
-  if (suppressBlock) return 'ok';                     // cap consecutivo estourou -> desiste (anti-loop)
-  if (!state.sawUser || !state.hadText) return 'ok';  // turno sem resposta textual -> nada a falar
+  if (!state || !state.readable) return 'ok';                              // sem transcript legível -> não trava o turno
+  if (!state.sawUser || !state.hadText) return 'ok';                       // turno sem resposta textual -> nada a falar
+  if ((Number(state.unspokenTail) || 0) < SUMMARY_MIN_CHARS) return 'ok';  // resumo final já falado, ou só fecho trivial
+  if (suppressBlock) return 'ok';                                          // cap consecutivo estourou -> desiste (anti-loop)
   return 'block';
 }
 const SPEAK_REASON = 'Você respondeu sem produzir áudio para o usuário (a mensagem foi capturada por VOZ). Chame AGORA a ferramenta `falar` passando um texto natural em português do Brasil (1 a 3 frases curtas, sem markdown, sem listas, sem código e sem emojis) resumindo o essencial da sua resposta. É a tool `falar` que gera a voz.';
@@ -129,8 +137,11 @@ if (require.main === module) {
       emitBlock(SPEAK_REASON);
       process.exit(0);
     }
-    if (turn && turn.spoke && consec !== 0) st.consecBlocks = 0;   // SÓ zera quando o turno REALMENTE falou
-                                                                   // (NÃO no suppress do cap nem em turno sem texto: senão re-arma o storm)
+    // Zera o contador só quando o turno CUMPRIU: teve texto E nada substancial ficou não-falado no fim
+    // (resumo falado, ou tail trivial). NÃO no suppress (unspokenTail ainda alto -> compliant=false),
+    // senão re-arma o storm; nem em turno sem texto (não é vitória de fala).
+    const compliant = !!(turn && turn.hadText && (Number(turn.unspokenTail) || 0) < SUMMARY_MIN_CHARS);
+    if (compliant && consec !== 0) st.consecBlocks = 0;
 
     // 2) ADVISOR determinístico de canvas caído (independente). Deduplicado por queda + teto ABSOLUTO
     //    ADVISOR_MAX por SESSÃO (NÃO reabastece em turno saudável: senão alternar saudável/morto burla o
@@ -150,4 +161,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { decideSpeakEnforcement, readTurnSpeak, isFalarTool, decideCanvasAdvisor };
+module.exports = { decideSpeakEnforcement, readTurnSpeak, isFalarTool, decideCanvasAdvisor, SUMMARY_MIN_CHARS };
