@@ -1,7 +1,8 @@
 {
-  "tagline": "Memória por projeto para o agente do Copilot: ele lembra as decisões, convenções e aprendizados do projeto entre sessões — e sobe o servidor de memória sozinho quando ele não existe.",
-  "lede": "O **copilot-memory** dá ao agente uma memória que dura além da sessão, **escopada por projeto**. Ele injeta o contexto certo no começo de cada conversa (decisões, convenções, pendências), deixa você buscar e salvar conhecimento, e **destila** o que deu certo em skills reusáveis. É um **cliente puro** do servidor de memória `native-java`: descobre o daemon, reusa se estiver no ar e, se não estiver, **baixa e sobe o servidor** — verificando a assinatura antes de rodar. Toda a memória fica na sua máquina.",
+  "tagline": "Memória por projeto para o agente do Copilot: lembra decisões, convenções e aprendizados entre sessões e destila o que deu certo em skills — e agora barra o git push até uma revisão externa aprovar o commit.",
+  "lede": "O **copilot-memory** dá ao agente uma memória que dura além da sessão, **escopada por projeto**. Ele injeta o contexto certo no começo de cada conversa (decisões, convenções, pendências), deixa você buscar e salvar conhecimento, e **destila** o que deu certo em skills reusáveis. É um **cliente puro** do servidor de memória `native-java`: descobre o daemon, reusa se estiver no ar e, se não estiver, **baixa e sobe o servidor** — verificando a assinatura antes de rodar. Toda a memória fica na sua máquina. **Novo na v1.8.0:** ele também **impõe** os passos que dá pra esquecer — o primeiro **gate** barra o `git push` até um **revisor externo independente** aprovar exatamente aquele commit.",
   "highlights": [
+    { "title": "Barra o `git push` sem revisão", "body": "**Novo na v1.8.0.** Um **gate opt-in por projeto** torna passos críticos obrigatórios e à prova de esquecimento. O primeiro exige que um **revisor externo independente** aprove exatamente aquele commit antes de publicar — com **recibo amarrado ao SHA**. Determinístico onde importa, semântico onde agrega." },
     { "title": "Lembra por projeto, não vaza entre eles", "body": "Cada leitura e escrita é carimbada com o `project_id` do projeto aberto. A memória de um projeto nunca aparece em outro." },
     { "title": "Recall em dois níveis", "body": "Skills voltam como **ponteiro** (nome + descrição + id) e o agente abre o corpo só quando precisa; fatos voltam **inline**, prontos para usar. Menos ruído, mais contexto." },
     { "title": "Aprende com a sessão, sozinho", "body": "Um **agente curador** lê a conversa (checkpoints + turnos) em background e destila lições **técnicas e comportamentais** — semanticamente, entendendo ironia e crítica, não por palavra-chave. Skills de projeto entram no recall automaticamente." },
@@ -30,9 +31,32 @@
             { "title": "Deixe o servidor subir", "text": "Se não houver um servidor de memória rodando, o plugin baixa e sobe na primeira sessão. Requer Java 21 no PATH. Ou rode `memory_setup` para provisionar na hora." },
             { "title": "Trabalhe normalmente", "text": "O contexto do projeto entra sozinho no início da sessão e a cada pergunta. Use `memory_search` para buscar e `memory_save` para guardar uma decisão ou nota." },
             { "title": "Dê um escopo estável ao projeto", "text": "Se o projeto não tem `.memory/project.json` nem remote git, o plugin sugere criar um — uma vez. Aceite (ou use `memory_init_project`) para a memória casar entre máquinas." },
-            { "title": "Destile o que aprendeu", "text": "Depois de um marco confirmado, chame `memory_distill`: o agente extrai o que é reusável e verificado como skill candidata, que você promove com `memory_promote_skill`." }
+            { "title": "Destile o que aprendeu", "text": "Depois de um marco confirmado, chame `memory_distill`: o agente extrai o que é reusável e verificado como skill candidata, que você promove com `memory_promote_skill`." },
+            { "title": "Blinde o que não pode esquecer (opcional)", "text": "Nos repos que quiser, ligue um **gate** com `memory_gate enable`: a partir daí, o `git push` sem revisão externa fica **bloqueado**. Rode `memory_gate_review` para liberar o commit. É opt-in — vale só naquele repositório." }
           ]
         }
+      ]
+    },
+    {
+      "id": "gates",
+      "title": "Gates obrigatórios",
+      "blocks": [
+        { "type": "p", "text": "Revisar o código antes de publicar é fácil de **esquecer** — e \"lembrar\" não é garantia de nada. Os **gates** tiram os passos críticos da disciplina humana e os tornam **obrigatórios**: o plugin **bloqueia a ação** até a condição ser cumprida. O primeiro gate pronto é **revisor externo antes do `git push`** — tenta publicar sem revisão? O push para na hora, com uma mensagem que diz o que fazer:" },
+        { "type": "code", "lang": "sh", "code": "$ git push origin main\n\n  ⛔  Gate obrigatório — revisão externa antes do push\n      commit d4f9c1a ainda não foi revisado; nada foi enviado.\n\n      → rode  memory_gate_review  para revisar o diff do push\n        e liberar exatamente este commit." },
+        {
+          "type": "steps",
+          "items": [
+            { "title": "Ligue por repositório", "text": "`memory_gate enable` escreve um hook no `.github/hooks/hooks.json` **daquele** repo. É opt-in: suas outras sessões, projetos e máquinas não mudam em nada." },
+            { "title": "O hook barra o push", "text": "Um **hook determinístico** intercepta a chamada de `git push` do agente. Sem um recibo válido para aquele commit, ele **nega** e nada é enviado. Nada de regex frágil: ele reconhece a **forma** da ação (que aquilo é um push), não o significado." },
+            { "title": "Rode a revisão externa", "text": "`memory_gate_review` dispara um **revisor externo independente** — outro modelo, num **subprocesso separado**, sem o contexto do agente barrado (anti \"echo chamber\"). Ele lê o **diff do que seria publicado** e caça bugs reais, falhas de segurança e segredos vazados." },
+            { "title": "Limpo? Ganha um recibo preso ao commit", "text": "Se o parecer sai limpo, a tool grava um **recibo amarrado ao SHA** do commit. Só então o `git push` daquele commit passa. Quem publica não assina o próprio recibo — quem assina é a revisão independente." },
+            { "title": "Commitou de novo? Revisa de novo", "text": "Emendou ou fez um commit novo? O SHA muda, o recibo **perde a validade** e o gate pede nova revisão. Não dá para passar com um parecer velho." }
+          ]
+        },
+        { "type": "note", "tone": "info", "text": "**Provado ao vivo.** O gate já barrou um `git push` de verdade numa sessão real, e o revisor externo pegou problemas concretos — uma **credencial exposta** e uma **lógica quebrada** — e **recusou o recibo**. Não é teoria." },
+        { "type": "note", "tone": "warn", "text": "Emergência? Existe um **break-glass auditado**: um override que libera o push na hora e registra **quem** liberou, **por quê** e **quando expira**. Ele só entra com a sua ordem explícita — o agente nunca o aciona sozinho." },
+        { "type": "p", "text": "**Por que isto é sólido:** o bloqueio é **determinístico** onde precisa (um hook, não um palpite) e a análise é **semântica** onde agrega (a revisão por IA) — nada de regex frágil decidindo o que barrar. As regras vivem como **dado** (políticas + recibos locais), não num hook cravado que vira manutenção infinita: o hook é um despachante fino e estável, então novos gates entram sem reescrever nada. E o bloqueio roda num **hot-path local** — lê políticas e recibos do disco, **sem depender do daemon**." },
+        { "type": "p", "text": "**Isso é só o começo.** Os próximos gates já estão no mapa — aprovação antes de um release, um agente de design antes de publicar onde há GitHub Pages — e o próprio autoaprendizado pode **propor** um gate novo a partir do que você corrige, para você **promover**." }
       ]
     },
     {
@@ -122,7 +146,8 @@
             "**Descoberta** — lê o registro do daemon (`~/.mcp-memory/run/daemon.json`), faz um health-check e reusa a URL. Offline, degrada com aviso.",
             "**Escopo** — resolve o `project_id` pelo `.memory/project.json` ou pelo git, e carimba toda leitura/escrita com ele.",
             "**Recall** — nos hooks de início de sessão e de cada pergunta, compõe o contexto (ponteiro para skills, inline para fatos) e injeta.",
-            "**Escrita e skills** — `memory_save` guarda conhecimento; o ciclo `save_skill → promote → invalidate` cura as skills reusáveis."
+            "**Escrita e skills** — `memory_save` guarda conhecimento; o ciclo `save_skill → promote → invalidate` cura as skills reusáveis.",
+            "**Gates (opt-in)** — nos repos que você habilita, um hook determinístico intercepta o `git push` e o barra até `memory_gate_review` gravar o recibo do commit. O bloqueio lê políticas e recibos locais: hot-path, sem daemon."
           ]
         },
         { "type": "p", "text": "O plugin não recria o que o servidor já faz — composição do recall, telemetria de uso, reforço e poda são do servidor. Ele é o cliente que traz esse valor para dentro da sua sessão do Copilot." }
@@ -133,6 +158,7 @@
     "Copilot App (desktop) com o GitHub Copilot SDK",
     "Java 21 no PATH (o servidor de memória roda sobre a JVM; usado no auto-provisionamento)",
     "Node 18+ (runtime da extensão)",
+    "Git no PATH — usado pelos gates (diff do push e recibo por commit)",
     "Rede na primeira vez, para baixar o servidor quando ele ainda não existe"
   ],
   "faq": [
@@ -144,13 +170,44 @@
     { "q": "Como desligo o download automático do servidor?", "a": "Defina `COPILOT_MEMORY_AUTOPROVISION=0`. O plugin então apenas reusa um daemon que já esteja rodando e degrada se não houver — sem baixar nem subir nada." },
     { "q": "Onde mora o código do servidor?", "a": "No projeto `native-java` (mcp-memory-server), publicado como release pública. Esta vitrine guarda só o plugin cliente; o servidor é baixado do repositório oficial de releases, verificado por sha256." },
     { "q": "Tem uma tela para ver o estado da memória?", "a": "Tem. O `memory_dashboard` abre um painel lateral (canvas) com a saúde do daemon, o escopo do projeto e a escada que resolveu o `project_id`, os documentos e skills recentes e a telemetria de recall. É só leitura e aparece depois de reiniciar o app uma vez." },
-    { "q": "Se eu declarar um project_id novo, perco a memória antiga?", "a": "Não. Ao declarar um `.memory/project.json`, o plugin detecta a memória carimbada com o escopo anterior e oferece migrá-la para o novo id, via reatribuição sem re-processar (o conteúdo é preservado). A migração nunca é automática: ele previsualiza e só aplica com a sua confirmação, e avisa quando o escopo antigo é compartilhado (git) para não deixar a memória órfã para colegas." }
+    { "q": "Se eu declarar um project_id novo, perco a memória antiga?", "a": "Não. Ao declarar um `.memory/project.json`, o plugin detecta a memória carimbada com o escopo anterior e oferece migrá-la para o novo id, via reatribuição sem re-processar (o conteúdo é preservado). A migração nunca é automática: ele previsualiza e só aplica com a sua confirmação, e avisa quando o escopo antigo é compartilhado (git) para não deixar a memória órfã para colegas." },
+    { "q": "Os gates afetam meus outros projetos?", "a": "Não. O gate é **opt-in por repositório**: `memory_gate enable` escreve um hook só no `.github/hooks/hooks.json` daquele repo. Suas outras sessões, projetos e máquinas seguem intactos. `memory_gate disable` remove quando quiser." },
+    { "q": "Se o daemon da memória cair, o gate para de barrar?", "a": "Não. O bloqueio roda num **hot-path local**: o hook lê as políticas e os recibos direto do disco (em `~/.copilot-memory/`), sem rede e sem daemon. Só a **revisão** (`memory_gate_review`) usa o modelo — o bloqueio em si é determinístico e independente." },
+    { "q": "Preciso do painel (canvas) aberto para o gate valer?", "a": "Não. O gate é um hook que dispara toda vez que o agente tenta um `git push`, com ou sem painel aberto. O canvas é só leitura e não tem relação com o bloqueio." }
   ],
   "files": {
-    "plugin.json": "Metadados do plugin + marcador de hooks.",
+    "plugin.json": "Metadados + extensão (.) + marcador de hooks.",
     "hooks.json": "SessionStart → node boot.mjs (espelhamento via canvas-sync).",
-    "boot.mjs": "Bootstrap padrão da vitrine (garante o canvas-sync).",
-    "extension.mjs": "Entrypoint: 15 tools + painel (canvas) + 2 hooks (recall, memória, skills, destilador, setup, init, dashboard, migração).",
-    "lib/": "Módulos: discovery, escopo (project_id + .memory/project.json + fallback), cliente REST, recall two-tier, skills, destilador (digest + redação + registro), auto-provisionamento, painel (canvas) e migração de escopo aprovada."
+    "boot.mjs": "Bootstrap do canvas-sync (padrão da vitrine).",
+    "extension.mjs": "Entrypoint: 17 tools + painel (canvas) + 2 hooks — memória, recall, skills, destilador e os gates.",
+    "lib/daemon.mjs": "Descobre o daemon local e faz o health-check (cliente puro).",
+    "lib/provision.mjs": "Sobe o servidor sozinho: baixa, confere o sha256 e roda (fail-open).",
+    "lib/projectId.mjs": "Resolve o project_id (declarado → git → caminho), worktree-safe.",
+    "lib/projectConfig.mjs": "Lê o .memory/project.json (escopo declarado + defaults).",
+    "lib/scaffold.mjs": "Sugere criar o .memory/project.json — uma única vez por projeto.",
+    "lib/sessionCwd.mjs": "Descobre a pasta real da sessão (a raiz do projeto aberto).",
+    "lib/client.mjs": "Cliente REST do daemon (busca, contexto, documentos, lifecycle).",
+    "lib/recall.mjs": "Recall two-tier: ponteiro para skills, inline para fatos (+ fallback escopado).",
+    "lib/skill.mjs": "Formato e validação da skill (cabeçalho PT + corpo EN).",
+    "lib/skillGuide.mjs": "Guia de autoria de skill (memory_skill_guide).",
+    "lib/transcript.mjs": "Limpa a conversa (só você + assistente) e agrupa em blocos.",
+    "lib/checkpoints.mjs": "Lê os checkpoints do Copilot (resumo já curado da sessão).",
+    "lib/curation.mjs": "Orquestra a curadoria (checkpoints + turnos vivos).",
+    "lib/curator.mjs": "O curador/reconciliador (LLM) que lê a conversa e decide.",
+    "lib/curatorWorker.mjs": "Roda o curador num subprocesso limpo, apartado da sessão.",
+    "lib/curationLedger.mjs": "Marca o que já foi curado por id — nunca reprocessa.",
+    "lib/skillCreator.mjs": "Decide criar, atualizar, promover a global ou ignorar cada lição.",
+    "lib/redact.mjs": "Redige segredos e PII antes de qualquer curadoria.",
+    "lib/ledger.mjs": "Ledger anti-duplicação das skills salvas à mão.",
+    "lib/consumption.mjs": "Telemetria local de recall (ponteiro → fetch).",
+    "lib/dashboard.mjs": "O painel (canvas): servidor local + snapshot ao vivo, só leitura.",
+    "lib/migrate.mjs": "Migração de escopo aprovada (previsualiza → PATCH, idempotente).",
+    "lib/gates/gateHook.mjs": "O hook determinístico — o único ponto que barra o git push.",
+    "lib/gates/eventNormalizer.mjs": "Reconhece a forma da ação (um git push) — estrutural, sem semântica.",
+    "lib/gates/policyCache.mjs": "Política como dado: semeia e lê as regras do gate (hot-path local).",
+    "lib/gates/receipts.mjs": "Recibos amarrados ao SHA do commit — recommit invalida (anti-burla).",
+    "lib/gates/gateReview.mjs": "Revisor externo independente + break-glass auditado (cold path).",
+    "lib/gates/gateAdmin.mjs": "Liga/desliga o gate por repo no .github/hooks/hooks.json.",
+    "lib/gates/shadow.mjs": "Modo observe: registra o que barraria antes de barrar de verdade."
   }
 }

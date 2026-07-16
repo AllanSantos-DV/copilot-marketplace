@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">voice-chat</h1>
-        <span class="chip" title="versão publicada">v1.5.12</span>
+        <span class="chip" title="versão publicada">v1.5.21</span>
       </div>
       <p class="doc-hero__lede">O <strong>voice-chat</strong> transforma o terminal numa conversa: você fala, o motor <strong><code>vox-engine</code></strong> transcreve, o agente responde e uma voz neural em pt-BR lê o resumo de volta. Fala e voz — <strong>STT e TTS</strong> — passam pelo <strong>mesmo e único</strong> motor, na sua máquina, e a extensão <strong>cuida dele sozinha</strong>: instala se faltar, atualiza se estiver velho e usa quando está em dia. Nenhum áudio sai do seu computador.</p>
       <div class="doc-hero__cta">
@@ -153,7 +153,12 @@
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
               <span class="tree__role">Extensão in-app: hooks e tools da sessão viva do agente.</span>
-              <span class="tree__size">133 KB</span>
+              <span class="tree__size">52 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">hooks.json</code>
+              <span class="tree__role">Hooks de ciclo de vida (SessionStart e afins).</span>
+              <span class="tree__size">326 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">iframe.html</code>
@@ -176,14 +181,84 @@
               <span class="tree__size">89 KB</span>
             </li>
             <li class="tree__row">
+              <code class="tree__name">voice-audio.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">9.5 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">voice-canvas-guard.cjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">4.4 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">voice-core.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">voice-net.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">38 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">voice-python.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">4.5 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">voice-shared.cjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">voice-state.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">4.6 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">voice-summary-stop.cjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">11 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">voice-text.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.3 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">voice-turns.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">6.6 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">voice-update.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">15 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">voice-worker.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">23 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">vox_audio_devices.py</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">7.5 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">vox_capture.py</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">13 KB</span>
+            </li>
+            <li class="tree__row">
               <code class="tree__name">vox_sdk.py</code>
               <span class="tree__role"></span>
-              <span class="tree__size">68 KB</span>
+              <span class="tree__size">75 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">vox_stream.py</code>
               <span class="tree__role"></span>
-              <span class="tree__size">38 KB</span>
+              <span class="tree__size">40 KB</span>
             </li>
             </ul>
           </div>
@@ -242,7 +317,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.5.12</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.5.21</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>

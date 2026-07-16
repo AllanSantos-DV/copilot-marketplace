@@ -30,6 +30,10 @@ import { reconcileSkill } from "./lib/curator.mjs";
 import { createOrUpdateSkill } from "./lib/skillCreator.mjs";
 import { MemoryDashboard, DASHBOARD_CANVAS_ID, DASHBOARD_INSTANCE_ID, DASHBOARD_TITLE } from "./lib/dashboard.mjs";
 import { readPersistedCwd, persistCwd } from "./lib/sessionCwd.mjs";
+import { enableGate, disableGate, gateStatus } from "./lib/gates/gateAdmin.mjs";
+import { ensureSeeded, readPolicies } from "./lib/gates/policyCache.mjs";
+import { runGateReview, overrideReceipt } from "./lib/gates/gateReview.mjs";
+import { summarizeShadow } from "./lib/gates/shadow.mjs";
 
 // Provisionamento em background disparado no máximo 1× por processo (não repete a cada hook).
 let provisionKicked = false;
@@ -679,6 +683,108 @@ export const tools = [
                 }
                 if (!out.length) return `Sem skills no projeto (${c.projectId}).`;
                 return `Skills do projeto (${c.projectId}):\n` + out.join("\n");
+            },
+        },
+
+        {
+            name: "memory_gate",
+            description:
+                "Gate obrigatório do projeto (opt-in, por repositório). action=status (padrão) mostra se está " +
+                "ligado + policies ativas; action=enable liga o gate escrevendo o hook PreToolUse no " +
+                ".github/hooks/hooks.json do repo aberto (barra git push sem revisão externa); action=disable desliga. " +
+                "O gate é um command hook determinístico; as regras vivem como dados (policies + recibos locais). " +
+                "Ligar taxa só ESTE repo — nunca as outras sessões da máquina.",
+            parameters: {
+                type: "object",
+                properties: {
+                    action: { type: "string", enum: ["status", "enable", "disable"], description: "status (padrão), enable ou disable" },
+                },
+                additionalProperties: false,
+            },
+            handler: async (args) => {
+                const repo = toolCwd();
+                const action = args.action || "status";
+                try {
+                    if (action === "enable") {
+                        const seed = ensureSeeded();
+                        const r = enableGate(repo);
+                        const pol = readPolicies();
+                        return [
+                            `🚧 Gate LIGADO neste repositório.`,
+                            `hooks.json: ${r.hooksJson}`,
+                            `script: ${r.hookScript}`,
+                            seed.seeded ? `policies semeadas: ${seed.count}` : `policies existentes: ${pol.length}`,
+                            `Ativas: ${pol.map((p) => `${p.gate_id}(${p.enforcement}/${p.decision || "-"})`).join(", ") || "(nenhuma)"}`,
+                            `⚠️ Vale a partir da PRÓXIMA sessão neste repo (userHooks carregam no início da sessão).`,
+                            `Para publicar: rode memory_gate_review antes do git push (gera o recibo do commit atual).`,
+                        ].join("\n");
+                    }
+                    if (action === "disable") {
+                        const r = disableGate(repo);
+                        return `Gate DESLIGADO neste repositório.\nhooks.json: ${r.hooksJson}${r.changed ? "" : " (nada a remover)"}`;
+                    }
+                    // status
+                    const st = gateStatus(repo);
+                    const pol = readPolicies();
+                    let shadow = null;
+                    try { shadow = summarizeShadow(); } catch { /* ignore */ }
+                    return [
+                        `🚧 Gate: ${st.enabled ? "LIGADO" : "desligado"} (repo: ${repo})`,
+                        `hooks.json: ${st.hooksJson}`,
+                        `script: ${st.hookScript}${st.scriptExists ? "" : " ⚠️ NÃO ENCONTRADO"}`,
+                        `policies (${pol.length}): ${pol.map((p) => `${p.gate_id}(${p.enforcement}/${p.decision || "-"})`).join(", ") || "(nenhuma — rode enable p/ semear)"}`,
+                        shadow ? `observações: ${shadow.total} · por decisão: ${JSON.stringify(shadow.byOp)} · latência p95 ${shadow.latencyMs.p95}ms` : "",
+                    ].filter(Boolean).join("\n");
+                } catch (e) {
+                    return "Erro no gate: " + (e?.message || e);
+                }
+            },
+        },
+
+        {
+            name: "memory_gate_review",
+            description:
+                "Roda o REVISOR EXTERNO sobre o que um git push enviaria (diff dos commits à frente do upstream) e, " +
+                "se o parecer sair LIMPO, grava o RECIBO que libera o push do commit atual. É a forma de cumprir o " +
+                "gate 'review-before-push'. A revisão roda num subprocesso independente (anti-echo-chamber); o recibo " +
+                "é amarrado ao SHA de HEAD — se você commitar de novo, o recibo perde a validade e exige nova revisão. " +
+                "Use override + reason só em emergência (break-glass auditado).",
+            parameters: {
+                type: "object",
+                properties: {
+                    override: { type: "boolean", description: "Break-glass: pula a revisão e libera (exige reason). Auditado." },
+                    reason: { type: "string", description: "Motivo do override (obrigatório se override=true)." },
+                    model: { type: "string", description: "Modelo do revisor (opcional)." },
+                },
+                additionalProperties: false,
+            },
+            handler: async (args) => {
+                const repo = toolCwd();
+                try {
+                    if (args.override) {
+                        const r = overrideReceipt(repo, { reason: args.reason });
+                        if (!r.ok) return "Override recusado: " + r.error;
+                        return `⚠️ BREAK-GLASS: push liberado por override auditado (commit ${String(r.subject).slice(0, 10)}).\nMotivo: ${args.reason}\nRecibo: ${r.receipt.actor} · expira ${r.receipt.expiry}`;
+                    }
+                    const res = await runGateReview({ repoRoot: repo, model: args.model });
+                    if (!res.ok) return "Revisão não concluída: " + res.error;
+                    if (res.clean) {
+                        return [
+                            `✅ Revisão externa LIMPA — recibo gravado (commit ${String(res.subject).slice(0, 10)}).`,
+                            res.verdict?.summary ? `Resumo: ${res.verdict.summary}` : "",
+                            `O git push do commit atual está liberado. (Se commitar de novo, revise outra vez.)`,
+                        ].filter(Boolean).join("\n");
+                    }
+                    const finds = (res.verdict?.findings || []).map((f) => `- [${f.severity}] ${f.file || ""}: ${f.issue}${f.fix ? ` → ${f.fix}` : ""}`).join("\n");
+                    return [
+                        `⛔ Revisão externa achou problemas — push NÃO liberado (commit ${String(res.subject).slice(0, 10)}).`,
+                        res.verdict?.summary ? `Resumo: ${res.verdict.summary}` : "",
+                        finds || "(sem detalhes)",
+                        `Corrija, commite e rode memory_gate_review de novo.`,
+                    ].filter(Boolean).join("\n");
+                } catch (e) {
+                    return "Erro na revisão: " + (e?.message || e);
+                }
             },
         },
 ];

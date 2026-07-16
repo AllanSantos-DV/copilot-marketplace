@@ -56,9 +56,32 @@ async function readStdin() {
         if (typeof CopilotClient !== "function") { process.stderr.write("CopilotClient indisponível"); process.exitCode = 1; return; }
         client = new CopilotClient({ workingDirectory: wd });
         await client.start();
-        const session = await client.createSession({ model, workingDirectory: wd, onPermissionRequest: approveAll });
+        // Sessão determinística: por padrão APPEND (mantém o grounding do SDK, só acrescenta nossa diretriz),
+        // pois REPLACE total piorou o foco do modelo. tools:[] → o worker não chama ferramenta nenhuma (só lê
+        // texto e devolve texto/JSON). O system message extra reforça: sem voz/áudio, saída = só o pedido.
+        const extraSys = process.env.COPILOT_MEMORY_CURATOR_SYS ||
+            "Neste canal NÃO há voz, áudio nem a ferramenta de fala: nunca mencione isso. Responda apenas o que a " +
+            "mensagem do usuário pedir (ex.: um objeto JSON), sem preâmbulo e sem comentar sobre ferramentas.";
+        const session = await client.createSession({
+            model,
+            workingDirectory: wd,
+            onPermissionRequest: approveAll,
+            systemMessage: { mode: "append", content: extraSys },
+            tools: [],
+        });
         const res = await session.sendAndWait({ prompt }, Number(process.env.COPILOT_MEMORY_CURATOR_TIMEOUT || 150000));
         outText = assistantText(res);
+        // 2º turno CONDICIONAL (COPILOT_MEMORY_CURATOR_TURN2): alguns ambientes injetam instruções
+        // comportamentais via additionalContext SÓ no 1º prompt (ex.: a extensão de voz). Um 2º turno na MESMA
+        // sessão vem limpo. Mas se o turn1 JÁ trouxe a saída estruturada (contém '"clean"'), PULA o turn2 —
+        // economiza uma chamada de modelo cara (importa sob contenção in-session). Ver dogfood 2026-07-16.
+        const turn2 = process.env.COPILOT_MEMORY_CURATOR_TURN2;
+        if (turn2 && turn2.trim() && !/"clean"/.test(String(outText || ""))) {
+            const t2Timeout = Math.min(60000, Number(process.env.COPILOT_MEMORY_CURATOR_TIMEOUT || 150000));
+            const res2 = await session.sendAndWait({ prompt: turn2 }, t2Timeout);
+            const t2 = assistantText(res2);
+            if (t2 && t2.trim()) outText = t2;
+        }
     } catch (e) {
         process.stderr.write(String(e?.message || e));
         process.exitCode = 1;
