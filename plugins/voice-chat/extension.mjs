@@ -61,7 +61,7 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 
-export const CURRENT_VERSION = "1.5.22";
+export const CURRENT_VERSION = "1.5.23";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -396,16 +396,20 @@ export async function checkForUpdate(opts = {}) {
         const stagedLogicSha = computeLogicSha((rel) =>
             stagedMap.has(rel) ? stagedMap.get(rel).toString("utf8") : readFileSync(join(EXT_DIR, rel), "utf8"));
         const extLogicChanged = stagedLogicSha !== RUNNING_EXT_LOGIC_SHA;
+        // Commit em DUAS FASES p/ resistir a interrupção (a máquina do usuário reclamou de "voice-audio
+        // importa voice-net que não está na máquina" — sintoma de update parcial). Fase 1: escreve TODOS
+        // os .part (+ .bak). Fase 2: renomeia TODOS de uma vez. Assim nunca fica um MIX novo+velho em que
+        // um importer novo (voice-audio.mjs) referencia um módulo ainda ausente (voice-net.mjs) — a janela
+        // vira só o loop de renames locais contíguos, não um write/rename intercalado por arquivo.
+        const pending = [];
         for (const s of staged) {
             const target = join(EXT_DIR, s.rel);
             const part = target + ".part";
             writeFileSync(part, s.buf);
-            try {
-                if (existsSync(target)) copyFileSync(target, target + ".bak");
-            } catch {
-            }
-            renameSync(part, target);
+            try { if (existsSync(target)) copyFileSync(target, target + ".bak"); } catch { }
+            pending.push({ part, target });
         }
+        for (const p of pending) renameSync(p.part, p.target);
         const plan = classifyStagedUpdate(changedRels, extLogicChanged);
         if (plan.needsAppRestart) {
             // A LÓGICA do extension.mjs mudou: o bundle é co-versionado -> só um restart do app aplica
