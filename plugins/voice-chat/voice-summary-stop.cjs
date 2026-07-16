@@ -46,9 +46,14 @@ function readTurnSpeak(transcriptPath) {
   }
   return { readable: true, sawUser, spoke, hadText, unspokenTail };
 }
-// Piso do resumo FALÁVEL: texto não-falado no fim ABAIXO disso é fecho trivial (ex.: "pronto, commitado")
-// e NÃO cobra; a partir daqui é conteúdo com valor que deve virar áudio. Tunável.
-const SUMMARY_MIN_CHARS = 40;
+// Piso do resumo FALÁVEL: texto não-falado no fim ABAIXO disso é fecho trivial (sign-off) e NÃO
+// cobra; a partir daqui é conteúdo com valor que deveria ter virado áudio. Tunável por env
+// (VOICE_SUMMARY_MIN_CHARS) p/ ajuste SEM release. Default alto o bastante para NÃO pegar fechos
+// curtos ("Concluído, à disposição") — só um resumo real de fim de turno (parágrafo) dispara.
+const SUMMARY_MIN_CHARS = (() => {
+  const n = parseInt(process.env.VOICE_SUMMARY_MIN_CHARS || '', 10);
+  return Number.isFinite(n) && n > 0 ? n : 200;
+})();
 // PURO (testável): 'ok' | 'block'. Bloqueia só quando há texto SUBSTANCIAL não-falado no FIM do turno
 // (mede `unspokenTail`, não "chamou falar em algum lugar") — corrige o furo do cue inicial.
 function decideSpeakEnforcement(state, suppressBlock) {
