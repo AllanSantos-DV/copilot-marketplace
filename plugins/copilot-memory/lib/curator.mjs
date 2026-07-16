@@ -80,20 +80,25 @@ export const CURATOR_INSTRUCTION = [
 
 // Roda o agente (worker) com um prompt e retorna { text, error? }. Spawna um node LIMPO (sem os
 // loaders/hooks do fork, que quebram o CopilotClient) e passa o prompt via stdin. Nunca lança.
-export async function runAgent(prompt, { workingDirectory, model, timeoutMs } = {}) {
+export async function runAgent(prompt, { workingDirectory, model, timeoutMs, systemMessage, turn2 } = {}) {
     const env = { ...process.env };
     delete env.NODE_OPTIONS;      // não herdar o resolver hook do fork
     delete env.COPILOT_SDK_PATH;  // não usar o SDK do app; o worker resolve o global via PATH
     env.COPILOT_MEMORY_CURATOR_CWD = workingDirectory || process.cwd();
     if (model || process.env.COPILOT_MEMORY_CURATOR_MODEL) env.COPILOT_MEMORY_CURATOR_MODEL = model || process.env.COPILOT_MEMORY_CURATOR_MODEL;
     env.COPILOT_MEMORY_CURATOR_TIMEOUT = String(timeoutMs || 150000);
+    // system message LIMPO opcional por-tarefa (o worker faz mode:"replace"). Sem isto, o worker usa o default.
+    if (systemMessage) env.COPILOT_MEMORY_CURATOR_SYS = systemMessage;
+    // 2º turno opcional (força saída estruturada num turno já limpo de injeção comportamental).
+    if (turn2) env.COPILOT_MEMORY_CURATOR_TURN2 = turn2; else delete env.COPILOT_MEMORY_CURATOR_TURN2;
 
     const worker = join(HERE, "curatorWorker.mjs");
     return await new Promise((resolve) => {
         let out = "", err = "", done = false;
         let child;
         const finish = (r) => { if (done) return; done = true; try { child && child.kill(); } catch { /* ignore */ } resolve(r); };
-        const killer = setTimeout(() => finish({ text: "", error: "timeout no agente" }), (timeoutMs || 150000) + 30000);
+        // Killer generoso: o worker pode fazer turn1 (até timeoutMs) + turn2 curto (até 60s) + startup do CLI.
+        const killer = setTimeout(() => finish({ text: "", error: "timeout no agente" }), (timeoutMs || 150000) + 90000);
         try {
             child = spawn(resolveNode(), [worker], { env, cwd: workingDirectory || process.cwd(), stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
         } catch (e) {

@@ -4,12 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>copilot-memory — copilot-marketplace</title>
-  <meta name="description" content="Memória por projeto para o agente do Copilot: ele lembra as decisões, convenções e aprendizados do projeto entre sessões — e sobe o servidor de memória sozinho quando ele não existe." />
+  <meta name="description" content="Memória por projeto para o agente do Copilot: lembra decisões, convenções e aprendizados entre sessões e destila o que deu certo em skills — e agora barra o git push até uma revisão externa aprovar o commit." />
   <meta name="color-scheme" content="dark" />
   <meta name="theme-color" content="#14121C" />
   <meta property="og:type" content="article" />
   <meta property="og:title" content="copilot-memory — copilot-marketplace" />
-  <meta property="og:description" content="Memória por projeto para o agente do Copilot: ele lembra as decisões, convenções e aprendizados do projeto entre sessões — e sobe o servidor de memória sozinho quando ele não existe." />
+  <meta property="og:description" content="Memória por projeto para o agente do Copilot: lembra decisões, convenções e aprendizados entre sessões e destila o que deu certo em skills — e agora barra o git push até uma revisão externa aprovar o commit." />
   <meta property="og:url" content="https://allansantos-dv.github.io/copilot-marketplace/p/copilot-memory/" />
   <link rel="canonical" href="https://allansantos-dv.github.io/copilot-marketplace/p/copilot-memory/" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -39,9 +39,9 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">copilot-memory</h1>
-        <span class="chip" title="versão publicada">v1.7.1</span>
+        <span class="chip" title="versão publicada">v1.8.0</span>
       </div>
-      <p class="doc-hero__lede">O <strong>copilot-memory</strong> dá ao agente uma memória que dura além da sessão, <strong>escopada por projeto</strong>. Ele injeta o contexto certo no começo de cada conversa (decisões, convenções, pendências), deixa você buscar e salvar conhecimento, e <strong>destila</strong> o que deu certo em skills reusáveis. É um <strong>cliente puro</strong> do servidor de memória <code>native-java</code>: descobre o daemon, reusa se estiver no ar e, se não estiver, <strong>baixa e sobe o servidor</strong> — verificando a assinatura antes de rodar. Toda a memória fica na sua máquina.</p>
+      <p class="doc-hero__lede">O <strong>copilot-memory</strong> dá ao agente uma memória que dura além da sessão, <strong>escopada por projeto</strong>. Ele injeta o contexto certo no começo de cada conversa (decisões, convenções, pendências), deixa você buscar e salvar conhecimento, e <strong>destila</strong> o que deu certo em skills reusáveis. É um <strong>cliente puro</strong> do servidor de memória <code>native-java</code>: descobre o daemon, reusa se estiver no ar e, se não estiver, <strong>baixa e sobe o servidor</strong> — verificando a assinatura antes de rodar. Toda a memória fica na sua máquina. <strong>Novo na v1.8.0:</strong> ele também <strong>impõe</strong> os passos que dá pra esquecer — o primeiro <strong>gate</strong> barra o <code>git push</code> até um <strong>revisor externo independente</strong> aprovar exatamente aquele commit.</p>
       <div class="doc-hero__cta">
         <div class="prompt prompt--sm" data-cmd="copilot plugin install copilot-memory@copilot-marketplace">
         <span class="prompt__glyph" aria-hidden="true">⌁</span>
@@ -53,6 +53,10 @@
         <a class="lnk" href="https://github.com/AllanSantos-DV/copilot-marketplace" rel="noopener">código<span aria-hidden="true">↗</span></a>
       </div>
       <ul class="hl" aria-label="Destaques">
+        <li class="hl__item">
+          <h3 class="hl__title">Barra o <code>git push</code> sem revisão</h3>
+          <p class="hl__body"><strong>Novo na v1.8.0.</strong> Um <strong>gate opt-in por projeto</strong> torna passos críticos obrigatórios e à prova de esquecimento. O primeiro exige que um <strong>revisor externo independente</strong> aprove exatamente aquele commit antes de publicar — com <strong>recibo amarrado ao SHA</strong>. Determinístico onde importa, semântico onde agrega.</p>
+        </li>
         <li class="hl__item">
           <h3 class="hl__title">Lembra por projeto, não vaza entre eles</h3>
           <p class="hl__body">Cada leitura e escrita é carimbada com o <code>project_id</code> do projeto aberto. A memória de um projeto nunca aparece em outro.</p>
@@ -91,7 +95,24 @@
 
         <section class="doc-section" id="como-usar">
           <h2 class="doc-h2"><a class="doc-anchor" href="#como-usar" aria-label="Link para Como usar">#</a>Como usar</h2>
-          <ol class="doc-steps"><li><h4>Instale o plugin</h4><p>Pelo marketplace, com o comando da seção Instalar abaixo.</p></li><li><h4>Deixe o servidor subir</h4><p>Se não houver um servidor de memória rodando, o plugin baixa e sobe na primeira sessão. Requer Java 21 no PATH. Ou rode <code>memory_setup</code> para provisionar na hora.</p></li><li><h4>Trabalhe normalmente</h4><p>O contexto do projeto entra sozinho no início da sessão e a cada pergunta. Use <code>memory_search</code> para buscar e <code>memory_save</code> para guardar uma decisão ou nota.</p></li><li><h4>Dê um escopo estável ao projeto</h4><p>Se o projeto não tem <code>.memory/project.json</code> nem remote git, o plugin sugere criar um — uma vez. Aceite (ou use <code>memory_init_project</code>) para a memória casar entre máquinas.</p></li><li><h4>Destile o que aprendeu</h4><p>Depois de um marco confirmado, chame <code>memory_distill</code>: o agente extrai o que é reusável e verificado como skill candidata, que você promove com <code>memory_promote_skill</code>.</p></li></ol>
+          <ol class="doc-steps"><li><h4>Instale o plugin</h4><p>Pelo marketplace, com o comando da seção Instalar abaixo.</p></li><li><h4>Deixe o servidor subir</h4><p>Se não houver um servidor de memória rodando, o plugin baixa e sobe na primeira sessão. Requer Java 21 no PATH. Ou rode <code>memory_setup</code> para provisionar na hora.</p></li><li><h4>Trabalhe normalmente</h4><p>O contexto do projeto entra sozinho no início da sessão e a cada pergunta. Use <code>memory_search</code> para buscar e <code>memory_save</code> para guardar uma decisão ou nota.</p></li><li><h4>Dê um escopo estável ao projeto</h4><p>Se o projeto não tem <code>.memory/project.json</code> nem remote git, o plugin sugere criar um — uma vez. Aceite (ou use <code>memory_init_project</code>) para a memória casar entre máquinas.</p></li><li><h4>Destile o que aprendeu</h4><p>Depois de um marco confirmado, chame <code>memory_distill</code>: o agente extrai o que é reusável e verificado como skill candidata, que você promove com <code>memory_promote_skill</code>.</p></li><li><h4>Blinde o que não pode esquecer (opcional)</h4><p>Nos repos que quiser, ligue um <strong>gate</strong> com <code>memory_gate enable</code>: a partir daí, o <code>git push</code> sem revisão externa fica <strong>bloqueado</strong>. Rode <code>memory_gate_review</code> para liberar o commit. É opt-in — vale só naquele repositório.</p></li></ol>
+        </section>
+
+        <section class="doc-section" id="gates">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#gates" aria-label="Link para Gates obrigatórios">#</a>Gates obrigatórios</h2>
+          <p>Revisar o código antes de publicar é fácil de <strong>esquecer</strong> — e &quot;lembrar&quot; não é garantia de nada. Os <strong>gates</strong> tiram os passos críticos da disciplina humana e os tornam <strong>obrigatórios</strong>: o plugin <strong>bloqueia a ação</strong> até a condição ser cumprida. O primeiro gate pronto é <strong>revisor externo antes do <code>git push</code></strong> — tenta publicar sem revisão? O push para na hora, com uma mensagem que diz o que fazer:</p>
+          <div class="codeblock"><pre><code>$ git push origin main
+
+  ⛔  Gate obrigatório — revisão externa antes do push
+      commit d4f9c1a ainda não foi revisado; nada foi enviado.
+
+      → rode  memory_gate_review  para revisar o diff do push
+        e liberar exatamente este commit.</code></pre></div>
+          <ol class="doc-steps"><li><h4>Ligue por repositório</h4><p><code>memory_gate enable</code> escreve um hook no <code>.github/hooks/hooks.json</code> <strong>daquele</strong> repo. É opt-in: suas outras sessões, projetos e máquinas não mudam em nada.</p></li><li><h4>O hook barra o push</h4><p>Um <strong>hook determinístico</strong> intercepta a chamada de <code>git push</code> do agente. Sem um recibo válido para aquele commit, ele <strong>nega</strong> e nada é enviado. Nada de regex frágil: ele reconhece a <strong>forma</strong> da ação (que aquilo é um push), não o significado.</p></li><li><h4>Rode a revisão externa</h4><p><code>memory_gate_review</code> dispara um <strong>revisor externo independente</strong> — outro modelo, num <strong>subprocesso separado</strong>, sem o contexto do agente barrado (anti &quot;echo chamber&quot;). Ele lê o <strong>diff do que seria publicado</strong> e caça bugs reais, falhas de segurança e segredos vazados.</p></li><li><h4>Limpo? Ganha um recibo preso ao commit</h4><p>Se o parecer sai limpo, a tool grava um <strong>recibo amarrado ao SHA</strong> do commit. Só então o <code>git push</code> daquele commit passa. Quem publica não assina o próprio recibo — quem assina é a revisão independente.</p></li><li><h4>Commitou de novo? Revisa de novo</h4><p>Emendou ou fez um commit novo? O SHA muda, o recibo <strong>perde a validade</strong> e o gate pede nova revisão. Não dá para passar com um parecer velho.</p></li></ol>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p><strong>Provado ao vivo.</strong> O gate já barrou um <code>git push</code> de verdade numa sessão real, e o revisor externo pegou problemas concretos — uma <strong>credencial exposta</strong> e uma <strong>lógica quebrada</strong> — e <strong>recusou o recibo</strong>. Não é teoria.</p></aside>
+          <aside class="note note--warn"><span class="note__mark" aria-hidden="true">!</span><p>Emergência? Existe um <strong>break-glass auditado</strong>: um override que libera o push na hora e registra <strong>quem</strong> liberou, <strong>por quê</strong> e <strong>quando expira</strong>. Ele só entra com a sua ordem explícita — o agente nunca o aciona sozinho.</p></aside>
+          <p><strong>Por que isto é sólido:</strong> o bloqueio é <strong>determinístico</strong> onde precisa (um hook, não um palpite) e a análise é <strong>semântica</strong> onde agrega (a revisão por IA) — nada de regex frágil decidindo o que barrar. As regras vivem como <strong>dado</strong> (políticas + recibos locais), não num hook cravado que vira manutenção infinita: o hook é um despachante fino e estável, então novos gates entram sem reescrever nada. E o bloqueio roda num <strong>hot-path local</strong> — lê políticas e recibos do disco, <strong>sem depender do daemon</strong>.</p>
+          <p><strong>Isso é só o começo.</strong> Os próximos gates já estão no mapa — aprovação antes de um release, um agente de design antes de publicar onde há GitHub Pages — e o próprio autoaprendizado pode <strong>propor</strong> um gate novo a partir do que você corrige, para você <strong>promover</strong>.</p>
         </section>
 
         <section class="doc-section" id="escopo">
@@ -131,7 +152,7 @@
 
         <section class="doc-section" id="como-funciona">
           <h2 class="doc-h2"><a class="doc-anchor" href="#como-funciona" aria-label="Link para Como funciona">#</a>Como funciona</h2>
-          <ul class="doc-list"><li><strong>Descoberta</strong> — lê o registro do daemon (<code>~/.mcp-memory/run/daemon.json</code>), faz um health-check e reusa a URL. Offline, degrada com aviso.</li><li><strong>Escopo</strong> — resolve o <code>project_id</code> pelo <code>.memory/project.json</code> ou pelo git, e carimba toda leitura/escrita com ele.</li><li><strong>Recall</strong> — nos hooks de início de sessão e de cada pergunta, compõe o contexto (ponteiro para skills, inline para fatos) e injeta.</li><li><strong>Escrita e skills</strong> — <code>memory_save</code> guarda conhecimento; o ciclo <code>save_skill → promote → invalidate</code> cura as skills reusáveis.</li></ul>
+          <ul class="doc-list"><li><strong>Descoberta</strong> — lê o registro do daemon (<code>~/.mcp-memory/run/daemon.json</code>), faz um health-check e reusa a URL. Offline, degrada com aviso.</li><li><strong>Escopo</strong> — resolve o <code>project_id</code> pelo <code>.memory/project.json</code> ou pelo git, e carimba toda leitura/escrita com ele.</li><li><strong>Recall</strong> — nos hooks de início de sessão e de cada pergunta, compõe o contexto (ponteiro para skills, inline para fatos) e injeta.</li><li><strong>Escrita e skills</strong> — <code>memory_save</code> guarda conhecimento; o ciclo <code>save_skill → promote → invalidate</code> cura as skills reusáveis.</li><li><strong>Gates (opt-in)</strong> — nos repos que você habilita, um hook determinístico intercepta o <code>git push</code> e o barra até <code>memory_gate_review</code> gravar o recibo do commit. O bloqueio lê políticas e recibos locais: hot-path, sem daemon.</li></ul>
           <p>O plugin não recria o que o servidor já faz — composição do recall, telemetria de uso, reforço e poda são do servidor. Ele é o cliente que traz esse valor para dentro da sua sessão do Copilot.</p>
         </section>
 
@@ -166,13 +187,13 @@
             <ul class="tree__list">
             <li class="tree__row">
               <code class="tree__name">boot.mjs</code>
-              <span class="tree__role">Bootstrap padrão da vitrine (garante o canvas-sync).</span>
+              <span class="tree__role">Bootstrap do canvas-sync (padrão da vitrine).</span>
               <span class="tree__size">7.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
-              <span class="tree__role">Entrypoint: 15 tools + painel (canvas) + 2 hooks (recall, memória, skills, destilador, setup, init, dashboard, migração).</span>
-              <span class="tree__size">47 KB</span>
+              <span class="tree__role">Entrypoint: 17 tools + painel (canvas) + 2 hooks — memória, recall, skills, destilador e os gates.</span>
+              <span class="tree__size">53 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">hooks.json</code>
@@ -181,8 +202,8 @@
             </li>
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
-              <span class="tree__role">Metadados do plugin + marcador de hooks.</span>
-              <span class="tree__size">1023 B</span>
+              <span class="tree__role">Metadados + extensão (.) + marcador de hooks.</span>
+              <span class="tree__size">1.1 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">README.md</code>
@@ -191,113 +212,148 @@
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/checkpoints.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Lê os checkpoints do Copilot (resumo já curado da sessão).</span>
               <span class="tree__size">1.7 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/client.mjs</code>
-              <span class="tree__role">Cliente de transporte (HTTP/SSE).</span>
+              <span class="tree__role">Cliente REST do daemon (busca, contexto, documentos, lifecycle).</span>
               <span class="tree__size">6.7 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/consumption.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Telemetria local de recall (ponteiro → fetch).</span>
               <span class="tree__size">1.9 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/curation.mjs</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">6.2 KB</span>
+              <span class="tree__role">Orquestra a curadoria (checkpoints + turnos vivos).</span>
+              <span class="tree__size">6.1 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/curationLedger.mjs</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">3.0 KB</span>
+              <span class="tree__role">Marca o que já foi curado por id — nunca reprocessa.</span>
+              <span class="tree__size">2.9 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/curator.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">O curador/reconciliador (LLM) que lê a conversa e decide.</span>
               <span class="tree__size">11 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/curatorWorker.mjs</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">3.7 KB</span>
+              <span class="tree__role">Roda o curador num subprocesso limpo, apartado da sessão.</span>
+              <span class="tree__size">5.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/daemon.mjs</code>
-              <span class="tree__role">Fala com o daemon apartado (fora da sessão).</span>
+              <span class="tree__role">Descobre o daemon local e faz o health-check (cliente puro).</span>
               <span class="tree__size">2.1 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/dashboard.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">O painel (canvas): servidor local + snapshot ao vivo, só leitura.</span>
               <span class="tree__size">26 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/ledger.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Ledger anti-duplicação das skills salvas à mão.</span>
               <span class="tree__size">2.7 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/migrate.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Migração de escopo aprovada (previsualiza → PATCH, idempotente).</span>
               <span class="tree__size">3.6 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/projectConfig.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Lê o .memory/project.json (escopo declarado + defaults).</span>
               <span class="tree__size">3.8 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/projectId.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Resolve o project_id (declarado → git → caminho), worktree-safe.</span>
               <span class="tree__size">8.9 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/provision.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Sobe o servidor sozinho: baixa, confere o sha256 e roda (fail-open).</span>
               <span class="tree__size">10 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/recall.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Recall two-tier: ponteiro para skills, inline para fatos (+ fallback escopado).</span>
               <span class="tree__size">9.1 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/redact.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Redige segredos e PII antes de qualquer curadoria.</span>
               <span class="tree__size">2.5 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/scaffold.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Sugere criar o .memory/project.json — uma única vez por projeto.</span>
               <span class="tree__size">4.4 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/sessionCwd.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Descobre a pasta real da sessão (a raiz do projeto aberto).</span>
               <span class="tree__size">1.8 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/skill.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Formato e validação da skill (cabeçalho PT + corpo EN).</span>
               <span class="tree__size">4.5 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/skillCreator.mjs</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">7.1 KB</span>
+              <span class="tree__role">Decide criar, atualizar, promover a global ou ignorar cada lição.</span>
+              <span class="tree__size">7.0 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/skillGuide.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Guia de autoria de skill (memory_skill_guide).</span>
               <span class="tree__size">6.5 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/transcript.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Limpa a conversa (só você + assistente) e agrupa em blocos.</span>
               <span class="tree__size">3.4 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/gates/eventNormalizer.mjs</code>
+              <span class="tree__role">Reconhece a forma da ação (um git push) — estrutural, sem semântica.</span>
+              <span class="tree__size">7.3 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/gates/gateAdmin.mjs</code>
+              <span class="tree__role">Liga/desliga o gate por repo no .github/hooks/hooks.json.</span>
+              <span class="tree__size">3.2 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/gates/gateHook.mjs</code>
+              <span class="tree__role">O hook determinístico — o único ponto que barra o git push.</span>
+              <span class="tree__size">6.2 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/gates/gateReview.mjs</code>
+              <span class="tree__role">Revisor externo independente + break-glass auditado (cold path).</span>
+              <span class="tree__size">8.4 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/gates/policyCache.mjs</code>
+              <span class="tree__role">Política como dado: semeia e lê as regras do gate (hot-path local).</span>
+              <span class="tree__size">3.6 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/gates/receipts.mjs</code>
+              <span class="tree__role">Recibos amarrados ao SHA do commit — recommit invalida (anti-burla).</span>
+              <span class="tree__size">5.4 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/gates/shadow.mjs</code>
+              <span class="tree__role">Modo observe: registra o que barraria antes de barrar de verdade.</span>
+              <span class="tree__size">4.6 KB</span>
             </li>
             </ul>
           </div>
@@ -341,6 +397,18 @@
             <summary>Se eu declarar um project_id novo, perco a memória antiga?</summary>
             <p>Não. Ao declarar um <code>.memory/project.json</code>, o plugin detecta a memória carimbada com o escopo anterior e oferece migrá-la para o novo id, via reatribuição sem re-processar (o conteúdo é preservado). A migração nunca é automática: ele previsualiza e só aplica com a sua confirmação, e avisa quando o escopo antigo é compartilhado (git) para não deixar a memória órfã para colegas.</p>
           </details>
+          <details class="faq">
+            <summary>Os gates afetam meus outros projetos?</summary>
+            <p>Não. O gate é <strong>opt-in por repositório</strong>: <code>memory_gate enable</code> escreve um hook só no <code>.github/hooks/hooks.json</code> daquele repo. Suas outras sessões, projetos e máquinas seguem intactos. <code>memory_gate disable</code> remove quando quiser.</p>
+          </details>
+          <details class="faq">
+            <summary>Se o daemon da memória cair, o gate para de barrar?</summary>
+            <p>Não. O bloqueio roda num <strong>hot-path local</strong>: o hook lê as políticas e os recibos direto do disco (em <code>~/.copilot-memory/</code>), sem rede e sem daemon. Só a <strong>revisão</strong> (<code>memory_gate_review</code>) usa o modelo — o bloqueio em si é determinístico e independente.</p>
+          </details>
+          <details class="faq">
+            <summary>Preciso do painel (canvas) aberto para o gate valer?</summary>
+            <p>Não. O gate é um hook que dispara toda vez que o agente tenta um <code>git push</code>, com ou sem painel aberto. O canvas é só leitura e não tem relação com o bloqueio.</p>
+          </details>
         </section>
       </article>
 
@@ -350,6 +418,7 @@
           <ul class="toc__list">
             <li><a href="#o-que-e">O que é</a></li>
             <li><a href="#como-usar">Como usar</a></li>
+            <li><a href="#gates">Gates obrigatórios</a></li>
             <li><a href="#escopo">O escopo do projeto (.memory/project.json)</a></li>
             <li><a href="#recall">Recall em dois níveis</a></li>
             <li><a href="#destilador">O destilador de aprendizado (curadoria por agente)</a></li>
@@ -362,12 +431,12 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.7.1</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.8.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
             <div class="meta__row"><dt>tipo</dt><dd><span class="pill">canvas</span> <span class="pill">hooks</span></dd></div>
-            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>Copilot App (desktop) com o GitHub Copilot SDK</li><li>Java 21 no PATH (o servidor de memória roda sobre a JVM; usado no auto-provisionamento)</li><li>Node 18+ (runtime da extensão)</li><li>Rede na primeira vez, para baixar o servidor quando ele ainda não existe</li></ul></dd></div>
+            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>Copilot App (desktop) com o GitHub Copilot SDK</li><li>Java 21 no PATH (o servidor de memória roda sobre a JVM; usado no auto-provisionamento)</li><li>Node 18+ (runtime da extensão)</li><li>Git no PATH — usado pelos gates (diff do push e recibo por commit)</li><li>Rede na primeira vez, para baixar o servidor quando ele ainda não existe</li></ul></dd></div>
             <div class="meta__row"><dt>tags</dt><dd><ul class="tags tags--meta"><li>memory</li><li>memoria</li><li>mcp</li><li>recall</li><li>skills</li><li>native-java</li></ul></dd></div>
           </dl>
       </aside>
