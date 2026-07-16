@@ -23,13 +23,25 @@ const CANVAS_TOOLS = new Set(['open_canvas', 'invoke_canvas_action', 'list_canva
 // currently open" — todos transitórios durante o relaunch do host de extensão.
 const NOT_READY_RE = /(canvasruntimeerror|is not open|no canvases? are currently open|no canvas[\s\S]*is registered|not registered)/i;
 
-const RECOVERY =
-  'O host está RELANÇANDO a extensão de voz (janela curta de ~1-2s, típica ao trocar de sessão): ' +
-  'por isso o canvas "voice-chat" aparece como não registrado / instância não aberta. Isso é ' +
-  'TRANSITÓRIO — não é erro seu, não é falha de instalação, e NÃO precisa trocar de abordagem. ' +
-  'NÃO desista. Aguarde ~1.5s e CHAME open_canvas de novo (canvasId "voice-chat"); repita até 3x. ' +
-  'Só se ainda falhar após 3 tentativas, rode extensions_reload UMA vez e tente mais uma. ' +
-  'Não use extensions_reload como primeira ação (ela sozinha não re-registra durante a janela).';
+// Duas CAUSAS do "not registered", com remédios diferentes:
+//  (A) TRANSITÓRIO: host relançando ao TROCAR de sessão (~1-2s) -> repetir open_canvas cura sozinho.
+//  (B) UPDATE staged (mudou a LÓGICA -> restart pendente): o fork antigo largou o canvas e ele NÃO
+//      volta repetindo open_canvas; só `extensions_reload` (reimporta a lógica + re-registra) cura.
+//      É o caso do usuário: "atualizei a voz sem fechar o app e o painel não reabre — precisa reload".
+// A distinção vem do update-state.json (pendingVersion) — ver detectPendingRestart().
+const RECOVERY_TRANSIENT =
+  'O host de extensão está RELANÇANDO a voz (janela de ~1-2s, típica ao TROCAR de sessão): por isso o ' +
+  'canvas "voice-chat" aparece como não registrado / instância não aberta. É TRANSITÓRIO — não é erro seu, ' +
+  'nem falha de instalação, e NÃO precisa trocar de abordagem nem desistir. Aguarde ~1.5s e CHAME open_canvas ' +
+  'de novo (canvasId "voice-chat"). Se falhar de novo, rode extensions_reload UMA vez (re-registra o canvas a ' +
+  'partir do disco) e chame open_canvas mais uma vez.';
+const RECOVERY_UPDATE =
+  'Um UPDATE da extensão de voz foi baixado e mudou a LÓGICA (restart pendente): o fork antigo largou o canvas ' +
+  '"voice-chat" e ele NÃO volta só repetindo open_canvas. AÇÃO AGORA: rode extensions_reload (reimporta a ' +
+  'lógica nova e RE-REGISTRA o canvas) e então chame open_canvas (canvasId "voice-chat"). Só se AINDA falhar, ' +
+  'peça ao usuário para reiniciar o app do Copilot. NÃO desista e NÃO fique repetindo open_canvas.';
+// Alias retrocompat (algum consumidor externo pode importar RECOVERY).
+const RECOVERY = RECOVERY_TRANSIENT;
 
 // --- extração defensiva do payload (camelCase CLI 1.0.71 + variações de shape) -------------------
 function extractToolName(p) {
@@ -54,12 +66,29 @@ function extractBlob(p) {
 }
 
 // PURO (testável): injeta o recovery só quando é uma tool de canvas, a assinatura é "não pronto"
-// E o alvo é o canvas da VOZ (não age por canvas de outra extensão).
-function decideCanvasRecovery(toolName, blob) {
+// E o alvo é o canvas da VOZ (não age por canvas de outra extensão). `pendingRestart` escolhe a
+// orientação: true => há update de LÓGICA staged (só reload cura) => RECOVERY_UPDATE; senão o caso
+// transitório de troca de sessão => RECOVERY_TRANSIENT.
+function decideCanvasRecovery(toolName, blob, pendingRestart) {
   if (!CANVAS_TOOLS.has(toolName)) return { inject: false };
   if (!NOT_READY_RE.test(String(blob || ''))) return { inject: false };
   if (!/voice-chat/i.test(String(blob || ''))) return { inject: false };
-  return { inject: true, context: RECOVERY };
+  return { inject: true, context: pendingRestart ? RECOVERY_UPDATE : RECOVERY_TRANSIENT };
+}
+
+// EFEITO (runtime): há um app-restart pendente? Lê o update-state.json pelo MESMO resolveDataDir que a
+// extensão usa (voice-shared.cjs vive no mesmo dir do hook). A extensão grava {pendingVersion} SEM
+// appliedVersion ao stagear um update de LÓGICA, e limpa pendingVersion quando a versão em execução já
+// alcançou (branch uptodate) — então a presença de pendingVersion é sinal honesto de "reinício pendente".
+// Best-effort: qualquer erro (sem state, sem shared, sid diferente) => false (cai no fluxo transitório).
+function detectPendingRestart() {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const shared = require('./voice-shared.cjs');
+    const st = JSON.parse(fs.readFileSync(path.join(shared.resolveDataDir(), 'update-state.json'), 'utf8'));
+    return !!(st && st.pendingVersion);
+  } catch { return false; }
 }
 
 function emit(context) {
@@ -77,10 +106,10 @@ if (require.main === module) {
   process.stdin.on('end', () => {
     let p;
     try { p = JSON.parse(data); } catch { process.exit(0); }
-    const d = decideCanvasRecovery(extractToolName(p), extractBlob(p));
+    const d = decideCanvasRecovery(extractToolName(p), extractBlob(p), detectPendingRestart());
     if (d.inject) emit(d.context);
     process.exit(0);
   });
 }
 
-module.exports = { decideCanvasRecovery, extractToolName, extractBlob, RECOVERY, NOT_READY_RE };
+module.exports = { decideCanvasRecovery, detectPendingRestart, extractToolName, extractBlob, RECOVERY, RECOVERY_TRANSIENT, RECOVERY_UPDATE, NOT_READY_RE };

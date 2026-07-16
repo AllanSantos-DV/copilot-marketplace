@@ -61,7 +61,7 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 
-export const CURRENT_VERSION = "1.5.21";
+export const CURRENT_VERSION = "1.5.22";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -342,7 +342,15 @@ export async function checkForUpdate(opts = {}) {
         // same marketplace repo — the single release hub (copilot-mobile convention).
         const mp = JSON.parse((await fetchBuf(MARKETPLACE_MANIFEST_URL)).toString("utf8"));
         const remoteVer = pickPluginVersion(mp, PLUGIN_NAME);
-        if (!remoteVer || !verGt(remoteVer, effectiveVersion(st))) return { status: "uptodate", version: effectiveVersion(st) };
+        if (!remoteVer || !verGt(remoteVer, effectiveVersion(st))) {
+            // Reconcilia o state: se sobrou um pendingVersion stale de um restart que a versão em
+            // execução JÁ alcançou, limpa — senão o guard de canvas (voice-canvas-guard.cjs) leria
+            // "restart pendente" para sempre e mandaria reload à toa. Sinal honesto p/ o hook.
+            if (st.pendingVersion && !verGt(st.pendingVersion, effectiveVersion(st))) {
+                delete st.pendingVersion; writeUpdateState(st);
+            }
+            return { status: "uptodate", version: effectiveVersion(st) };
+        }
         if (st.pendingVersion === remoteVer) {
             broadcast({ type: "update", version: remoteVer, needsAppRestart: true });
             return { status: "pending", version: remoteVer, needsAppRestart: true };
