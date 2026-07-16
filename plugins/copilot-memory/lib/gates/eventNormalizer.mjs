@@ -81,11 +81,17 @@ function parseGit(segment) {
     const h = headOf(tokenize(segment));
     if (!h || h.exe !== "git") return null;
     if (h.sub !== "push") return null;
-    const positional = h.rest.filter((t) => !t.startsWith("-"));
+    // Corta na 1ª REDIREÇÃO de shell (>, >>, <, 2>, 2>&1, &>) — nada depois é argumento do git. Sem isto,
+    // `git push origin main 2>&1` contava "2>&1" como um ref posicional → refspec falso → sujeito "unresolved"
+    // → bloqueio indevido (achado do dogfood 2026-07-16). O redirect é fail-safe (over-block), mas quebra o
+    // loop review→recibo→allow. Também para no operador de fundo "&".
+    const redirIdx = h.rest.findIndex((t) => /[<>]/.test(t) || t === "&");
+    const eff = redirIdx >= 0 ? h.rest.slice(0, redirIdx) : h.rest;
+    const positional = eff.filter((t) => !t.startsWith("-"));
     const remote = positional[0] || null;
     const branch = positional[1] || null;
-    const force = h.rest.some((t) => t === "-f" || t === "--force" || t === "--force-with-lease");
-    const pushAll = h.rest.some((t) => t === "--all" || t === "--mirror" || t === "--tags");
+    const force = eff.some((t) => t === "-f" || t === "--force" || t === "--force-with-lease");
+    const pushAll = eff.some((t) => t === "--all" || t === "--mirror" || t === "--tags");
     // refspec: qualquer token posicional com ':' (ex.: sha:refs/heads/x) ou push de múltiplos refs.
     const refspec = positional.some((t) => t.includes(":")) || positional.length > 2;
     return {
