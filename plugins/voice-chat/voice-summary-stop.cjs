@@ -63,7 +63,10 @@ function decideSpeakEnforcement(state, suppressBlock) {
   if (suppressBlock) return 'ok';                                          // cap consecutivo estourou -> desiste (anti-loop)
   return 'block';
 }
-const SPEAK_REASON = 'Você respondeu sem produzir áudio para o usuário (a mensagem foi capturada por VOZ). Chame AGORA a ferramenta `falar` passando um texto natural em português do Brasil (1 a 3 frases curtas, sem markdown, sem listas, sem código e sem emojis) resumindo o essencial da sua resposta. É a tool `falar` que gera a voz.';
+// Agente-facing -> INGLÊS e ENXUTO (o contrato de FORMATO vive na tool `falar`, não aqui; aqui só a
+// regra de fim-de-turno). Rotulado `[voice-chat hook]` para o usuário ver que é o hook e não ele
+// digitando (o CLI re-injeta este `reason` como um novo prompt — canal inevitável do agentStop).
+const SPEAK_REASON = '[voice-chat hook] Voice session — every turn MUST end with a short spoken summary via the `falar` tool, then stop. This turn produced text but never called `falar`, so the user heard nothing. Call `falar` now to speak your reply, then write NO further assistant text: any text after `falar` re-fires this hook. (Speaking format is defined in the `falar` tool description.)';
 
 // ---- advisor DETERMINÍSTICO de canvas caído (caminho A->B->C: hook detecta -> avisa -> agente recarrega)
 // O canvas é registrado pelo joinSession do fork da extensão e MORRE com o processo. Logo
@@ -93,14 +96,17 @@ function decideCanvasAdvisor(hb, alive, alreadyAdvisedKey) {
   if (key === alreadyAdvisedKey) return { advise: false };   // já avisou ESTA queda -> não repete
   return { advise: true, key };
 }
-const CANVAS_RELOAD_REASON = 'O canvas de voz desta sessão caiu: o processo do host da extensão que registrava o canvas morreu (por isso apareceria "Canvas not registered" ao abrir o painel). Rode AGORA a ferramenta extensions_reload para re-lançar o host e re-registrar o canvas de voz desta sessão.';
+const CANVAS_RELOAD_REASON = '[voice-chat hook] This session\'s voice canvas is down: the extension-host process that registered the canvas died (opening the panel would show "Canvas not registered"). Run the extensions_reload tool now to relaunch the host and re-register this session\'s voice canvas.';
 // ---- estado por sessão (disco): anti block-storm por CONTADOR CONSECUTIVO -----------------------
 // O CLI NÃO manda stop_hook_active E re-injeta o motivo do block como um NOVO prompt. Um cap por
 // JANELA DE TEMPO falha: se os re-prompts vêm espaçados (turno lento), poucos blocks caem na janela
 // e ele NUNCA estoura -> loop infinito. Então o cap é ABSOLUTO: nº de blocks CONSECUTIVOS por sid
 // desde o último sucesso; ao chegar em MAX_BLOCKS, desiste (skip) — independente do tempo. Um turno
 // que chamou `falar` (ou o próprio cap) ZERA o contador.
-const MAX_BLOCKS = 3;
+// MAX_BLOCKS=1: UM único bloqueio por queda de fala, SEM escalar. Re-nag não compensa — o 2º/3º stop
+// só arranca um "ok" degradado (ou repetição do que já foi dito), e o Voice Chat já guarda o histórico
+// de áudios (até ~30 turnos), então re-cobrar a fala é redundante. Bloqueia 1x com a nova diretriz e para.
+const MAX_BLOCKS = 1;
 function stateFile(sid) {
   return shared.hookStateFile(DATA_DIR, sid);
 }
