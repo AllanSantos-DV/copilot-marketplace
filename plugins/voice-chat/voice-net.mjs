@@ -22,7 +22,7 @@ import {
 } from "./voice-state.mjs";
 import {
     ensureWorker, workerSend, manualRestartWorker, transcribeViaWorker,
-    shutdownWorkerForHandover, workerReady, lastDevice, lastVoices, lastMics,
+    shutdownWorkerForHandover, workerReady, lastDevice, lastVoices, lastMics, lastAppFocused,
 } from "./voice-worker.mjs";
 import { pushAudio, audioHistoryForHello, audioHistoryReadOnly, markPlayed, reloadAudioStateFromDisk } from "./voice-audio.mjs";
 import { injectTurn, drainTurnsToFork } from "./voice-turns.mjs";
@@ -340,6 +340,7 @@ export async function handleRequest(req, res) {
                 settings,
                 worker: workerReady ? "ready" : "loading",
                 voices: lastVoices,
+                appFocused: lastAppFocused,
                 audioHistory: audioHistoryForHello(sid),
                 pendingUpdate,
                 version: effectiveVersion(_us),

@@ -54,6 +54,7 @@ let wedgeRestarts = 0;   // auto-reinícios consecutivos de um boot TRAVADO (wor
 export let lastDevice = "cpu";
 export let lastMics = { devices: [], current: null, default: null };
 export let lastVoices = { voices: [], supported: [], default: null };
+export let lastAppFocused = true;   // foco do app GitHub Copilot (poller do worker); true = fail-open
 let ttsSeq = 0;
 
 export function ensureWorker() {
@@ -416,6 +417,12 @@ function onWorkerEvent(ev) {
             // está — a UI mostra "vozes indisponíveis" ALTO, sem mascarar com lista local.
             lastVoices = { voices: Array.isArray(ev.voices) ? ev.voices : [], supported: Array.isArray(ev.supported) ? ev.supported : [], default: ev.default_voice ?? null };
             broadcast({ type: "voices", ...lastVoices, ok: ev.ok, msg: ev.msg });
+            break;
+        case "appFocus":
+            // Foco do app (poller nativo do worker): estado GLOBAL da máquina. Repassa a TODOS os
+            // painéis (broadcast) — cada webview gateia o áudio conforme o próprio setting focusGate.
+            lastAppFocused = ev.focused !== false;
+            broadcast({ type: "appFocus", focused: lastAppFocused });
             break;
         case "command": {
             const c = (ev.text || "").trim();
