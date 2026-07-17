@@ -97,7 +97,7 @@ export function drainTurnsToFork(sid, urlArg) {
     const q = pendingTurnsBySid.get(sid);
     if (!q || !q.length) return;
     const url = urlArg || forks.get(sid);
-    if (!url) return;                              // owner not reachable yet; a later (re-)register/focus/sweep retries
+    if (!url) { dbg(`drainTurnsToFork: sem URL viva p/ sid=${sid} (fork dona não registrada) — held-turn aguarda register/focus/sweep`); return; }
     const head = q[0];
     drainingTurns.add(sid);
     dbg(`deliver turn -> sid=${sid} url=${url} id=${head.id} (queued=${q.length})`);
@@ -148,7 +148,7 @@ export async function selfDeliverOwnTurns(ownSid) {
             const head = q[0];
             if (!head) break;
             const r = await injectTurn(head.text, head.id);   // IN-PROCESS: handleVoiceTranscript -> session.send local
-            if (!(r && (r.ok || r.dup))) break;               // transitório -> mantém na fila p/ o próximo sweep
+            if (!(r && (r.ok || r.dup))) { dbg(`selfDeliver: injectTurn não-ok (code=${r && r.code}) sid=${sid} — mantém na fila p/ o próximo sweep`); break; }               // transitório -> mantém na fila p/ o próximo sweep
             const cur = pendingTurnsBySid.get(sid);
             if (cur && cur.length && cur[0].id === head.id) {
                 cur.shift();

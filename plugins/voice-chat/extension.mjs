@@ -41,7 +41,7 @@ import {
     shutdownWorkerForHandover, workerReady, lastDevice, lastVoices,
 } from "./voice-worker.mjs";
 import {
-    mySid, canonicalBase, withSid, broadcast, broadcastTo, startHeartbeat, forwardToPrimary, readSavedPort, startServer, httpPostJson, pruneDeadSids,
+    mySid, canonicalBase, withSid, broadcast, broadcastTo, startHeartbeat, forwardToPrimary, readSavedPort, startServer, httpPostJson, pruneDeadSids, registerSelf,
 } from "./voice-net.mjs";
 
 const EXT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -61,7 +61,7 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 
-export const CURRENT_VERSION = "1.5.29";
+export const CURRENT_VERSION = "1.5.30";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -562,11 +562,40 @@ function notifySessionDead() {
 function markSessionDead(e) {
     if (sessionDead) return;
     setSessionDead(true);
-    log("session handle morto (não recuperável): " + (e && e.message ? e.message : e));
+    // RECUPERÁVEL (fix injeção-infinita): latcheia p/ parar de competir (v1.5.3), MAS o sweep desta fork
+    // segue tentando um send VERIFICADO e reviveSessionDead() destrava no 1º send/RPC que REALMENTE resolver.
+    log("session handle latcheado como morto (RECUPERÁVEL via verified-send): sid=" + mySid() + " painelAqui=" + hasOpenPanelHere() + " err=" + (e && e.message ? e.message : e));
     // Para de se anunciar ao primary: a fork VIVA desta sessão (o painel real) reassume
     // o roteamento no próximo registro (≤4s). Uma mensagem clara só aparece se esta fork
     // ainda tiver um painel visível (o zumbi normalmente não tem, então não gera spam).
     notifySessionDead();
+}
+// Destrava a fork (oposto de markSessionDead) — SÓ quando há PROVA de vida (um session.send/RPC que
+// REALMENTE resolveu). Volta a se registrar p/ o primário rotear held-turns de volta para cá.
+function reviveSessionDead(reason) {
+    if (!sessionDead) return;
+    setSessionDead(false);
+    log(`sessão reativada (${reason}) — fork destravada, retomando roteamento (sid=${mySid()})`);
+    try { registerSelf(); } catch { }
+}
+// Send VERIFICADO no MESMO handle (sem re-join do SDK): tenta session.send com os mesmos retries do fluxo
+// normal e devolve boolean. DUPLICA o loop principal DE PROPÓSITO — o caminho de recuperação é enxuto e não
+// dispara os efeitos de turno fresco a cada retentativa do sweep. Mantê-los em sincronia (mode/retries).
+async function trySendVerified(text) {
+    for (let attempt = 1; attempt <= SEND_DEAD_RETRIES; attempt++) {
+        try {
+            const mode = settings.interruptMode ? "immediate" : "enqueue";
+            await session.send({ prompt: text, mode });
+            return true;
+        } catch (e) {
+            if (!isDeadSessionError(e)) { dbg(`trySendVerified: erro não-recuperável: ${e && e.message}`); return false; }
+            if (attempt < SEND_DEAD_RETRIES) await new Promise((r) => setTimeout(r, SEND_RETRY_BASE_MS * attempt));
+        }
+    }
+    return false;
+}
+function normalizeForDedup(s) {
+    return String(s || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 const SEND_DEAD_RETRIES = 3;        // re-tentativas de session.send diante de "Session not found" TRANSITÓRIO (ex.: logo após um Stop que só aborta o turno)
@@ -585,12 +614,11 @@ function hasOpenPanelHere() {
 
 export async function handleVoiceTranscript(text) {
     tmark("handle");
-    // Uma fork ZUMBI com a sessão MORTA não pode cumprir o turno: reporta falha (o primary re-rota
-    // para uma fork VIVA). Uma fork com painel aberto nunca fica nesse estado (ver abaixo).
-    if (sessionDead) {
-        notifySessionDead();
-        return false;
-    }
+    // RECUPERAÇÃO (fix "injeção infinita"): capturamos se a fork está latcheada como morta. NÃO desistimos
+    // aqui — a recuperação acontece abaixo (após tentar responder um ask_user aberto): um SEND VERIFICADO no
+    // mesmo handle; só destrava quando REALMENTE resolve. Enquanto latcheada, a fork segue SEM se registrar
+    // (registerSelf checa sessionDead) -> preserva a invariante v1.5.3 (zumbi real nunca envia -> não compete).
+    const wasDead = sessionDead;
     // ROTEAMENTO 1 — ask_user ABERTO: responde a PERGUNTA (freeform) em vez de um send novo. Sem isto, o
     // send ficaria preso na fila ATRÁS do pedido pendente e a fala "sumia" (o chat funciona porque digitar
     // com pergunta aberta responde o campo). Se a resposta falhar (já resolvida por outro cliente), cai pro
@@ -604,6 +632,7 @@ export async function handleVoiceTranscript(text) {
             const r = await session.rpc.ui.handlePendingUserInput({ requestId: rid, response: { answer: text, wasFreeform: true } });
             if (r && r.success) {
                 if (pendingUserInputId === rid) pendingUserInputId = null;   // não limpa um pedido NOVO aberto durante o await
+                if (wasDead) reviveSessionDead("ask_user ok");   // o RPC resolveu -> sessão viva -> destrava
                 dbg(`ask_user respondido por voz (freeform): requestId=${rid}`);
                 return true;
             }
@@ -612,6 +641,23 @@ export async function handleVoiceTranscript(text) {
             dbg(`handlePendingUserInput falhou (rid=${rid}): ${e && e.message}; caindo pro send normal`);
         }
         if (pendingUserInputId === rid) pendingUserInputId = null;   // este pedido não resolveu -> segue como send (sem re-tentar o mesmo)
+    }
+    // RECUPERAÇÃO isolada da fork latcheada: NÃO roda o setup de turno fresco a cada retentativa do sweep.
+    // Arma o turno de voz (p/ o onUserPromptSubmitted injetar o VOICE_TOOL_INSTRUCTION), tenta um SEND
+    // VERIFICADO e só destrava no sucesso; na falha segue latcheada e o sweep retenta em ~5s (silencioso)
+    // até recuperar ou expirar no TTL de 90s. Preserva v1.5.3: zumbi real nunca envia -> nunca destrava.
+    if (wasDead) {
+        pendingVoiceTurn = true;
+        voiceInstructionPending = settings.authorSummary !== false || settings.cueCheckpoints !== false;
+        spokenCheckpoints.clear();
+        markTurn(mySid());
+        const ok = await trySendVerified(text);
+        if (!ok) { pendingVoiceTurn = false; notifySessionDead(); return false; }   // recuperação falhou (sessão ainda morta) -> segue latcheada + informa (throttled; cobre a perda local do primário)
+        reviveSessionDead("verified-send");
+        saveVoiceState();
+        armIdleFallback();
+        dbg(`handleVoiceTranscript: RECUPERADA e enviada (${text.length} chars): ${text.slice(0, 120)}`);
+        return true;
     }
     pendingVoiceTurn = true;
     _phase = "voiceTurn:start";
@@ -1170,7 +1216,25 @@ session = await joinSession({
     canvases: [canvas],
     tools: [falarTool],
     hooks: {
-        onUserPromptSubmitted: async () => {
+        onUserPromptSubmitted: async (input) => {
+            // ANTI-DUPLICATA (fix "injeção infinita"): se o usuário DIGITOU/colou algo idêntico à CABEÇA da
+            // fila de held-turns desta sessão (workaround manual enquanto a fork estava latcheada), DESCARTA
+            // esse held-turn p/ ele não injetar DE NOVO quando a fork recuperar. Sem session.send aqui
+            // (proibido no hook do SDK): só remove da fila. Guardas anti-corrida: não mexe num turno EM
+            // ENTREGA (injectingIds) nem num RECÉM-enfileirado (<3s) — só num turno VELHO/preso.
+            try {
+                const typed = normalizeForDedup(input && input.prompt);
+                const q = typed ? pendingTurnsBySid.get(mySid()) : null;
+                if (q && q.length) {
+                    const head = q[0];
+                    if (head && !injectingIds.has(head.id) && (Date.now() - (head.ts || 0) > 3000) && normalizeForDedup(head.text) === typed) {
+                        q.shift();
+                        if (q.length) pendingTurnsBySid.set(mySid(), q); else pendingTurnsBySid.delete(mySid());
+                        persistPendingTurns(mySid());
+                        log(`held-turn descartado (superseded por prompt digitado idêntico): id=${head.id}`);
+                    }
+                }
+            } catch { }
             if (!voiceInstructionPending) return undefined;
             voiceInstructionPending = false;
             let ctx = "";
