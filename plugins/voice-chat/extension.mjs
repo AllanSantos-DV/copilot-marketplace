@@ -61,7 +61,7 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 
-export const CURRENT_VERSION = "1.5.31";
+export const CURRENT_VERSION = "1.5.32";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -150,6 +150,9 @@ let voiceInstructionPending = false;
 let pendingUserInputId = null;   // requestId de um ask_user ABERTO (SDK user_input.requested) -> a fala responde ele
 let latestReply = "";
 let lastSpokenContent = "";
+// EM VOO? um turno de voz pendente (session.send não resolveu) OU um inject in-flight. O self-reload
+// usa isto p/ ADIAR o relaunch e não matar o processo no meio do session.send (evita replay do turno).
+export function voiceBusy() { try { return !!pendingVoiceTurn || (injectingIds && injectingIds.size > 0); } catch { return false; } }
 let idleFallback = null;
 const IDLE_FALLBACK_MS = 15000; 
 let _phase = "boot"; 
@@ -369,7 +372,26 @@ export function pendingRestartVersion(state) {
     return (pv && verGt(pv, effectiveVersion(state))) ? pv : null;
 }
 
+// Single-flight: timer periódico + canvas-open + clique + primários velho/novo NÃO podem sobrepor
+// (staging concorrente sobre os mesmos .part / update-state). Uma operação por vez; os demais
+// aguardam a MESMA promise. `detectOnly` (auto) SÓ verifica a versão remota; o modo cheio (clique)
+// baixa+stagea (e o /apply-update relança). Resolve blocking #1 (detect/apply) e #2 (single-flight).
+let _updateOpInFlight = null;
+let _updateOpFull = false;   // modo da op EM VOO: true = baixa+stagea (force/clique); false = só detecta
 export async function checkForUpdate(opts = {}) {
+    const full = opts.detectOnly !== true;   // detectOnly=true => leve; qualquer outro (force/normal) => stagea
+    // Reusa a op em voo SÓ se ela cobre o pedido: um detect pode pegar carona em qualquer op; um
+    // pedido FULL (baixar+stagear) só pega carona em outra FULL — NUNCA num detectOnly (que resolve
+    // "available" sem stagear nada). Sem isso, um /apply-update concorrente com o timer/canvas-open
+    // adotaria o resultado do detect e relançaria TODAS as forks sem ter baixado (blocking #1).
+    if (_updateOpInFlight && (!full || _updateOpFull)) return _updateOpInFlight;
+    // FULL pedido com um detect em voo: encadeia DEPOIS dele (espera terminar, mas roda o stage próprio).
+    const prev = _updateOpInFlight;
+    const run = (async () => { if (prev) { try { await prev; } catch { } } return _checkForUpdateImpl(opts); })();
+    _updateOpInFlight = run; _updateOpFull = full;
+    try { return await run; } finally { if (_updateOpInFlight === run) { _updateOpInFlight = null; _updateOpFull = false; } }
+}
+async function _checkForUpdateImpl(opts = {}) {
     const force = opts.force === true;
     if (UPDATE_DISABLED || !primaryFork) return { status: "disabled" };
     const st = readUpdateState();
@@ -402,6 +424,12 @@ export async function checkForUpdate(opts = {}) {
         if (st.pendingVersion === remoteVer) {
             broadcast({ type: "update", version: remoteVer, needsAppRestart: true });
             return { status: "pending", version: remoteVer, needsAppRestart: true };
+        }
+        if (opts.detectOnly === true) {
+            // DETECÇÃO automática (timer/canvas-open): anuncia "nova versão disponível" SEM baixar/
+            // stagear/aplicar. Baixar+aplicar (stage + fan-out reload) é SÓ no CLIQUE (/apply-update).
+            broadcast({ type: "update", version: remoteVer, available: true, needsAppRestart: true });
+            return { status: "available", version: remoteVer, needsAppRestart: true };
         }
         const base = releaseAssetBase(remoteVer);
         const manifest = JSON.parse((await fetchBuf(base + "manifest.json")).toString("utf8"));
@@ -1144,7 +1172,7 @@ const canvas = createCanvas({
         }
         if (entry.primary) {
             ensureWorker();
-            checkForUpdate().catch(() => {});
+            checkForUpdate({ detectOnly: true }).catch(() => {});
             return {
                 title: "Voz",
                 url: withSid(entry.url, panelSid),
@@ -1296,6 +1324,22 @@ try {
 const _speakSweep = setInterval(() => { drainAllPendingSpeak().catch(() => { }); }, 2000);
 if (_speakSweep.unref) _speakSweep.unref();
 const _sidPrune = setInterval(() => { pruneDeadSids(); pruneForkHeartbeats(); }, 300000);   // 5min: poda sids mortos + heartbeats velhos
+
+// Auto-check PERIÓDICO (só DETECÇÃO): o PRIMÁRIO verifica a versão remota SEM baixar/aplicar
+// (detectOnly) — se houver nova, o broadcast {available} faz o selo aparecer. APLICAR continua SÓ no
+// clique. Completion-driven (reagenda após terminar), unref (não segura o processo), jitter
+// (dessincroniza forks). Default 4h, tunável por VOICE_AUTO_CHECK_MS.
+const AUTO_CHECK_MS = Number(process.env.VOICE_AUTO_CHECK_MS) || 4 * 60 * 60 * 1000;
+let _autoCheckT = null;
+function scheduleAutoCheck() {
+    const delay = AUTO_CHECK_MS + Math.floor(Math.random() * 5 * 60 * 1000);   // +0..5min jitter
+    _autoCheckT = setTimeout(async () => {
+        try { if (primaryFork) await checkForUpdate({ detectOnly: true }); } catch { }
+        scheduleAutoCheck();
+    }, delay);
+    if (_autoCheckT && _autoCheckT.unref) _autoCheckT.unref();
+}
+scheduleAutoCheck();
 if (_sidPrune.unref) _sidPrune.unref();
 log("voice-chat extension loaded", "info");
 

@@ -14,7 +14,7 @@ import { randomBytes } from "node:crypto";
 import shared from "./voice-shared.cjs";
 import { dbg } from "./voice-core.mjs";
 import { cleanForSpeech } from "./voice-text.mjs";
-import { shouldStepDownForNewer } from "./voice-update.mjs";
+import { shouldStepDownForNewer, verGt } from "./voice-update.mjs";
 import {
     sseClients, servers, forks, forkSeen, forkVersions, recentSpoken,
     activeSid, setActiveSid, primaryFork, setPrimaryFork, myBaseUrl, setMyBaseUrl,
@@ -33,7 +33,7 @@ import {
     sanitizeSettings,
     settings, setSettings, handingOver, setHandingOver, setLastTtsPreviewSid, primaryServerEntry, setPrimaryServerEntry,
     session, CURRENT_VERSION, FORK_TTL_MS, HANDOVER_GRACE_MS, RUNNING_AS_PLUGIN, CONVERSE_ONSET_MS, DEBUG_LOG, log,
-    recordingActiveSid,
+    recordingActiveSid, voiceBusy,
 } from "./extension.mjs";
 
 const EXT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -234,10 +234,48 @@ export function sendJson(res, obj, code = 200) {
 // "reinicie o app". Idempotente por nonce. Não ativa GRAVANDO. Bootstrap: o 1º release precisa de 1
 // reload manual (o router velho em memória não tem estes endpoints).
 let _activateNonce = "";
+let _lastStaleN = -1;
 function canSelfReload() { try { return typeof session?.rpc?.extensions?.reload === "function"; } catch { return false; } }
-function fireSelfReload() {
-    // fire-and-forget: o processo MORRE no relaunch -> a Promise pode nunca resolver.
-    setTimeout(() => { try { const p = session.rpc.extensions.reload(); if (p && p.catch) p.catch(() => { }); } catch { } }, 150);
+function fireSelfReload(attempt = 0) {
+    // fire-and-forget: o processo MORRE no relaunch -> a Promise pode nunca resolver. ADIA enquanto há
+    // turno/send EM VOO (voiceBusy) p/ não matar o processo no meio do session.send (evita replay do
+    // turno), com teto (~10s) p/ não travar pra sempre.
+    setTimeout(() => {
+        try {
+            if (attempt < 20 && voiceBusy && voiceBusy()) { fireSelfReload(attempt + 1); return; }
+            const p = session.rpc.extensions.reload(); if (p && p.catch) p.catch(() => { });
+        } catch { }
+    }, attempt === 0 ? 150 : 500);
+}
+// Fan-out PARALELO + fire-and-forget: dispara /self-reload em todas as urls-alvo AO MESMO TEMPO (uma url
+// morta/hung não segura as outras nem a resposta) e NÃO aguarda. Se includeSelf, o primário se relança
+// por ÚLTIMO (respiro pro handover das secundárias assumirem a porta canônica).
+function fanOutReload(nonce, urls, includeSelf) {
+    for (const u of urls) {
+        if (typeof u !== "string" || !u) continue;
+        httpPostJson(u, "/self-reload", { nonce }).then((ok) => { dbg(`fan-out /self-reload -> ${u}: ${ok ? "ok" : "nao/needRestart"}`); }).catch(() => { });
+    }
+    if (includeSelf) setTimeout(() => { fireSelfReload(); }, 900);
+}
+// Forks DESATUALIZADAS: sid VIVO (em forks) cuja versão registrada < a do primário. Só com primário
+// ESTÁVEL (não handingOver) — senão suprime (contagem errada no handover). Exclui o próprio primário e
+// as == CURRENT_VERSION. NÃO usa max(forkVersions) (uma entrada morta/maior fixaria a referência).
+function staleForkUrls() {
+    if (handingOver) return [];
+    const me = mySid();
+    const out = [];
+    for (const [sid, u] of forks.entries()) {
+        if (!sid || sid === me || typeof u !== "string") continue;
+        const ver = forkVersions.get(sid);
+        if (ver && verGt(CURRENT_VERSION, String(ver))) out.push(u);
+    }
+    return out;
+}
+// Broadcast do nº de sessões desatualizadas — SÓ na mudança (evita spam a cada /register de 4s).
+function maybeBroadcastStale() {
+    if (!primaryFork) return;
+    const n = staleForkUrls().length;
+    if (n !== _lastStaleN) { _lastStaleN = n; broadcast({ type: "staleForks", n }); }
 }
 
 export function cookieToken(req) {
@@ -360,6 +398,7 @@ export async function handleRequest(req, res) {
                 version: effectiveVersion(_us),
                 pluginManaged: RUNNING_AS_PLUGIN,
                 canSelfReload: canSelfReload(),
+                staleForks: staleForkUrls().length,
             })}\n\n`,
         );
         if (!workerReady) {
@@ -462,6 +501,7 @@ export async function handleRequest(req, res) {
             // The URL just arrived from a live server -> deliver any held turns now
             // against this fresh URL (fixes stale-URL and late-register drops).
             drainTurnsToFork(sid, url);
+            maybeBroadcastStale();   // versão de uma fork mudou -> recomputa o nº de sessões desatualizadas (broadcast só na mudança)
             // Auto-handover: uma fork MAIS NOVA registrou -> este primário (código velho) cede a
             // porta+worker p/ ela. Ativa um update do extension.mjs sem fechar o app.
             if (primaryFork && !handingOver && shouldStepDownForNewer(CURRENT_VERSION, ver)) {
@@ -582,31 +622,61 @@ export async function handleRequest(req, res) {
     // ATIVAR AGORA (fan-out): o primário manda /self-reload pra CADA fork registrada (secundárias
     // primeiro; a nova secundária dispara o handover), e por ÚLTIMO ele mesmo. Não ativa GRAVANDO.
     // Responde ANTES de se relançar (o relaunch mata o processo). Idempotente por nonce.
+    if (req.method === "POST" && path === "/apply-update") {
+        // APLICAR update (clique "Atualizar e reiniciar tudo"): SÓ aqui baixa+stagea (checkForUpdate
+        // cheio, single-flight) e então relança TODAS as forks. É o ÚNICO caminho que aplica — detecção
+        // é automática (detectOnly). hot-apply puro (worker/UI) já é feito por checkForUpdate.
+        if (recordingActiveSid) return sendJson(res, { ok: false, recording: true });
+        if (!canSelfReload()) return sendJson(res, { ok: false, unsupported: true, needsAppRestart: true });
+        let r; try { r = await checkForUpdate({ force: true }); } catch (e) { return sendJson(res, { ok: false, error: String((e && e.message) || e) }); }
+        // status honesto: "error" (ex.: assinatura inválida/sha), "disabled" e "throttled" NÃO podem
+        // virar applied:true — a UI leria como sucesso e relançaria à toa. Só uptodate/applied são ok.
+        const rs = r && r.status;
+        if (!r || rs === "error" || rs === "disabled" || rs === "throttled") return sendJson(res, { ok: false, status: rs, error: (r && r.error) || rs });
+        if (!r.needsAppRestart) return sendJson(res, { ok: true, status: rs, version: r.version, applied: rs === "applied" });
+        const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        _activateNonce = nonce;
+        const me = mySid();
+        const targets = [...forks.entries()].filter(([sid, u]) => sid && sid !== me && typeof u === "string").map(([, u]) => u);
+        sendJson(res, { ok: true, version: r.version, targets: targets.length });   // responde ANTES do relaunch
+        fanOutReload(nonce, targets, true);
+        return;
+    }
+
+    if (req.method === "POST" && path === "/sync-stale") {
+        // SINCRONIZAR sessões atrasadas (clique): relança SÓ as forks atrás da versão do primário
+        // (arquivos já no disco). Sem checkForUpdate. Não relança o próprio primário (já está atual).
+        if (recordingActiveSid) return sendJson(res, { ok: false, recording: true });
+        const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        _activateNonce = nonce;
+        const targets = staleForkUrls();
+        sendJson(res, { ok: true, stale: targets.length });
+        fanOutReload(nonce, targets, false);
+        return;
+    }
+
     if (req.method === "POST" && path === "/activate-update") {
+        // (legado v1.5.31) reload de TODAS as forks p/ a versão ATUAL no disco (sem baixar). Agora
+        // paralelo + fire-and-forget. Caminho novo do clique: /apply-update (baixa) e /sync-stale.
         if (recordingActiveSid) return sendJson(res, { ok: false, recording: true });
         if (!canSelfReload()) return sendJson(res, { ok: false, unsupported: true, needsAppRestart: true });
         const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
         _activateNonce = nonce;
-        const meSid = mySid();
-        const secondaries = [...forks.entries()].filter(([sid]) => sid && sid !== meSid && typeof forks.get(sid) === "string");
-        let reloaded = 0, needRestart = 0;
-        for (const [, u] of secondaries) {
-            try { const r = await httpPostJson(u, "/self-reload", { nonce }); if (r) reloaded++; else needRestart++; }
-            catch { needRestart++; }
-        }
-        sendJson(res, { ok: true, nonce, secondaries: secondaries.length, reloaded, needRestart });
-        // primário por ÚLTIMO, após um respiro pras secundárias assumirem o primário via handover.
-        setTimeout(() => { fireSelfReload(); }, 900);
+        const me = mySid();
+        const targets = [...forks.entries()].filter(([sid, u]) => sid && sid !== me && typeof u === "string").map(([, u]) => u);
+        sendJson(res, { ok: true, nonce, targets: targets.length });
+        fanOutReload(nonce, targets, true);
         return;
     }
 
-    // Uma fork recebe a ordem de se auto-relançar (chamada pelo primário no fan-out). Feature-detect +
-    // FALLBACK: sem a RPC -> reporta needsAppRestart (a UI mantém "reinicie o app"). Idempotente por nonce.
     if (req.method === "POST" && path === "/self-reload") {
+        // Uma fork recebe a ordem de se auto-relançar (fan-out). Feature-detect + FALLBACK: sem a RPC ->
+        // 503 (status honesto p/ o httpPostJson do primário contar como needRestart, não sucesso; a UI
+        // mantém "reinicie o app"). Idempotente por nonce. O ADIAR-se-em-voo vive no fireSelfReload.
         const body = await readBody(req);
         const nonce = body && body.nonce ? String(body.nonce) : "";
         if (nonce && _activateNonce === nonce) return sendJson(res, { ok: true, already: true });
-        if (!canSelfReload()) return sendJson(res, { ok: false, unsupported: true, needsAppRestart: true });
+        if (!canSelfReload()) return sendJson(res, { ok: false, unsupported: true, needsAppRestart: true }, 503);
         if (nonce) _activateNonce = nonce;
         sendJson(res, { ok: true, reloading: true });   // responde ANTES do relaunch matar o processo
         fireSelfReload();
@@ -945,9 +1015,12 @@ export function pruneDeadSids() {
     const now = Date.now();
     const me = mySid();
     for (const [sid, ts] of forkSeen) {
-        if (sid !== me && now - ts > FORK_TTL_MS) { forks.delete(sid); forkSeen.delete(sid); }
+        if (sid !== me && now - ts > FORK_TTL_MS) { forks.delete(sid); forkSeen.delete(sid); forkVersions.delete(sid); }
     }
     for (const [sid, v] of recentSpoken) {
         if (now - (v && v.ts || 0) > FORK_TTL_MS) recentSpoken.delete(sid);
     }
+    // Uma fork que morreu sem se desregistrar inflava o selo de "desatualizadas" até o TTL. Ao podá-la,
+    // recomputa e rebroadcast (só-na-mudança) — senão o selo ficava fantasma sem novo /register p/ disparar.
+    maybeBroadcastStale();
 }

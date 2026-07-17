@@ -1298,43 +1298,48 @@ document.addEventListener("visibilitychange", syncMonitor);
 window.addEventListener("focus", syncMonitor);
 window.addEventListener("blur", () => setMonitor(false));
 let appCanSelfReload = false;
-function showUpdate(version) {
+let availableUpdate = null;   // versão nova DETECTADA (ou staged/pending) — clique baixa+aplica em todas
+let staleForksN = 0;          // sessões abertas ATRÁS da versão do primário — clique sincroniza só elas
+// Renderer ÚNICO do #updateBanner (reusa o banner acima do mic). Prioridade: nova versão > desatualizadas.
+// DETECÇÃO é automática (chega por evento); APLICAR é só no clique (/apply-update ou /sync-stale).
+function renderUpdateBanner() {
   updateBanner.innerHTML = "";
-  const row = document.createElement("div");
-  row.className = "update-row";
-  const span = document.createElement("span");
-  const btn = document.createElement("button");
-  btn.className = "update-btn";
-  const asRestart = () => {
-    span.textContent = "Atualização v" + (version || "") + " pronta. Feche e reabra o app para concluir.";
-    btn.textContent = "Ok"; btn.disabled = false;
-    btn.onclick = () => { updateBanner.classList.remove("show"); };
-  };
-  if (appCanSelfReload) {
-    span.textContent = "Atualização v" + (version || "") + " pronta.";
-    btn.textContent = "Ativar agora";
+  let text, btnLabel, handler;
+  if (availableUpdate) {
+    if (appCanSelfReload) { text = "Nova versão v" + availableUpdate + " disponível."; btnLabel = "Atualizar e reiniciar tudo"; handler = "apply"; }
+    else { text = "Nova versão v" + availableUpdate + " pronta. Feche e reabra o app para concluir."; btnLabel = "Ok"; handler = "dismiss"; }
+  } else if (staleForksN > 0 && appCanSelfReload) {
+    text = staleForksN + (staleForksN === 1 ? " sessão desatualizada." : " sessões desatualizadas."); btnLabel = "Sincronizar"; handler = "sync";
+  } else { updateBanner.classList.remove("show"); return; }
+  const row = document.createElement("div"); row.className = "update-row";
+  const span = document.createElement("span"); span.textContent = text;
+  const btn = document.createElement("button"); btn.className = "update-btn"; btn.textContent = btnLabel;
+  if (handler === "dismiss") {
+    btn.onclick = () => updateBanner.classList.remove("show");
+  } else if (handler === "apply") {
     btn.onclick = async () => {
-      btn.disabled = true; btn.textContent = "Ativando…";
-      span.textContent = "Ativando v" + (version || "") + " em todas as sessões…";
-      const r = await post("/activate-update");
-      if (r && r.ok) {
-        span.textContent = "Ativando… o painel recarrega sozinho.";
-        setTimeout(() => { try { location.reload(); } catch (_) {} }, 2500);   // as forks relançam; reconecta na versão nova
-      } else if (r && r.recording) {
-        btn.disabled = false; btn.textContent = "Ativar agora";
-        span.textContent = "Pare a gravação antes de ativar (captura em andamento).";
-      } else {
-        asRestart();   // sem self-reload (runtime antigo) ou falha -> fallback pro reinício
-      }
+      btn.disabled = true; btn.textContent = "Atualizando…"; span.textContent = "Baixando e reiniciando todas as sessões…";
+      const r = await post("/apply-update");
+      if (r && r.ok) { span.textContent = "Reiniciando… o painel recarrega sozinho."; setTimeout(() => { try { location.reload(); } catch (_) {} }, 2800); }
+      else if (r && r.recording) { btn.disabled = false; btn.textContent = btnLabel; span.textContent = "Pare a gravação antes de atualizar."; }
+      else { span.textContent = "Nova versão v" + availableUpdate + " pronta. Feche e reabra o app para concluir."; btn.textContent = "Ok"; btn.disabled = false; btn.onclick = () => updateBanner.classList.remove("show"); }
     };
-  } else {
-    asRestart();
+  } else if (handler === "sync") {
+    btn.onclick = async () => {
+      btn.disabled = true; btn.textContent = "Sincronizando…";
+      const r = await post("/sync-stale");
+      if (r && r.recording) { btn.disabled = false; btn.textContent = "Sincronizar"; span.textContent = "Pare a gravação antes de sincronizar."; }
+      else if (r && r.ok && r.stale > 0) {
+        span.textContent = "Sincronizando as sessões desatualizadas…";
+        // Fallback: as forks reiniciam e re-registram -> evento staleForks re-renderiza. Se NENHUMA voltar
+        // (inalcançável/versão antiga sem self-reload), reabilita o botão p/ nova tentativa (não trava).
+        setTimeout(() => { renderUpdateBanner(); }, 10000);
+      } else { staleForksN = 0; renderUpdateBanner(); }   // nada acionável (0 alvos reais) — some o selo fantasma
+    };
   }
-  row.appendChild(span);
-  row.appendChild(btn);
-  updateBanner.appendChild(row);
-  updateBanner.classList.add("show");
+  row.appendChild(span); row.appendChild(btn); updateBanner.appendChild(row); updateBanner.classList.add("show");
 }
+function showUpdate(version) { if (version) availableUpdate = version; renderUpdateBanner(); }
 function handle(m) {
   switch (m.type) {
     case "hello":
@@ -1342,14 +1347,14 @@ function handle(m) {
       if (typeof m.appFocused === "boolean") onAppFocus(m.appFocused);
       if (m.version) { appVersion = m.version; setUpdateVersionLabel(); }
       if (typeof m.canSelfReload === "boolean") appCanSelfReload = m.canSelfReload;
+      if (typeof m.staleForks === "number") staleForksN = m.staleForks;
       if (m.pluginManaged) {
         $("updateBtn").style.display = "none";
         $("updateSub").textContent = "v" + (m.version || appVersion) + " · atualizações gerenciadas pelo plugin (copilot plugin update).";
       }
       if (m.worker === "ready") { workerReady = true; phase = "ready"; }
-      if (m.pendingUpdate) {
-        showUpdate(m.pendingUpdate);
-      }
+      if (m.pendingUpdate) availableUpdate = m.pendingUpdate;
+      renderUpdateBanner();   // reflete availableUpdate + staleForks (esconde se não houver nada a fazer)
       if (m.audioHistory) applyAudioHistory(m.audioHistory);
       if (m.voices) populateVoices(m.voices);
       requestMics();
@@ -1497,6 +1502,10 @@ function handle(m) {
       break;
     case "update":
       showUpdate(m.version);
+      break;
+    case "staleForks":
+      staleForksN = m.n || 0;
+      renderUpdateBanner();
       break;
     case "reloadUi":
       // A UI foi atualizada a quente (novo iframe.html no disco): recarrega para aplicar.
