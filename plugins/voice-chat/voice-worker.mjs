@@ -23,7 +23,7 @@ import {
 import { broadcast, broadcastTo } from "./voice-net.mjs";
 import {
     dispatchVoiceTurn, clearRecordingActive, log, settings, saveSettings,
-    handingOver, lastTtsPreviewSid, DEBUG_LOG,
+    handingOver, lastTtsPreviewSid, DEBUG_LOG, tmark, timingEnabled,
 } from "./extension.mjs";
 
 const EXT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -340,7 +340,11 @@ function onWorkerEvent(ev) {
             setTurnOwnerSid(null);
             clearRecordingActive();
             broadcastTo(owner, { type: "transcript", text: ev.text || "", confirm, note: ev.note, peak: ev.peak, micOk: ev.micOk });
-            if (t && !confirm) dispatchVoiceTurn(t, owner);
+            if (t && !confirm) {
+                if (timingEnabled()) dbg(`[timing] transcript-ready sid=${owner} decode=${ev.ms}ms audio=${ev.dur_ms}ms chars=${t.length} confirm=${confirm}`);
+                tmark("recv", { ms: ev.ms, dur_ms: ev.dur_ms });
+                dispatchVoiceTurn(t, owner);
+            }
             break;
         }
         case "error":
@@ -420,6 +424,8 @@ function onWorkerEvent(ev) {
                 const owner = turnOwnerSid || activeSid;
                 setTurnOwnerSid(null);
                 broadcastTo(owner, { type: "transcript", text: c, confirm: false });
+                if (timingEnabled()) dbg(`[timing] transcript-ready(cmd) sid=${owner} decode=${ev.ms}ms audio=${ev.dur_ms}ms chars=${c.length}`);
+                tmark("recv", { ms: ev.ms, dur_ms: ev.dur_ms });
                 dispatchVoiceTurn(c, owner);
             }
             break;
