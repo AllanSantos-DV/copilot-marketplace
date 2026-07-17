@@ -7,10 +7,7 @@
 // fork no longer needs an HTTP server, transport, pairing, a canvas, or any relaying.
 //
 // What ONLY a fork joined to the live session can do (and therefore stays here):
-//   1) 🔊 voice-summary instruction — ask the agent to end each reply with a "🔊 …" line, which the
-//      daemon turns into the phone's audio bubble. Injected only while the daemon is ARMED (we read
-//      the daemon's runtime.json), so we don't nag when nothing is listening.
-//   2) phone→PC drift warning — the daemon writes the user's phone turns to disk through a SEPARATE
+//   1) phone→PC drift warning — the daemon writes the user's phone turns to disk through a SEPARATE
 //      runtime the app's live head never sees (cross-process isolation, proven). We count
 //      user.message on disk vs the count the app's runtime has processed; any excess = phone turns
 //      this chat's memory is missing, so we tell the agent to have the user restart the app to
@@ -35,16 +32,7 @@ function dbg(msg) {
   try { mkdirSync(DAEMON_HOME, { recursive: true }); appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${msg}\n`); } catch {}
 }
 
-// 🔊 instruction — verbatim from the original bridge (the daemon ports the same text for headless
-// sessions; here we inject it into the app's LIVE session, which only a joined fork can do).
-const VOICE_SUMMARY_INSTRUCTION =
-  "Esta conversa está sendo acompanhada pelo celular (copilot-mobile). Responda normalmente no chat e, " +
-  'ao FINAL da resposta, acrescente uma última linha começando exatamente com "🔊 " seguida de um RESUMO ' +
-  "FALADO autoexplicativo da sua própria resposta: de 1 a 3 frases curtas, em português do Brasil, naturais " +
-  "e completas (sem cortar no meio), sem markdown, sem listas, sem código e sem outros emojis. Essa linha 🔊 " +
-  "é exatamente o que vira a mensagem de áudio no celular, então escreva-a para ser ouvida com clareza.";
-
-// Is the daemon currently exposing the agent to a phone? (gate the 🔊 instruction)
+// Is the daemon currently exposing the agent to a phone? (kept for the bridge.log "armed" diagnostic)
 function daemonArmed() {
   try {
     const r = JSON.parse(readFileSync(RUNTIME_FILE, "utf8"));
@@ -101,7 +89,7 @@ let appHeadPending = 0;
 // (liveLink._runCommand). NOTE: joinSession decides the tool set ONCE at boot and the SDK can't swap it
 // live, so a session that boots with the daemon OFF stays on native for its life — arming later keeps it
 // answerable (native modal + phone via handlePendingUserInput) but does NOT auto-upgrade to the canvas
-// UX; reopen/clear the session to boot it armed. The 🔊 voice instruction stays gated on daemonArmed().
+// UX; reopen/clear the session to boot it armed.
 const bootMode = daemonMode();
 const overrideAsk = decideAskUserOverride({ mode: bootMode });
 const askBridge = overrideAsk ? new AskUserBridge({ log: dbg, sessionId: SELF_SESSION_ID }) : null;
@@ -113,7 +101,6 @@ const session = await joinSession({
   hooks: {
     onUserPromptSubmitted: async (input) => {
       const parts = [];
-      if (daemonArmed()) parts.push(VOICE_SUMMARY_INSTRUCTION);
       try {
         const { count, lastText } = diskUserStats(input?.sessionId || SELF_SESSION_ID);
         const d = decidePhoneDrift({ diskUsers: count, appHeadUsers, lastDiskUserText: lastText, currentPrompt: input?.prompt });

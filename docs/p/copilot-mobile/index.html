@@ -39,9 +39,9 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">copilot-mobile</h1>
-        <span class="chip" title="versão publicada">v0.3.3</span>
+        <span class="chip" title="versão publicada">v0.3.4</span>
       </div>
-      <p class="doc-hero__lede">O <strong>copilot-mobile</strong> é a extensão in-app que liga sua sessão do Copilot ao app no celular. Ela faz só o que a sessão viva exige: leva as <strong>perguntas do agente</strong> (<code>ask_user</code>) para o seu telefone — com o modal nativo do PC como rede de segurança —, injeta o <strong>resumo falado</strong> (🔊) a cada turno e avisa quando o celular respondeu turnos que o PC ainda não viu. Pareamento, transporte e configuração ficam no <strong>daemon apartado</strong> (ícone da bandeja).</p>
+      <p class="doc-hero__lede">O <strong>copilot-mobile</strong> é a extensão in-app que liga sua sessão do Copilot ao app no celular. Ela faz só o que a sessão viva exige: leva as <strong>perguntas do agente</strong> (<code>ask_user</code>) para o seu telefone — com o modal nativo do PC como rede de segurança —, encaminha o <strong>resumo falado</strong> ao celular, que o <strong>narra no próprio aparelho</strong>, e avisa quando o celular respondeu turnos que o PC ainda não viu. Pareamento, transporte e configuração ficam no <strong>daemon apartado</strong> (ícone da bandeja).</p>
       <div class="doc-hero__cta">
         <div class="prompt prompt--sm" data-cmd="copilot plugin install copilot-mobile@copilot-marketplace">
         <span class="prompt__glyph" aria-hidden="true">⌁</span>
@@ -63,7 +63,7 @@
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Resumo falado no celular</h3>
-          <p class="hl__body">Injeta a instrução 🔊 e o daemon transforma essa linha no áudio que toca no telefone.</p>
+          <p class="hl__body">O resumo de cada turno chega ao celular, e o app o narra no próprio aparelho — sem marcador na resposta do agente.</p>
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Aviso de drift</h3>
@@ -77,14 +77,14 @@
         <section class="doc-section" id="o-que-e">
           <h2 class="doc-h2"><a class="doc-anchor" href="#o-que-e" aria-label="Link para O que é">#</a>O que é</h2>
           <p>O copilot-mobile deixa você continuar uma conversa do Copilot pelo celular. Esta extensão é a parte que precisa rodar <strong>dentro da sessão</strong> do agente; o trabalho pesado — transporte, pareamento, stream e a tela de configuração — vive num <strong>daemon apartado</strong>, sempre ligado, aberto pelo ícone da bandeja.</p>
-          <p>Na <strong>0.3.3</strong> ela ganha a peça que faltava: quando o agente <strong>faz uma pergunta</strong>, você responde pelo telefone. Somado ao resumo falado e ao aviso de drift, dá para acompanhar um turno longo do sofá — e destravar o agente sem voltar ao PC.</p>
+          <p>Com as <strong>perguntas do agente</strong> roteadas para o telefone, você responde de onde estiver. Na <strong>0.3.4</strong>, o <strong>resumo falado</strong> de cada turno chega ao celular e o app o <strong>narra no próprio aparelho</strong> — a resposta do agente fica limpa, sem marcador. Com o aviso de drift, dá para acompanhar um turno longo do sofá e destravar o agente sem voltar ao PC.</p>
           <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Registra um <strong>canvas</strong> e usa <strong>hooks</strong>; reinicie o app uma vez após instalar. O daemon é baixado apartado na primeira execução (release buildada, sem build).</p></aside>
         </section>
 
         <section class="doc-section" id="como-usar">
           <h2 class="doc-h2"><a class="doc-anchor" href="#como-usar" aria-label="Link para Como usar">#</a>Como usar</h2>
           <ol class="doc-steps"><li><h4>Instale o plugin</h4><p>Pelo marketplace (comando na seção Instalar).</p></li><li><h4>Reinicie o app</h4><p>Uma vez, para os hooks e o daemon entrarem.</p></li><li><h4>Abra o daemon na bandeja</h4><p>O ícone da bandeja abre o painel de configuração — funciona mesmo com o app fechado.</p></li><li><h4>Arme o transporte</h4><p>Escolha off / lan / tailscale / public conforme onde o celular vai alcançar o PC.</p></li><li><h4>Pareie o celular</h4><p>Escaneie o QR do painel no app Android.</p></li><li><h4>Acompanhe e responda</h4><p>Ouça o resumo falado e, quando o agente perguntar, responda direto do telefone.</p></li></ol>
-          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Com o transporte em <strong>off</strong>, a extensão não injeta o resumo falado e mantém as perguntas no modal nativo do PC — nada vaza sem você armar.</p></aside>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Com o transporte em <strong>off</strong>, a extensão não encaminha o resumo falado ao celular e mantém as perguntas no modal nativo do PC — nada vaza sem você armar.</p></aside>
         </section>
 
         <section class="doc-section" id="perguntas-pelo-celular">
@@ -96,7 +96,7 @@
 
         <section class="doc-section" id="como-funciona">
           <h2 class="doc-h2"><a class="doc-anchor" href="#como-funciona" aria-label="Link para Como funciona">#</a>Como funciona</h2>
-          <ul class="doc-list"><li><strong>Perguntas roteadas</strong> — com o transporte aberto, a extensão assume o <code>ask_user</code>, mostra a página no PC (reabrindo sozinha se ela não surgir) e envia a mesma pergunta ao celular pela sessão viva.</li><li><strong>Resumo falado</strong> — a cada turno injeta a instrução para terminar a resposta com uma linha 🔊; o daemon a transforma em áudio no celular. Só injeta quando o daemon está armado.</li><li><strong>Drift celular→PC</strong> — o daemon grava os turnos do celular no disco por um runtime separado; a extensão compara as contagens e avisa quando faltam turnos no chat do PC.</li><li><strong>Plano de controle no daemon</strong> — transporte, pareamento, stream e túnel ficam fora da sessão, sempre disponíveis; o celular só recebe notificação (FCM) com o transporte aberto.</li></ul>
+          <ul class="doc-list"><li><strong>Perguntas roteadas</strong> — com o transporte aberto, a extensão assume o <code>ask_user</code>, mostra a página no PC (reabrindo sozinha se ela não surgir) e envia a mesma pergunta ao celular pela sessão viva.</li><li><strong>Resumo falado</strong> — com o daemon armado, a extensão encaminha o resumo do turno ao celular; o app o narra no próprio aparelho (TTS on-device), sem injetar marcador na resposta do agente.</li><li><strong>Drift celular→PC</strong> — o daemon grava os turnos do celular no disco por um runtime separado; a extensão compara as contagens e avisa quando faltam turnos no chat do PC.</li><li><strong>Plano de controle no daemon</strong> — transporte, pareamento, stream e túnel ficam fora da sessão, sempre disponíveis; o celular só recebe notificação (FCM) com o transporte aberto.</li></ul>
           <p>As decisões sensíveis são <strong>lógica pura e testada</strong> — a detecção de drift (<code>drift.mjs</code>), quando assumir o <code>ask_user</code> (<code>askMode.mjs</code>) e a reabertura da página (<code>canvasOpen.mjs</code>) —, cada uma sem I/O escondido, fácil de confiar.</p>
         </section>
 
@@ -152,7 +152,7 @@
             <li class="tree__row">
               <code class="tree__name">bootstrap.mjs</code>
               <span class="tree__role">Provisiona o runtime pesado sob demanda (baixa a release buildada).</span>
-              <span class="tree__size">8.2 KB</span>
+              <span class="tree__size">8.4 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">canvasId.mjs</code>
@@ -171,23 +171,23 @@
             </li>
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
-              <span class="tree__role">Entra na sessão viva: injeta voz + drift, roteia o <code>ask_user</code> e liga a sessão ao daemon.</span>
-              <span class="tree__size">10 KB</span>
+              <span class="tree__role">Entra na sessão viva: encaminha o resumo falado, detecta drift, roteia o <code>ask_user</code> e liga a sessão ao daemon.</span>
+              <span class="tree__size">9.1 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">hooks.json</code>
               <span class="tree__role">Hooks de ciclo de vida (SessionStart e afins).</span>
-              <span class="tree__size">178 B</span>
+              <span class="tree__size">166 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">liveLink.mjs</code>
               <span class="tree__role">Liga a sessão viva ao daemon para o celular ser roteado por ela.</span>
-              <span class="tree__size">9.8 KB</span>
+              <span class="tree__size">10 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
               <span class="tree__role">Metadados do plugin + marcadores (extensions / hooks).</span>
-              <span class="tree__size">764 B</span>
+              <span class="tree__size">775 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">README.md</code>
@@ -233,7 +233,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.3.3</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.3.4</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
