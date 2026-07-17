@@ -226,6 +226,20 @@ export function sendJson(res, obj, code = 200) {
     res.end(JSON.stringify(obj));
 }
 
+// ---- ATIVAR UPDATE sem app restart (self-reload de TODAS as forks) --------------------------------
+// session.rpc.extensions.reload() (SDK do app, @experimental) relança as extension subprocesses DESTA
+// sessão -> processo fresco = extension.mjs NOVA em memória. FAN-OUT (/activate-update no primário):
+// manda /self-reload pra CADA fork registrada (secundárias primeiro -> a nova secundária dispara o
+// handover version-aware), e por ÚLTIMO ele mesmo. FEATURE-DETECT + FALLBACK: sem a RPC -> mantém
+// "reinicie o app". Idempotente por nonce. Não ativa GRAVANDO. Bootstrap: o 1º release precisa de 1
+// reload manual (o router velho em memória não tem estes endpoints).
+let _activateNonce = "";
+function canSelfReload() { try { return typeof session?.rpc?.extensions?.reload === "function"; } catch { return false; } }
+function fireSelfReload() {
+    // fire-and-forget: o processo MORRE no relaunch -> a Promise pode nunca resolver.
+    setTimeout(() => { try { const p = session.rpc.extensions.reload(); if (p && p.catch) p.catch(() => { }); } catch { } }, 150);
+}
+
 export function cookieToken(req) {
     const raw = req.headers.cookie;
     if (!raw) return "";
@@ -345,6 +359,7 @@ export async function handleRequest(req, res) {
                 pendingUpdate,
                 version: effectiveVersion(_us),
                 pluginManaged: RUNNING_AS_PLUGIN,
+                canSelfReload: canSelfReload(),
             })}\n\n`,
         );
         if (!workerReady) {
@@ -562,6 +577,40 @@ export async function handleRequest(req, res) {
         const r = await checkForUpdate({ force: true });
         const ok = r.status !== "error" && r.status !== "disabled";
         return sendJson(res, { ok, status: r.status, version: r.version, current: effectiveVersion(readUpdateState()), needsAppRestart: !!r.needsAppRestart, error: r.error });
+    }
+
+    // ATIVAR AGORA (fan-out): o primário manda /self-reload pra CADA fork registrada (secundárias
+    // primeiro; a nova secundária dispara o handover), e por ÚLTIMO ele mesmo. Não ativa GRAVANDO.
+    // Responde ANTES de se relançar (o relaunch mata o processo). Idempotente por nonce.
+    if (req.method === "POST" && path === "/activate-update") {
+        if (recordingActiveSid) return sendJson(res, { ok: false, recording: true });
+        if (!canSelfReload()) return sendJson(res, { ok: false, unsupported: true, needsAppRestart: true });
+        const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        _activateNonce = nonce;
+        const meSid = mySid();
+        const secondaries = [...forks.entries()].filter(([sid]) => sid && sid !== meSid && typeof forks.get(sid) === "string");
+        let reloaded = 0, needRestart = 0;
+        for (const [, u] of secondaries) {
+            try { const r = await httpPostJson(u, "/self-reload", { nonce }); if (r) reloaded++; else needRestart++; }
+            catch { needRestart++; }
+        }
+        sendJson(res, { ok: true, nonce, secondaries: secondaries.length, reloaded, needRestart });
+        // primário por ÚLTIMO, após um respiro pras secundárias assumirem o primário via handover.
+        setTimeout(() => { fireSelfReload(); }, 900);
+        return;
+    }
+
+    // Uma fork recebe a ordem de se auto-relançar (chamada pelo primário no fan-out). Feature-detect +
+    // FALLBACK: sem a RPC -> reporta needsAppRestart (a UI mantém "reinicie o app"). Idempotente por nonce.
+    if (req.method === "POST" && path === "/self-reload") {
+        const body = await readBody(req);
+        const nonce = body && body.nonce ? String(body.nonce) : "";
+        if (nonce && _activateNonce === nonce) return sendJson(res, { ok: true, already: true });
+        if (!canSelfReload()) return sendJson(res, { ok: false, unsupported: true, needsAppRestart: true });
+        if (nonce) _activateNonce = nonce;
+        sendJson(res, { ok: true, reloading: true });   // responde ANTES do relaunch matar o processo
+        fireSelfReload();
+        return;
     }
 
     if (req.method === "GET" && path === "/mics") {

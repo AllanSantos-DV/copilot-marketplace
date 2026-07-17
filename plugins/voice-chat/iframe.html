@@ -932,7 +932,7 @@ $("updateBtn").addEventListener("click", async () => {
     appVersion = r.version || appVersion; setUpdateVersionLabel();
     sub.textContent = "Atualizado para v" + (r.version || "") + " ✓";
   } else if (r.status === "staged" || r.status === "pending") {
-    sub.textContent = "Atualização v" + r.version + " pronta. Feche e reabra o app para concluir.";
+    sub.textContent = appCanSelfReload ? ("Atualização v" + r.version + " pronta — clique em Ativar agora.") : ("Atualização v" + r.version + " pronta. Feche e reabra o app para concluir.");
     showUpdate(r.version);
   } else if (r.status === "uptodate" || r.status === "throttled") {
     sub.textContent = "Você já está na versão mais recente (v" + (r.current || appVersion) + ").";
@@ -1297,16 +1297,39 @@ function syncMonitor() {
 document.addEventListener("visibilitychange", syncMonitor);
 window.addEventListener("focus", syncMonitor);
 window.addEventListener("blur", () => setMonitor(false));
+let appCanSelfReload = false;
 function showUpdate(version) {
   updateBanner.innerHTML = "";
   const row = document.createElement("div");
   row.className = "update-row";
   const span = document.createElement("span");
-  span.textContent = "Atualização v" + (version || "") + " pronta. Feche e reabra o app para concluir.";
   const btn = document.createElement("button");
   btn.className = "update-btn";
-  btn.textContent = "Ok";
-  btn.onclick = () => { updateBanner.classList.remove("show"); };
+  const asRestart = () => {
+    span.textContent = "Atualização v" + (version || "") + " pronta. Feche e reabra o app para concluir.";
+    btn.textContent = "Ok"; btn.disabled = false;
+    btn.onclick = () => { updateBanner.classList.remove("show"); };
+  };
+  if (appCanSelfReload) {
+    span.textContent = "Atualização v" + (version || "") + " pronta.";
+    btn.textContent = "Ativar agora";
+    btn.onclick = async () => {
+      btn.disabled = true; btn.textContent = "Ativando…";
+      span.textContent = "Ativando v" + (version || "") + " em todas as sessões…";
+      const r = await post("/activate-update");
+      if (r && r.ok) {
+        span.textContent = "Ativando… o painel recarrega sozinho.";
+        setTimeout(() => { try { location.reload(); } catch (_) {} }, 2500);   // as forks relançam; reconecta na versão nova
+      } else if (r && r.recording) {
+        btn.disabled = false; btn.textContent = "Ativar agora";
+        span.textContent = "Pare a gravação antes de ativar (captura em andamento).";
+      } else {
+        asRestart();   // sem self-reload (runtime antigo) ou falha -> fallback pro reinício
+      }
+    };
+  } else {
+    asRestart();
+  }
   row.appendChild(span);
   row.appendChild(btn);
   updateBanner.appendChild(row);
@@ -1318,6 +1341,7 @@ function handle(m) {
       applySettings(m.settings);
       if (typeof m.appFocused === "boolean") onAppFocus(m.appFocused);
       if (m.version) { appVersion = m.version; setUpdateVersionLabel(); }
+      if (typeof m.canSelfReload === "boolean") appCanSelfReload = m.canSelfReload;
       if (m.pluginManaged) {
         $("updateBtn").style.display = "none";
         $("updateSub").textContent = "v" + (m.version || appVersion) + " · atualizações gerenciadas pelo plugin (copilot plugin update).";
