@@ -1300,6 +1300,7 @@ window.addEventListener("blur", () => setMonitor(false));
 let appCanSelfReload = false;
 let availableUpdate = null;   // versão nova DETECTADA (ou staged/pending) — clique baixa+aplica em todas
 let staleForksN = 0;          // sessões abertas ATRÁS da versão do primário — clique sincroniza só elas
+let legacyForksN = 0;         // sessões pré-1.5.31 (sem /self-reload) — NÃO dá pra sincronizar remoto; reabrir na mão
 // Renderer ÚNICO do #updateBanner (reusa o banner acima do mic). Prioridade: nova versão > desatualizadas.
 // DETECÇÃO é automática (chega por evento); APLICAR é só no clique (/apply-update ou /sync-stale).
 function renderUpdateBanner() {
@@ -1310,6 +1311,9 @@ function renderUpdateBanner() {
     else { text = "Nova versão v" + availableUpdate + " pronta. Feche e reabra o app para concluir."; btnLabel = "Ok"; handler = "dismiss"; }
   } else if (staleForksN > 0 && appCanSelfReload) {
     text = staleForksN + (staleForksN === 1 ? " sessão desatualizada." : " sessões desatualizadas."); btnLabel = "Sincronizar"; handler = "sync";
+  } else if (legacyForksN > 0) {
+    // Sessões antigas (pré-1.5.31) NÃO têm /self-reload -> o botão não alcança elas. Aviso honesto + dispensar.
+    text = legacyForksN + (legacyForksN === 1 ? " sessão antiga (pré-1.5.31) — reabra-a" : " sessões antigas (pré-1.5.31) — reabra-as") + " pra atualizar."; btnLabel = "Ok"; handler = "dismiss";
   } else { updateBanner.classList.remove("show"); return; }
   const row = document.createElement("div"); row.className = "update-row";
   const span = document.createElement("span"); span.textContent = text;
@@ -1329,12 +1333,14 @@ function renderUpdateBanner() {
       btn.disabled = true; btn.textContent = "Sincronizando…";
       const r = await post("/sync-stale");
       if (r && r.recording) { btn.disabled = false; btn.textContent = "Sincronizar"; span.textContent = "Pare a gravação antes de sincronizar."; }
-      else if (r && r.ok && r.stale > 0) {
-        span.textContent = "Sincronizando as sessões desatualizadas…";
-        // Fallback: as forks reiniciam e re-registram -> evento staleForks re-renderiza. Se NENHUMA voltar
-        // (inalcançável/versão antiga sem self-reload), reabilita o botão p/ nova tentativa (não trava).
-        setTimeout(() => { renderUpdateBanner(); }, 10000);
-      } else { staleForksN = 0; renderUpdateBanner(); }   // nada acionável (0 alvos reais) — some o selo fantasma
+      else if (r && r.ok) {
+        // O primário já PODOU as mortas e re-broadcastou; as vivas relançam e re-registram como atuais.
+        // Zera local (o servidor já derrubou o stale) e re-renderiza; o evento staleForks confirma. Sem "grudar".
+        const done = (r.reloaded || 0);
+        span.textContent = done > 0 ? ("Reiniciando " + done + (done === 1 ? " sessão…" : " sessões…")) : "Sessões atualizadas.";
+        staleForksN = 0;
+        setTimeout(() => { renderUpdateBanner(); }, 6000);
+      } else { staleForksN = 0; renderUpdateBanner(); }   // nada acionável — some o selo
     };
   }
   row.appendChild(span); row.appendChild(btn); updateBanner.appendChild(row); updateBanner.classList.add("show");
@@ -1348,6 +1354,7 @@ function handle(m) {
       if (m.version) { appVersion = m.version; setUpdateVersionLabel(); }
       if (typeof m.canSelfReload === "boolean") appCanSelfReload = m.canSelfReload;
       if (typeof m.staleForks === "number") staleForksN = m.staleForks;
+      if (typeof m.legacyForks === "number") legacyForksN = m.legacyForks;
       if (m.pluginManaged) {
         $("updateBtn").style.display = "none";
         $("updateSub").textContent = "v" + (m.version || appVersion) + " · atualizações gerenciadas pelo plugin (copilot plugin update).";
@@ -1505,6 +1512,7 @@ function handle(m) {
       break;
     case "staleForks":
       staleForksN = m.n || 0;
+      if (typeof m.legacy === "number") legacyForksN = m.legacy;
       renderUpdateBanner();
       break;
     case "reloadUi":
