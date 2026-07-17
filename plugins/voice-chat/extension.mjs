@@ -61,7 +61,7 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 
-export const CURRENT_VERSION = "1.5.26";
+export const CURRENT_VERSION = "1.5.27";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -152,6 +152,49 @@ let lastSpokenContent = "";
 let idleFallback = null;
 const IDLE_FALLBACK_MS = 15000; 
 let _phase = "boot"; 
+
+// ---- INSTRUMENTAÇÃO de latência transcrição→injeção (gated, OFF por padrão) -------------------------
+// Mede cada hop do caminho "transcrição pronta -> session.send aceito", pra saber se o delay percebido
+// é: (a) a INJEÇÃO em si (nosso JS), (b) o HOST OCUPADO (enqueue espera atrás do turno atual -> capturo
+// isProcessing), ou (c) decode/VAD ANTES da transcrição (aí os marcos JS saem todos pequenos). Ligado por
+// env VOICE_TIMING=1 ou arquivo timing.flag no dataDir. Turnos são sequenciais -> array de marcos único.
+let _timingMarks = [];
+let _lastVoiceSendAt = 0;   // instante do session.send aceito -> mede latência do HOST até o agente começar
+function timingOn() {
+    try { if (process.env.VOICE_TIMING === "1") return true; } catch { }
+    try { return existsSync(join(shared.resolveDataDir(), "timing.flag")); } catch { return false; }
+}
+export function tmark(label, extra) {
+    if (!timingOn()) return;
+    // Um turno anterior que NÃO deu flush (roteado cross-fork, early-return de ask_user/sessão morta,
+    // ou falha do send) não vaza: um novo turno recomeça quando um label de ENTRADA (recv/dispatch/handle)
+    // reaparece -> zera os marcos velhos. Mantém o array limitado a um turno mesmo sem flush terminal.
+    if (_timingMarks.length && (label === "recv" || label === "dispatch" || label === "handle") && _timingMarks.some((m) => m.label === label)) {
+        _timingMarks = [];
+    }
+    _timingMarks.push({ label, t: Date.now(), ...(extra || {}) });
+}
+export function timingEnabled() { return timingOn(); }
+function tflush(reason) {
+    if (!timingOn() || _timingMarks.length === 0) { _timingMarks = []; return; }
+    const t0 = _timingMarks[0].t;
+    const seq = _timingMarks.map((m) => `${m.label}+${m.t - t0}ms`).join(" ");
+    const meta = _timingMarks.find((m) => m.ms != null) || {};
+    const proc = _timingMarks.find((m) => m.processing !== undefined);
+    dbg(`[timing] ${reason} | ${seq}`
+        + (meta.ms != null ? ` | decode=${meta.ms}ms audio=${meta.dur_ms}ms` : "")
+        + (proc ? ` | isProcessing@send=${proc.processing}` : "")
+        + ` | total=${_timingMarks[_timingMarks.length - 1].t - t0}ms`);
+    _timingMarks = [];
+}
+async function probeProcessing() {
+    try {
+        if (!(session && session.rpc && session.rpc.metadata && session.rpc.metadata.isProcessing)) return undefined;
+        const r = await session.rpc.metadata.isProcessing();
+        if (r && typeof r === "object") return r.processing ?? r.isProcessing ?? JSON.stringify(r);
+        return r;
+    } catch { return undefined; }
+}
 
 export function log(msg, level = "debug") {
     dbg(msg);
@@ -452,6 +495,7 @@ export async function checkForUpdate(opts = {}) {
 export function dispatchVoiceTurn(text, sidArg) {
     const t = (text || "").trim();
     if (!t) return;
+    tmark("dispatch");
     const want = sidArg || activeSid;
     // Run locally ONLY when the turn truly belongs to THIS fork's own session.
     // For any other explicit owner sid we MUST inject into that fork — never fall
@@ -538,6 +582,7 @@ function hasOpenPanelHere() {
 }
 
 export async function handleVoiceTranscript(text) {
+    tmark("handle");
     // Uma fork ZUMBI com a sessão MORTA não pode cumprir o turno: reporta falha (o primary re-rota
     // para uma fork VIVA). Uma fork com painel aberto nunca fica nesse estado (ver abaixo).
     if (sessionDead) {
@@ -576,6 +621,7 @@ export async function handleVoiceTranscript(text) {
     notifyCanvas({ type: "status", state: "thinking" });
     armIdleFallback();
     dbg(`handleVoiceTranscript: sending prompt (${text.length} chars): ${text.slice(0, 120)}`);
+    if (timingOn()) { const processing = await probeProcessing(); tmark("send_call", { processing }); }
     let lastErr = null;
     for (let attempt = 1; attempt <= SEND_DEAD_RETRIES; attempt++) {
         try {
@@ -584,6 +630,8 @@ export async function handleVoiceTranscript(text) {
             const mode = settings.interruptMode ? "immediate" : "enqueue";
             const messageId = await session.send({ prompt: text, mode });
             _phase = "voiceTurn:sent";
+            tmark("send_done"); tflush("voiceTurn");
+            if (timingOn()) _lastVoiceSendAt = Date.now();
             // Cue "Ok, comecei" SÓ depois do send ACEITO (numa fork zumbi o send lança antes → sem cue
             // dobrado no failover; também é mais honesto).
             if (settings.cueStart !== false) {
@@ -629,6 +677,7 @@ function onAssistantMessage(event) {
     // tool `falar` (o agente a chama); aqui só cuidamos dos cues de checkpoint + limpeza do turno.
     const pending = hasPendingTurn();
     if (!pending) return;
+    if (_lastVoiceSendAt) { dbg(`[timing] host-latency: send->1ª msg do agente = ${Date.now() - _lastVoiceSendAt}ms`); _lastVoiceSendAt = 0; }
     _phase = "reply:msg";
     dbg(`onAssistantMessage: len=${typeof content === "string" ? content.length : 0} pending=${pending}`);
     armIdleFallback();
@@ -1075,13 +1124,16 @@ await loadSettings();
 // Tool `falar` (v1.5.16): o agente produz áudio QUANDO quiser (não só no fim). Handler recebe o
 // texto + invocation.sessionId (sid CONFIÁVEL). Motor ON -> speakToCanvas (toca/enfileira durável);
 // motor OFF -> writePendingSpeak (fila de texto, drenada quando o motor ligar). Retorna tool_result.
+const FALAR_STEER = " · [Entregue como ÁUDIO ao usuário — NÃO reescreva em texto o que acabou de falar; encerre o turno com texto mínimo (ou nenhum). Para seguir agindo, faça outras tool calls direto.]";
 const falarTool = {
     name: "falar",
     description:
         "Fala em voz alta para o usuário no painel de Voz (pt-BR). Passe um texto natural, curto (1 a 3 " +
         "frases), sem markdown, sem código e sem emojis. Use SEMPRE que quiser que algo seja OUVIDO — " +
         "inclusive ANTES de fazer uma pergunta e várias vezes por turno. O áudio sai na hora (ou entra na " +
-        "fila e toca quando o painel/motor de voz ligar).",
+        "fila e toca quando o painel/motor de voz ligar). IMPORTANTE: o que você falar aqui JÁ chega ao " +
+        "usuário como áudio — NÃO reescreva a mesma coisa em texto depois; encerre o turno com texto mínimo " +
+        "(ou nenhum). Para continuar agindo, faça outras tool calls direto.",
     parameters: {
         type: "object",
         properties: {
@@ -1095,20 +1147,20 @@ const falarTool = {
         const text = cleanForSpeech(String((args && (args.texto ?? args.text)) || ""));
         if (!text) return "Nada para falar: o texto veio vazio.";
         if (primaryFork) {
-            if (!workerReady) { writePendingSpeak(sid, text); ensureWorker(); return "🔊 Enfileirado para falar quando o motor de voz ligar: " + text.slice(0, 90); }
+            if (!workerReady) { writePendingSpeak(sid, text); ensureWorker(); return "🔊 Enfileirado para falar quando o motor de voz ligar: " + text.slice(0, 90) + FALAR_STEER; }
             let ok = false;
             try { ok = await speakToCanvas(sid, text); } catch { ok = false; }
-            if (ok) return "🔊 Falado: " + text.slice(0, 120);
+            if (ok) return "🔊 Falado: " + text.slice(0, 120) + FALAR_STEER;
             // synth falhou agora: re-enfileira (o drain re-tenta quando o motor voltar) e reporta HONESTO.
             writePendingSpeak(sid, text); ensureWorker();
-            return "🔊 Enfileirado (falha ao sintetizar agora, re-tenta quando o motor voltar): " + text.slice(0, 90);
+            return "🔊 Enfileirado (falha ao sintetizar agora, re-tenta quando o motor voltar): " + text.slice(0, 90) + FALAR_STEER;
         }
         // secundário: encaminha ao primário; se não houver primário no ar, enfileira em arquivo.
         let ok = false;
         try { ok = await forwardToPrimary("/speak", { sid, spoken: text }); } catch { ok = false; }
-        if (ok) return "🔊 Falado: " + text.slice(0, 120);
+        if (ok) return "🔊 Falado: " + text.slice(0, 120) + FALAR_STEER;
         writePendingSpeak(sid, text);
-        return "🔊 Enfileirado para falar quando o motor de voz ligar: " + text.slice(0, 90);
+        return "🔊 Enfileirado para falar quando o motor de voz ligar: " + text.slice(0, 90) + FALAR_STEER;
     },
 };
 
