@@ -61,7 +61,7 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 
-export const CURRENT_VERSION = "1.5.27";
+export const CURRENT_VERSION = "1.5.28";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -118,6 +118,7 @@ const DEFAULT_SETTINGS = {
     wakePhrase: "escuta jarvis",
     handsfree: false,
     interruptMode: false,
+    focusGate: false,
     micDevice: null,
 };
 export let settings = { ...DEFAULT_SETTINGS };
@@ -331,6 +332,7 @@ export function sanitizeSettings(b) {
         out.wakePhrase = b.wakePhrase.trim().slice(0, 60);
     if (typeof b.handsfree === "boolean") out.handsfree = b.handsfree;
     if (typeof b.interruptMode === "boolean") out.interruptMode = b.interruptMode;
+    if (typeof b.focusGate === "boolean") out.focusGate = b.focusGate;
     if (b.micDevice === null || typeof b.micDevice === "number") out.micDevice = b.micDevice;
     return out;
 }

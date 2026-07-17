@@ -237,6 +237,10 @@
           title="Interromper: a fala CORTA o turno em andamento do agente e entra na hora. Desligado (padrão): a fala espera o turno atual terminar. Com uma pergunta aberta, a fala sempre responde a pergunta.">
     <span class="ic">⚡</span><span>Interromper</span>
   </button>
+  <button id="focusBtn" class="toggle-chip" type="button" aria-pressed="false"
+          title="Foco: só fala quando o app GitHub Copilot está em foco. Fora de foco, o áudio ESPERA e toca quando você volta ao app. Atalho: Alt+F.">
+    <span class="ic">🎯</span><span>Foco</span>
+  </button>
 </div>
 
 <main>
@@ -371,6 +375,10 @@
     <div class="row">
       <div><label>Interromper</label><div class="sub">a fala corta o turno atual do agente (padrão: espera terminar)</div></div>
       <label class="switch"><input id="setInterrupt" type="checkbox" /><span></span></label>
+    </div>
+    <div class="row">
+      <div><label>Só falar com o app em foco</label><div class="sub">fora de foco, o áudio espera e toca quando você volta (atalho: Alt+F)</div></div>
+      <label class="switch"><input id="setFocusGate" type="checkbox" /><span></span></label>
     </div>
     <div class="row">
       <div><label>Frase-gatilho</label><div class="sub">a IA escuta por esta frase</div></div>
@@ -565,6 +573,14 @@ window.addEventListener("keyup", (e) => {
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && recording) { e.preventDefault(); cancelRec(); }
 });
+// Atalho: Alt+F liga/desliga o gate "só falar com o app em foco" (liga/desliga rápido).
+window.addEventListener("keydown", (e) => {
+  if (e.altKey && (e.key === "f" || e.key === "F") && !["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName)) {
+    e.preventDefault();
+    $("setFocusGate").checked = !$("setFocusGate").checked;
+    pushSettings();
+  }
+});
 
 // --- Player com HISTÓRICO navegável por sessão -------------------------------
 // hist[] guarda TODOS os áudios (▶ início, 📍 checkpoints, 🔊 resumo) e nunca é
@@ -580,6 +596,8 @@ let playQueue = [];        // itens (por referência) enfileirados p/ autoplay
 let playing = false;       // um item do histórico está tocando
 let playingSeq = null;     // seq do item ATUALMENTE tocando (capturado no play-start); o ack de "ouvido" usa ISTO, imune a um hello que remapeie hist/curIdx no meio
 let previewPlaying = false;// preview de voz (settings): toca 1x, fora do histórico
+let appForeground = true;  // app GitHub Copilot em FOCO? (poller do worker; true = fail-open)
+let focusGateOn = false;   // setting: só falar com o app em foco (espelha #setFocusGate)
 let currentAudioUrl = null;
 
 function updateHistUi() {
@@ -638,6 +656,7 @@ function playAt(i) {
 function pumpAudio() {
   if (playing || previewPlaying) return;
   if (document.visibilityState !== "visible") return;   // só o painel ativo fala
+  if (focusGateOn && !appForeground) return;             // gate opcional: só fala com o app em FOCO
   while (playQueue.length) {
     const it = playQueue.shift();
     const i = hist.indexOf(it);
@@ -934,10 +953,14 @@ function reflectToggles() {
   $("wakeBtn").setAttribute("aria-pressed", String(wk));
   $("interruptBtn").classList.toggle("active", it);
   $("interruptBtn").setAttribute("aria-pressed", String(it));
+  const fg = $("setFocusGate").checked;
+  $("focusBtn").classList.toggle("active", fg);
+  $("focusBtn").setAttribute("aria-pressed", String(fg));
 }
 $("hfBtn").addEventListener("click", () => { $("setHandsfree").checked = !$("setHandsfree").checked; pushSettings(); });
 $("wakeBtn").addEventListener("click", () => { $("setWake").checked = !$("setWake").checked; pushSettings(); });
 $("interruptBtn").addEventListener("click", () => { $("setInterrupt").checked = !$("setInterrupt").checked; pushSettings(); });
+$("focusBtn").addEventListener("click", () => { $("setFocusGate").checked = !$("setFocusGate").checked; pushSettings(); });
 
 function pushSettings() {
   const s = {
@@ -953,8 +976,16 @@ function pushSettings() {
     wakePhrase: ($("setWakePhrase").value || "").trim() || "escuta jarvis",
     handsfree: $("setHandsfree").checked,
     interruptMode: $("setInterrupt").checked,
+    focusGate: $("setFocusGate").checked,
   };
   handsfree = $("setHandsfree").checked;
+  focusGateOn = $("setFocusGate").checked;
+  if (!focusGateOn) {
+    // desligou o gate -> destrava: retoma um item pausado por perda de foco (o pumpAudio sozinho
+    // não resolve, pois ele sai cedo quando `playing` ainda está true) e depois bombeia a fila.
+    if (_pausedByBlur && audio && audio.paused) { _pausedByBlur = false; audio.play().catch(() => {}); }
+    pumpAudio();
+  }
   try { localStorage.setItem("voiceHandsfree", handsfree ? "1" : "0"); } catch (e) {}
   if (s.wakeWord && wakeState === "off") wakeState = "listening";
   else if (!s.wakeWord) wakeState = "off";
@@ -963,7 +994,7 @@ function pushSettings() {
   reflectToggles();
   post("/settings", s);
 }
-["setVoice","setRate","setLang","setFull","setConfirm","setAuthor","setCueStart","setCueCheckpoints","setHandsfree","setWake","setWakePhrase","setInterrupt"]
+["setVoice","setRate","setLang","setFull","setConfirm","setAuthor","setCueStart","setCueCheckpoints","setHandsfree","setWake","setWakePhrase","setInterrupt","setFocusGate"]
   .forEach((id) => $(id).addEventListener("change", pushSettings));
 
 (function initVolume() {
@@ -1000,6 +1031,7 @@ function applySettings(s) {
   $("setWake").checked = !!s.wakeWord;
   if (typeof s.handsfree === "boolean") { $("setHandsfree").checked = s.handsfree; handsfree = s.handsfree; }
   if (typeof s.interruptMode === "boolean") { $("setInterrupt").checked = s.interruptMode; }
+  if (typeof s.focusGate === "boolean") { $("setFocusGate").checked = s.focusGate; focusGateOn = s.focusGate; }
   if (s.wakePhrase) $("setWakePhrase").value = s.wakePhrase;
   updateWakeBadge();
   reflectToggles();
@@ -1228,6 +1260,28 @@ function onVisibilityAudio() {
 document.addEventListener("visibilitychange", onVisibilityAudio);
 window.addEventListener("focus", onVisibilityAudio);
 
+// Foco do APP (evento appFocus do worker, estado GLOBAL da máquina). Espelha onVisibilityAudio,
+// mas para o app inteiro: com o gate ligado, pausa o que está tocando quando o app perde o foco e
+// retoma/bombeia quando volta. Com o gate desligado, só bombeia (nunca segura). O que chega fora de
+// foco fica na fila e drena ao voltar — nada se perde.
+let _pausedByBlur = false;
+function onAppFocus(focused) {
+  appForeground = focused !== false;
+  if (!focusGateOn) { if (appForeground) pumpAudio(); return; }
+  if (!appForeground) {
+    if (playing && audio && !audio.paused) {
+      try { audio.pause(); _pausedByBlur = true; } catch (e) {}
+    }
+  } else {
+    if (_pausedByBlur && audio && audio.paused) {
+      _pausedByBlur = false;
+      audio.play().catch(() => {});
+    } else {
+      pumpAudio();
+    }
+  }
+}
+
 let _monitorOn = false;
 function setMonitor(on) {
   if (on === _monitorOn) return;
@@ -1262,6 +1316,7 @@ function handle(m) {
   switch (m.type) {
     case "hello":
       applySettings(m.settings);
+      if (typeof m.appFocused === "boolean") onAppFocus(m.appFocused);
       if (m.version) { appVersion = m.version; setUpdateVersionLabel(); }
       if (m.pluginManaged) {
         $("updateBtn").style.display = "none";
@@ -1277,8 +1332,7 @@ function handle(m) {
       requestVoices();
       reflectPhase();
       break;
-    case "worker":
-      if (m.state === "ready") {
+    case "worker":      if (m.state === "ready") {
         workerReady = true; hideBanner(); hideLoading();
         if (phase === "init") phase = "ready";
         hint.textContent = defaultHint();
@@ -1306,6 +1360,9 @@ function handle(m) {
       break;
     case "voices":
       populateVoices(m);
+      break;
+    case "appFocus":
+      onAppFocus(m.focused);
       break;
     case "voicePreview":
       hideLoading();

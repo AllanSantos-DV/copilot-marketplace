@@ -363,6 +363,207 @@ def log(msg):
     print(f"[worker] {msg}", file=sys.stderr, flush=True)
 
 
+# ---- Detecção de FOCO do app (Windows): o app GitHub Copilot é a janela em FOREGROUND? ----
+# O áudio toca NO WEBVIEW; quando o app perde o foco do SO mas a janela segue visível,
+# document.visibilityState continua 'visible' e o painel continua falando. Só um check NATIVO
+# (GetForegroundWindow) distingue "app sem foco" de "outro painel do mesmo app focado"
+# (document.hasFocus() é POR-webview). Windows-only; ctypes stdlib; sem dependência nova.
+# Funções puras (app_focused_given) separadas das nativas (live) para teste determinístico.
+
+def _norm_exe(p):
+    """Normaliza um caminho de exe para comparação (case/sep-insensitive no Windows)."""
+    if not p:
+        return ""
+    try:
+        return os.path.normcase(os.path.normpath(str(p)))
+    except Exception:
+        return str(p).lower()
+
+
+def app_focused_given(fg_exe, app_exe):
+    """PURO (testável): o exe em foreground é o exe do app? Case/sep-insensitive. Vazio/None
+    -> False. O caller faz FAIL-OPEN: se a detecção estiver indisponível, NÃO bloqueia o áudio."""
+    a = _norm_exe(fg_exe)
+    b = _norm_exe(app_exe)
+    return bool(a and b and a == b)
+
+
+def _foreground_exe():
+    """Caminho completo do processo dono da janela em FOREGROUND, ou None. Windows-only."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        user32.GetForegroundWindow.restype = wintypes.HWND   # handle é pointer-sized: evita truncar em 64-bit
+        user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return None
+        pid = wintypes.DWORD(0)
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if not pid.value:
+            return None
+        return _exe_path_of(pid.value) or None
+    except Exception:
+        return None
+
+
+def _exe_path_of(pid):
+    """Caminho completo do exe de um pid via QueryFullProcessImageNameW (não exige elevação
+    para processos do próprio usuário: usa PROCESS_QUERY_LIMITED_INFORMATION). '' se falhar."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.windll.kernel32
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        kernel32.OpenProcess.restype = wintypes.HANDLE   # handle pointer-sized: sem truncar em 64-bit
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD,
+                                                        wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+        h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
+        if not h:
+            return ""
+        try:
+            buf = ctypes.create_unicode_buffer(4096)
+            size = wintypes.DWORD(4096)
+            if kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
+                return buf.value
+        finally:
+            kernel32.CloseHandle(h)
+    except Exception:
+        return ""
+    return ""
+
+
+def _proc_snapshot():
+    """{pid: (ppid, exe_basename_lower)} de TODOS os processos via Toolhelp32Snapshot. {} se falhar."""
+    out = {}
+    try:
+        import ctypes
+        from ctypes import wintypes
+        TH32CS_SNAPPROCESS = 0x00000002
+        kernel32 = ctypes.windll.kernel32
+        kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE   # handle pointer-sized
+        kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+        class PROCESSENTRY32W(ctypes.Structure):
+            _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                        ("th32ProcessID", wintypes.DWORD),
+                        ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
+                        ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                        ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long),
+                        ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_wchar * 260)]
+
+        snap = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+        INVALID = ctypes.c_void_p(-1).value
+        if not snap or snap == INVALID:
+            return out
+        try:
+            entry = PROCESSENTRY32W()
+            entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+            ok = kernel32.Process32FirstW(snap, ctypes.byref(entry))
+            while ok:
+                out[int(entry.th32ProcessID)] = (int(entry.th32ParentProcessID),
+                                                 (entry.szExeFile or "").lower())
+                ok = kernel32.Process32NextW(snap, ctypes.byref(entry))
+        finally:
+            kernel32.CloseHandle(snap)
+    except Exception:
+        pass
+    return out
+
+
+def discover_app_exe(start_pid=None, app_basename="github.exe"):
+    """Caminho do exe do app GitHub Copilot. Estratégia: (1) sobe a ANCESTRALIDADE do worker
+    (python <- node fork <- copilot.exe CLI <- ... <- github.exe) até um ancestral cujo basename
+    == app_basename -> seu caminho; (2) fallback: varre TODOS os processos por app_basename cujo
+    caminho contém 'GitHub Copilot'. '' se não achar (aí a detecção fica indisponível -> fail-open)."""
+    try:
+        snap = _proc_snapshot()
+        if not snap:
+            return ""
+        start = int(start_pid if start_pid is not None else os.getpid())
+        seen = set()
+        cur = start
+        for _ in range(24):   # teto de saltos (anti-ciclo)
+            if cur in seen or cur not in snap:
+                break
+            seen.add(cur)
+            ppid, base = snap[cur]
+            if base == app_basename:
+                p = _exe_path_of(cur)
+                if p:
+                    return p
+            cur = ppid
+        for pid, (ppid, base) in snap.items():   # (2) fallback: scan por path
+            if base == app_basename:
+                p = _exe_path_of(pid)
+                if p and "github copilot" in p.lower():
+                    return p
+    except Exception:
+        pass
+    return ""
+
+
+# Poller de foco: emite {event:appFocus, focused} SÓ na MUDANÇA (+ estado inicial). Roda no worker
+# PRIMÁRIO (único), compartilhado por todas as sessões — o estado é GLOBAL (app focado ou não); cada
+# webview decide GATEAR conforme seu próprio setting. FAIL-OPEN: sem app descoberto ou leitura de
+# foreground indisponível -> focused=True (nunca silencia por falha de detecção). Barato (~1 syscall/s).
+_focus_thr = [None]
+_focus_stop = [None]
+_focus_app_exe = [None]   # descoberto 1x (cache); "" = indisponível -> fail-open
+
+
+def _focus_verdict(app_exe):
+    """Estado atual de foco (fail-open). Puro exceto pela leitura nativa do foreground."""
+    if not app_exe:
+        return True
+    fg = _foreground_exe()
+    if fg is None:
+        return True
+    return app_focused_given(fg, app_exe)
+
+
+def _focus_poll_loop(stop_evt, interval=1.0):
+    if _focus_app_exe[0] is None:
+        _focus_app_exe[0] = discover_app_exe()
+    app = _focus_app_exe[0]
+    last = [None]
+
+    def _tick():
+        foc = _focus_verdict(app)
+        if foc != last[0]:
+            last[0] = foc
+            emit({"event": "appFocus", "focused": bool(foc)})
+
+    _tick()                                    # estado inicial
+    while not stop_evt.wait(interval):
+        try:
+            _tick()
+        except Exception:
+            pass
+
+
+def start_focus_poller():
+    if _focus_thr[0] is not None and _focus_thr[0].is_alive():
+        return
+    ev = threading.Event()
+    _focus_stop[0] = ev
+    t = threading.Thread(target=_focus_poll_loop, args=(ev,), daemon=True, name="focus-poll")
+    _focus_thr[0] = t
+    t.start()
+
+
+def stop_focus_poller():
+    if _focus_stop[0] is not None:
+        _focus_stop[0].set()
+    _focus_thr[0] = None
+    _focus_stop[0] = None
+
+
 def _download_file(url, dst, timeout=180, on_pct=None, attempts=3):
     """Stream a URL to dst atomically (write a .part temp, then os.replace) so an
     interrupted download never leaves a half-written file that later fails to extract.
@@ -1847,6 +2048,7 @@ def main():
     emit({"event": "mic", "ok": _mok, "name": _mname, "reason": _mreason})
     emit({"event": "mics", **list_mics()})
     threading.Thread(target=mic_monitor, daemon=True).start()
+    start_focus_poller()   # emite appFocus (foco do app) na mudança; a UI gateia o áudio conforme o setting
 
     def _prefetch_vad():
         try:
