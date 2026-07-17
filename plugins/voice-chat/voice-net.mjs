@@ -235,6 +235,9 @@ export function sendJson(res, obj, code = 200) {
 // reload manual (o router velho em memória não tem estes endpoints).
 let _activateNonce = "";
 let _lastStaleN = -1;
+let _lastLegacyN = -1;
+const SELF_RELOAD_MIN = "1.5.31";   // 1º release com /self-reload; forks < isso NÃO recarregam remotamente (o fan-out bate 404)
+const noReloadSids = new Set();      // sids VIVOS >=1.5.31 que responderam 503 ao /self-reload (sem capacidade) -> tratados como legados (reabrir), não podados
 function canSelfReload() { try { return typeof session?.rpc?.extensions?.reload === "function"; } catch { return false; } }
 function fireSelfReload(attempt = 0) {
     // fire-and-forget: o processo MORRE no relaunch -> a Promise pode nunca resolver. ADIA enquanto há
@@ -257,25 +260,33 @@ function fanOutReload(nonce, urls, includeSelf) {
     }
     if (includeSelf) setTimeout(() => { fireSelfReload(); }, 900);
 }
-// Forks DESATUALIZADAS: sid VIVO (em forks) cuja versão registrada < a do primário. Só com primário
+// Particiona as forks VIVAS desatualizadas (ver < CURRENT) em SYNCABLE vs LEGACY. Só com primário
 // ESTÁVEL (não handingOver) — senão suprime (contagem errada no handover). Exclui o próprio primário e
 // as == CURRENT_VERSION. NÃO usa max(forkVersions) (uma entrada morta/maior fixaria a referência).
-function staleForkUrls() {
-    if (handingOver) return [];
+//  - syncable: ver >= 1.5.31 (têm /self-reload) -> o clique Sincronizar consegue relançá-las.
+//  - legacy:   ver <  1.5.31 (pré-self-reload) OU já provou não recarregar (503, noReloadSids) -> reabrir na mão.
+function classifyStaleForks() {
+    if (handingOver) return { syncable: [], legacyCount: 0 };
     const me = mySid();
-    const out = [];
+    const syncable = [];
+    let legacyCount = 0;
     for (const [sid, u] of forks.entries()) {
         if (!sid || sid === me || typeof u !== "string") continue;
         const ver = forkVersions.get(sid);
-        if (ver && verGt(CURRENT_VERSION, String(ver))) out.push(u);
+        if (!ver || !verGt(CURRENT_VERSION, String(ver))) continue;   // atual ou desconhecida -> ignora
+        if (verGt(SELF_RELOAD_MIN, String(ver)) || noReloadSids.has(sid)) legacyCount++;   // < 1.5.31 OU 503-viva -> legada
+        else syncable.push({ sid, url: u });                          // >= 1.5.31 e capaz -> sincronizável (fan-out)
     }
-    return out;
+    return { syncable, legacyCount };
 }
-// Broadcast do nº de sessões desatualizadas — SÓ na mudança (evita spam a cada /register de 4s).
+function staleForkUrls() { return classifyStaleForks().syncable.map((f) => f.url); }
+function legacyForkCount() { return classifyStaleForks().legacyCount; }
+// Broadcast dos contadores (sincronizáveis + legadas) — SÓ na mudança (evita spam a cada /register de 4s).
 function maybeBroadcastStale() {
     if (!primaryFork) return;
-    const n = staleForkUrls().length;
-    if (n !== _lastStaleN) { _lastStaleN = n; broadcast({ type: "staleForks", n }); }
+    const { syncable, legacyCount } = classifyStaleForks();
+    const n = syncable.length;
+    if (n !== _lastStaleN || legacyCount !== _lastLegacyN) { _lastStaleN = n; _lastLegacyN = legacyCount; broadcast({ type: "staleForks", n, legacy: legacyCount }); }
 }
 
 export function cookieToken(req) {
@@ -399,6 +410,7 @@ export async function handleRequest(req, res) {
                 pluginManaged: RUNNING_AS_PLUGIN,
                 canSelfReload: canSelfReload(),
                 staleForks: staleForkUrls().length,
+                legacyForks: legacyForkCount(),
             })}\n\n`,
         );
         if (!workerReady) {
@@ -649,10 +661,20 @@ export async function handleRequest(req, res) {
         if (recordingActiveSid) return sendJson(res, { ok: false, recording: true });
         const nonce = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
         _activateNonce = nonce;
-        const targets = staleForkUrls();
-        sendJson(res, { ok: true, stale: targets.length });
-        fanOutReload(nonce, targets, false);
-        return;
+        const { syncable, legacyCount } = classifyStaleForks();
+        // Aguarda cada /self-reload (paralelo, timeout CURTO p/ não travar o botão numa fork pendurada).
+        // Classifica pelo STATUS: 2xx = relançou; 503 = VIVA sem capacidade de self-reload -> vira legada
+        // (noReloadSids: reabrir na mão), NÃO poda (re-registraria e re-inflaria); 0/erro = morta -> poda.
+        const results = await Promise.all(syncable.map((f) =>
+            httpPostStatus(f.url, "/self-reload", { nonce }, 4000).then((st) => ({ f, st })).catch(() => ({ f, st: 0 }))));
+        let reloaded = 0, unsupported = 0, dead = 0;
+        for (const { f, st } of results) {
+            if (st >= 200 && st < 300) { reloaded++; noReloadSids.delete(f.sid); }
+            else if (st === 503) { unsupported++; noReloadSids.add(f.sid); }
+            else { dead++; forks.delete(f.sid); forkSeen.delete(f.sid); forkVersions.delete(f.sid); noReloadSids.delete(f.sid); }
+        }
+        maybeBroadcastStale();
+        return sendJson(res, { ok: true, stale: syncable.length, reloaded, unsupported, dead, legacy: classifyStaleForks().legacyCount });
     }
 
     if (req.method === "POST" && path === "/activate-update") {
@@ -957,6 +979,28 @@ export function probePrimary() {
     } catch { }
 }
 
+// Como httpPostJson, mas resolve o STATUS HTTP (0 = inalcançável/timeout/erro). O /sync-stale usa isto
+// pra distinguir 503 (fork VIVA sem capacidade de self-reload -> legada, reabrir) de morta (podar).
+export function httpPostStatus(baseUrl, path, body, timeoutMs = HTTP_POST_TIMEOUT_MS) {
+    return new Promise((resolve) => {
+        try {
+            const u = new URL(path, baseUrl);
+            const data = Buffer.from(JSON.stringify(body || {}));
+            const isLoopback = u.hostname === "127.0.0.1" || u.hostname === "localhost";
+            const req = httpRequest(
+                {
+                    hostname: u.hostname, port: u.port, path: u.pathname, method: "POST",
+                    agent: isLoopback ? loopbackAgent : undefined,
+                    headers: { "Content-Type": "application/json", "Content-Length": data.length, ...(sharedToken ? { "x-voice-token": sharedToken } : {}) },
+                },
+                (res) => { res.on("data", () => { }); res.on("end", () => resolve(res.statusCode || 0)); },
+            );
+            if (timeoutMs > 0) req.setTimeout(timeoutMs, () => { try { req.destroy(); } catch { } resolve(0); });
+            req.on("error", () => resolve(0));
+            req.write(data); req.end();
+        } catch { resolve(0); }
+    });
+}
 export function httpPostJson(baseUrl, path, body, timeoutMs = HTTP_POST_TIMEOUT_MS) {
     return new Promise((resolve) => {
         try {
@@ -1015,7 +1059,7 @@ export function pruneDeadSids() {
     const now = Date.now();
     const me = mySid();
     for (const [sid, ts] of forkSeen) {
-        if (sid !== me && now - ts > FORK_TTL_MS) { forks.delete(sid); forkSeen.delete(sid); forkVersions.delete(sid); }
+        if (sid !== me && now - ts > FORK_TTL_MS) { forks.delete(sid); forkSeen.delete(sid); forkVersions.delete(sid); noReloadSids.delete(sid); }
     }
     for (const [sid, v] of recentSpoken) {
         if (now - (v && v.ts || 0) > FORK_TTL_MS) recentSpoken.delete(sid);
