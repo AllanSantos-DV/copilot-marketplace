@@ -4,12 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>copilot-memory — copilot-marketplace</title>
-  <meta name="description" content="Memória por projeto para o agente do Copilot: lembra decisões, convenções e aprendizados entre sessões e destila o que deu certo em skills — e agora barra o git push até uma revisão externa aprovar o commit." />
+  <meta name="description" content="Memória por projeto para o agente do Copilot: lembra decisões e convenções entre sessões, destila o que deu certo em skills, barra o git push até uma revisão externa aprovar — e agora navega um grafo semântico do código em vez de garimpar arquivo por arquivo." />
   <meta name="color-scheme" content="dark" />
   <meta name="theme-color" content="#14121C" />
   <meta property="og:type" content="article" />
   <meta property="og:title" content="copilot-memory — copilot-marketplace" />
-  <meta property="og:description" content="Memória por projeto para o agente do Copilot: lembra decisões, convenções e aprendizados entre sessões e destila o que deu certo em skills — e agora barra o git push até uma revisão externa aprovar o commit." />
+  <meta property="og:description" content="Memória por projeto para o agente do Copilot: lembra decisões e convenções entre sessões, destila o que deu certo em skills, barra o git push até uma revisão externa aprovar — e agora navega um grafo semântico do código em vez de garimpar arquivo por arquivo." />
   <meta property="og:url" content="https://allansantos-dv.github.io/copilot-marketplace/p/copilot-memory/" />
   <link rel="canonical" href="https://allansantos-dv.github.io/copilot-marketplace/p/copilot-memory/" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -39,9 +39,9 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">copilot-memory</h1>
-        <span class="chip" title="versão publicada">v1.8.1</span>
+        <span class="chip" title="versão publicada">v1.9.0</span>
       </div>
-      <p class="doc-hero__lede">O <strong>copilot-memory</strong> dá ao agente uma memória que dura além da sessão, <strong>escopada por projeto</strong>. Ele injeta o contexto certo no começo de cada conversa (decisões, convenções, pendências), deixa você buscar e salvar conhecimento, e <strong>destila</strong> o que deu certo em skills reusáveis. É um <strong>cliente puro</strong> do servidor de memória <code>native-java</code>: descobre o daemon, reusa se estiver no ar e, se não estiver, <strong>baixa e sobe o servidor</strong> — verificando a assinatura antes de rodar. Toda a memória fica na sua máquina. <strong>Novo na v1.8.0:</strong> ele também <strong>impõe</strong> os passos que dá pra esquecer — o primeiro <strong>gate</strong> barra o <code>git push</code> até um <strong>revisor externo independente</strong> aprovar exatamente aquele commit.</p>
+      <p class="doc-hero__lede">O <strong>copilot-memory</strong> dá ao agente uma memória que dura além da sessão, <strong>escopada por projeto</strong>. Ele injeta o contexto certo no começo de cada conversa (decisões, convenções, pendências), deixa você buscar e salvar conhecimento, e <strong>destila</strong> o que deu certo em skills reusáveis. É um <strong>cliente puro</strong> do servidor de memória <code>native-java</code>: descobre o daemon, reusa se estiver no ar e, se não estiver, <strong>baixa e sobe o servidor</strong> — verificando a assinatura antes de rodar. Toda a memória fica na sua máquina. Ele também <strong>impõe</strong> os passos que dá pra esquecer: desde a <strong>v1.8</strong>, um <strong>gate</strong> barra o <code>git push</code> até um <strong>revisor externo independente</strong> aprovar exatamente aquele commit. <strong>Novo na v1.9.0:</strong> um <strong>grafo semântico</strong> do código deixa o agente <strong>navegar</strong> um repositório — o aberto ou um externo gigante — em vez de garimpar arquivo por arquivo com grep.</p>
       <div class="doc-hero__cta">
         <div class="prompt prompt--sm" data-cmd="copilot plugin install copilot-memory@copilot-marketplace">
         <span class="prompt__glyph" aria-hidden="true">⌁</span>
@@ -54,8 +54,12 @@
       </div>
       <ul class="hl" aria-label="Destaques">
         <li class="hl__item">
+          <h3 class="hl__title">Navega o código, não garimpa</h3>
+          <p class="hl__body"><strong>Novo na v1.9.0.</strong> Sete tools <code>graph_*</code> montam um <strong>grafo semântico</strong> do repo — símbolos viram nós; chamadas, imports e contêm viram arestas; ranqueado por <strong>PageRank</strong>. O agente vai direto aos pontos-chave, sem varrer arquivo por arquivo. Vale pro projeto aberto ou pra um repo externo gigante.</p>
+        </li>
+        <li class="hl__item">
           <h3 class="hl__title">Barra o <code>git push</code> sem revisão</h3>
-          <p class="hl__body"><strong>Novo na v1.8.0.</strong> Um <strong>gate opt-in por projeto</strong> torna passos críticos obrigatórios e à prova de esquecimento. O primeiro exige que um <strong>revisor externo independente</strong> aprove exatamente aquele commit antes de publicar — com <strong>recibo amarrado ao SHA</strong>. Determinístico onde importa, semântico onde agrega.</p>
+          <p class="hl__body"><strong>Desde a v1.8.0.</strong> Um <strong>gate opt-in por projeto</strong> torna passos críticos obrigatórios e à prova de esquecimento. O primeiro exige que um <strong>revisor externo independente</strong> aprove exatamente aquele commit antes de publicar — com <strong>recibo amarrado ao SHA</strong>. Determinístico onde importa, semântico onde agrega.</p>
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Lembra por projeto, não vaza entre eles</h3>
@@ -193,7 +197,7 @@
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
               <span class="tree__role">Entrypoint: 17 tools + painel (canvas) + 2 hooks — memória, recall, skills, destilador e os gates.</span>
-              <span class="tree__size">53 KB</span>
+              <span class="tree__size">55 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">hooks.json</code>
@@ -203,7 +207,7 @@
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
               <span class="tree__role">Metadados + extensão (.) + marcador de hooks.</span>
-              <span class="tree__size">1.1 KB</span>
+              <span class="tree__size">1.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">README.md</code>
@@ -228,12 +232,12 @@
             <li class="tree__row">
               <code class="tree__name">lib/curation.mjs</code>
               <span class="tree__role">Orquestra a curadoria (checkpoints + turnos vivos).</span>
-              <span class="tree__size">6.1 KB</span>
+              <span class="tree__size">6.2 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/curationLedger.mjs</code>
               <span class="tree__role">Marca o que já foi curado por id — nunca reprocessa.</span>
-              <span class="tree__size">2.9 KB</span>
+              <span class="tree__size">3.0 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/curator.mjs</code>
@@ -243,7 +247,7 @@
             <li class="tree__row">
               <code class="tree__name">lib/curatorWorker.mjs</code>
               <span class="tree__role">Roda o curador num subprocesso limpo, apartado da sessão.</span>
-              <span class="tree__size">5.3 KB</span>
+              <span class="tree__size">5.4 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/daemon.mjs</code>
@@ -254,6 +258,16 @@
               <code class="tree__name">lib/dashboard.mjs</code>
               <span class="tree__role">O painel (canvas): servidor local + snapshot ao vivo, só leitura.</span>
               <span class="tree__size">26 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/graphClient.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">13 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/graphTools.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">14 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/ledger.mjs</code>
@@ -278,7 +292,7 @@
             <li class="tree__row">
               <code class="tree__name">lib/provision.mjs</code>
               <span class="tree__role">Sobe o servidor sozinho: baixa, confere o sha256 e roda (fail-open).</span>
-              <span class="tree__size">10 KB</span>
+              <span class="tree__size">11 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/recall.mjs</code>
@@ -296,6 +310,11 @@
               <span class="tree__size">4.4 KB</span>
             </li>
             <li class="tree__row">
+              <code class="tree__name">lib/selfReview.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">13 KB</span>
+            </li>
+            <li class="tree__row">
               <code class="tree__name">lib/sessionCwd.mjs</code>
               <span class="tree__role">Descobre a pasta real da sessão (a raiz do projeto aberto).</span>
               <span class="tree__size">1.8 KB</span>
@@ -308,7 +327,7 @@
             <li class="tree__row">
               <code class="tree__name">lib/skillCreator.mjs</code>
               <span class="tree__role">Decide criar, atualizar, promover a global ou ignorar cada lição.</span>
-              <span class="tree__size">7.0 KB</span>
+              <span class="tree__size">7.1 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/skillGuide.mjs</code>
@@ -328,27 +347,27 @@
             <li class="tree__row">
               <code class="tree__name">lib/gates/gateAdmin.mjs</code>
               <span class="tree__role">Liga/desliga o gate por repo no .github/hooks/hooks.json.</span>
-              <span class="tree__size">3.2 KB</span>
+              <span class="tree__size">3.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/gates/gateHook.mjs</code>
               <span class="tree__role">O hook determinístico — o único ponto que barra o git push.</span>
-              <span class="tree__size">6.2 KB</span>
+              <span class="tree__size">6.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/gates/gateReview.mjs</code>
               <span class="tree__role">Revisor externo independente + break-glass auditado (cold path).</span>
-              <span class="tree__size">8.4 KB</span>
+              <span class="tree__size">8.5 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/gates/policyCache.mjs</code>
               <span class="tree__role">Política como dado: semeia e lê as regras do gate (hot-path local).</span>
-              <span class="tree__size">3.6 KB</span>
+              <span class="tree__size">3.7 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/gates/receipts.mjs</code>
               <span class="tree__role">Recibos amarrados ao SHA do commit — recommit invalida (anti-burla).</span>
-              <span class="tree__size">5.4 KB</span>
+              <span class="tree__size">5.5 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/gates/shadow.mjs</code>
@@ -431,7 +450,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.8.1</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.9.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>

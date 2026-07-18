@@ -34,6 +34,8 @@ import { enableGate, disableGate, gateStatus } from "./lib/gates/gateAdmin.mjs";
 import { ensureSeeded, readPolicies } from "./lib/gates/policyCache.mjs";
 import { runGateReview, overrideReceipt } from "./lib/gates/gateReview.mjs";
 import { summarizeShadow } from "./lib/gates/shadow.mjs";
+import { graphTools } from "./lib/graphTools.mjs";
+import { armSelfReview } from "./lib/selfReview.mjs";
 
 // Provisionamento em background disparado no máximo 1× por processo (não repete a cada hook).
 let provisionKicked = false;
@@ -787,6 +789,10 @@ export const tools = [
                 }
             },
         },
+
+        // Tools de GRAFO SEMÂNTICO (graph_*) — cliente REST do Session Graph Engine (native-java). Analisam
+        // repos (o aberto ou externos via 'root') navegando o grafo em vez de garimpar arquivo por arquivo.
+        ...graphTools({ toolCwd }),
 ];
 
 export const hooks = {
@@ -886,4 +892,15 @@ if (!process.env.COPILOT_MEMORY_SMOKE) {
     const session = await joinSession({ tools, canvases: [memoryCanvas], hooks });
     hostSession = session;
     session.log?.("copilot-memory ativo — discovery + auto-provisionamento + recall two-tier + painel + tools de memória, skill e destilação.");
+    // Self-review G0 (detect-only): observa a resposta final do agente e MEDE quando um revisor
+    // externo acenderia (opt-in por ~/.copilot-memory/selfreview.json; default off). Nunca bloqueia
+    // nem injeta. O 1º log "fire" prova ao vivo que session.on("assistant.message") dispara no joinSession.
+    try {
+        armSelfReview(session, {
+            sessionId: SELF_SESSION_ID,
+            workingDirectory: toolCwd(),
+            connect,
+            log: (m) => { try { session.log?.("[selfreview] " + m); } catch { /* ignore */ } },
+        });
+    } catch { /* self-review nunca derruba a sessão */ }
 }

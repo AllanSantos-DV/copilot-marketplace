@@ -154,6 +154,15 @@ função — por isso o download é parte esperada da instalação. Para **desat
 defina `COPILOT_MEMORY_AUTOPROVISION=0` (o plugin então apenas reusa um daemon já existente e degrada se
 não houver). O download é sempre do repositório oficial acima, por HTTPS, com verificação de integridade.
 
+### Auto-observação (self-review) — desligada por padrão
+
+O plugin inclui um observador experimental de **auto-revisão** (`selfReview`) que **vem DESLIGADO**. Ele só
+é ativado se você criar `~/.copilot-memory/selfreview.json` com `{"mode":"detect-only"}` (ou `"probe"`).
+Ligado, ele observa a **resposta final** do agente para medir quando um revisor externo seria útil e grava
+uma telemetria **local** em `~/.copilot-memory/selfreview.jsonl` — apenas trechos **redigidos** (segredos
+removidos antes de gravar), nunca a saída crua. Nada é enviado para fora da sua máquina. Para desativar,
+apague o arquivo de config (ou use `{"mode":"off"}`).
+
 ## Licença
 
 MIT — Allan Santos.
