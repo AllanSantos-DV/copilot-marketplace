@@ -14,9 +14,10 @@
 //   3) BLOQUEIA o turno até a resposta chegar de QUALQUER via (celular OU canvas) — ou o turno abortar;
 //   4) emite user_input.completed (limpa o card) e FECHA o canvas (a Voz volta a ser o painel ativo).
 //
-// Só é instanciado quando há um TRANSPORTE ABERTO no boot do bridge (extension.mjs/askMode decidem).
-// Transporte fechado (daemon off/ausente) ⇒ este override NÃO roda ⇒ ask_user NATIVO normal no PC
-// (modal padrão, confiável, nunca escondido); o celular ainda responde o nativo via handlePendingUserInput.
+// Só é instanciado no boot quando o daemon (via GET /live/ask-mode) confirma o gate ESTRITO: ARMADO E
+// celular ATIVO nesta sessão (extension.mjs consulta). Fora disso ⇒ este override NÃO roda ⇒ ask_user
+// NATIVO normal no PC (modal padrão, confiável); o celular ainda responde o nativo via handlePendingUserInput.
+// A ativação é ação do usuário (armar) → o daemon manda {signal:"askReload"} → o bridge dá reload e reboota.
 
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
