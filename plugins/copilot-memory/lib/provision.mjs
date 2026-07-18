@@ -16,7 +16,7 @@
 // Fail-open ABSOLUTO: qualquer erro (sem Java, rede, sha, spawn) → degrada; nunca lança, nunca trava.
 import { spawn } from "node:child_process";
 import { createWriteStream, createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
@@ -35,9 +35,14 @@ function serverDir() {
 }
 function lockPath() { return join(serverDir(), ".provisioning.lock"); }
 
-// Resolve um executável java: JAVA_HOME/bin/java(.exe) → "java" no PATH. null se claramente ausente.
+// Resolve um executável java. PREFERE o runtime EMPACOTADO (Java 25 do bundle) ao lado do jar — só ele
+// habilita o parser universal (o daemon exige Java >= 22 + o marcador graph-worker-bundle.marker em
+// java.home). Sem isto, um reboot/religa cai no Java do usuário (ex.: 21) e o grafo volta ao heurístico.
+// Depois: JAVA_HOME/bin/java(.exe) → "java" no PATH. null se claramente ausente.
 export function resolveJava() {
     const exe = process.platform === "win32" ? "java.exe" : "java";
+    const bundled = join(serverDir(), "runtime", "bin", exe);
+    if (existsSync(bundled)) return bundled;
     const home = process.env.JAVA_HOME && process.env.JAVA_HOME.trim();
     if (home) {
         const p = join(home, "bin", exe);
@@ -146,8 +151,19 @@ function acquireLock(ttlMs = 10 * 60 * 1000) {
 }
 function releaseLock() { try { rmSync(lockPath(), { force: true }); } catch { /* ignore */ } }
 
+// Espelha UniversalSymbolExtractor.isBundledRuntime: o java empacotado é <runtime>/bin/java(.exe) e o
+// marcador vive em <runtime>/lib/graph-worker-bundle.marker. Só no runtime empacotado (Java 25 com ops
+// nativos via FFM) o launch precisa de --enable-native-access=ALL-UNNAMED (senão os ops carregam com o
+// warning "Restricted methods will be blocked in a future release" e um Java futuro passa a BLOQUEAR).
+function isBundledJava(javaCmd) {
+    try { return existsSync(join(dirname(dirname(javaCmd)), "lib", "graph-worker-bundle.marker")); }
+    catch { return false; }
+}
+
 function spawnDaemon(javaCmd, jarPath) {
-    const child = spawn(javaCmd, ["-jar", jarPath, "--transport", "http", "--daemon"], {
+    const args = ["-jar", jarPath, "--transport", "http", "--daemon"];
+    if (isBundledJava(javaCmd)) args.unshift("--enable-native-access=ALL-UNNAMED");
+    const child = spawn(javaCmd, args, {
         detached: true, stdio: "ignore", windowsHide: true,
     });
     child.unref();

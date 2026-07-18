@@ -1,7 +1,7 @@
 {
   "name": "copilot-memory",
-  "version": "1.8.1",
-  "description": "Memória por projeto para o Copilot: descobre/sobe o daemon do servidor de memória (native-java, verificado por sha256); resolve o escopo pelo .memory/project.json ou git (worktree-safe) e migra a memória do escopo antigo com sua aprovação; injeta recall two-tier; um AGENTE CURADOR lê a conversa (checkpoints + turnos) e destila lições técnicas E comportamentais em skills; e GATES obrigatórios opt-in por projeto — ex.: revisor externo independente antes do git push, com recibo amarrado ao commit (bloqueio determinístico via hook). Painel (canvas) com saúde, escopo, skills e telemetria.",
+  "version": "1.9.0",
+  "description": "Memória por projeto para o Copilot: descobre/sobe o daemon do servidor de memória (native-java, verificado por sha256); resolve o escopo pelo .memory/project.json ou git (worktree-safe) e migra a memória com sua aprovação; injeta recall two-tier; um AGENTE CURADOR destila lições técnicas E comportamentais em skills; GATES obrigatórios opt-in por projeto (ex.: revisor externo antes do git push, recibo por commit); e TOOLS DE GRAFO SEMÂNTICO (graph_*): analisa um repo — o aberto ou externos gigantes via 'root' — navegando o grafo do código (símbolos, chamadas, imports, PageRank) em vez de garimpar, com detecção de project_id e reuso cross-session idênticos à memória. Painel (canvas) com saúde, escopo, skills e telemetria.",
   "author": {
     "name": "Allan Santos",
     "url": "https://github.com/AllanSantos-DV"
@@ -16,6 +16,7 @@
     "recall",
     "skills",
     "gates",
+    "graph",
     "native-java"
   ],
   "category": "productivity",
