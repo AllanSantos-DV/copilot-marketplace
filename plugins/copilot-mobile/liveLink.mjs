@@ -43,6 +43,10 @@ export class LiveLink {
   /** Wire the ask_user override so a phone answer resolves it (instead of the native runtime input). */
   setAskBridge(b) { this._askBridge = b; }
 
+  /** Register a handler for daemon SIGNALS (no cmdId), e.g. {signal:"askReload"} → the bridge re-evaluates
+   *  its ask_user mode by reloading the extension. Fire-and-forget: signals never expect a /live/result. */
+  setOnSignal(cb) { this._onSignal = typeof cb === "function" ? cb : null; }
+
   /** Read the daemon's loopback coordinates from runtime.json. null ⇒ daemon not running/ready. */
   _daemon() {
     try {
@@ -138,6 +142,16 @@ export class LiveLink {
     await this._post(d, "/live/result", { sessionId: this.sessionId, cmdId: cmd.cmdId, ok, value });
   }
 
+  /** Route one SSE frame payload: a daemon SIGNAL ({signal:...}, fire-and-forget) → _onSignal; a COMMAND
+   *  ({cmdId:...}, expects a /live/result) → _runCommand. Malformed JSON is ignored. Extracted so the
+   *  routing is unit-testable (liveLink-signal.test.mjs) without a live daemon SSE. */
+  _handleFramePayload(payload) {
+    let cmd;
+    try { cmd = JSON.parse(payload); } catch { return; }
+    if (cmd?.signal) { try { this._onSignal?.(cmd); } catch {} }
+    else if (cmd?.cmdId) this._runCommand(cmd);
+  }
+
   /** Connect (join + open the commands SSE). Idempotent; schedules a retry on any failure. */
   connect() {
     if (this._stopped || this.connected) return;
@@ -173,7 +187,9 @@ export class LiveLink {
               if (!s.startsWith("data:")) continue; // ignore ":" keep-alive comments
               const payload = s.slice(5).trim();
               if (!payload) continue;
-              try { const cmd = JSON.parse(payload); if (cmd?.cmdId) this._runCommand(cmd); } catch {}
+              try {
+                this._handleFramePayload(payload);
+              } catch {}
             }
           }
         });

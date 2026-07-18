@@ -15,10 +15,10 @@ import { spawn } from "node:child_process";
 import { get as httpsGet } from "node:https";
 
 // Pinned target: bump these together with a new dist release to roll the daemon forward.
-const DAEMON_VERSION = "0.1.5";
+const DAEMON_VERSION = "0.1.6";
 const DIST_OWNER = "AllanSantos-DV";
 const DIST_REPO = "copilot-mobile-daemon-dist";
-const DIST_TAG = "copilot-mobile-daemon-v0.1.5";
+const DIST_TAG = "copilot-mobile-daemon-v0.1.6";
 const DIST_ASSET = "copilot-mobile-daemon-win32-x64.tar.gz";
 const DIST_URL = `https://github.com/${DIST_OWNER}/${DIST_REPO}/releases/download/${DIST_TAG}/${DIST_ASSET}`;
 

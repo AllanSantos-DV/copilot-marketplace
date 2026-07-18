@@ -16,11 +16,11 @@ import { joinSession } from "@github/copilot-sdk/extension";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { readFileSync, appendFileSync, mkdirSync } from "node:fs";
+import http from "node:http";
 import { decidePhoneDrift, driftAgentContext } from "./drift.mjs";
 import { ensureDaemonInstalled } from "./bootstrap.mjs";
 import { LiveLink } from "./liveLink.mjs";
 import { AskUserBridge } from "./askUserBridge.mjs";
-import { decideAskUserOverride } from "./askMode.mjs";
 
 const SELF_SESSION_ID = process.env.SESSION_ID || "";
 const DAEMON_HOME = process.env.COPILOT_DAEMON_HOME || join(homedir(), ".copilot-mobile-daemon");
@@ -41,12 +41,44 @@ function daemonArmed() {
 }
 
 // The daemon's current transport mode string ("off"/"local"/"lan"/"tailscale"/"public"/…), or "" when
-// the daemon isn't running/readable. Drives the ask_user override decision (askMode.decideAskUserOverride).
+// the daemon isn't running/readable. Kept for the bridge.log diagnostic.
 function daemonMode() {
   try {
     const r = JSON.parse(readFileSync(RUNTIME_FILE, "utf8"));
     return typeof r?.mode === "string" ? r.mode : "";
   } catch { return ""; }
+}
+
+// Daemon loopback coordinates (loopPort + desktopToken) from runtime.json, or null if not running/ready.
+function daemonCoords() {
+  try {
+    const r = JSON.parse(readFileSync(RUNTIME_FILE, "utf8"));
+    if (r && Number.isInteger(r.loopPort) && r.loopPort > 0 && typeof r.desktopToken === "string" && r.desktopToken) {
+      return { port: r.loopPort, token: r.desktopToken };
+    }
+  } catch {}
+  return null;
+}
+
+// STRICT ask_user override decision — ASK THE DAEMON. The daemon is the only party that knows both inputs
+// of the gate: it's ARMED (transport != off) AND the phone is ACTIVE on THIS session. It returns the single
+// authoritative `override` bool (askSignal.computeAskOverride). Any failure (daemon off/unreachable/timeout)
+// ⇒ false ⇒ NATIVE ask_user — the safe default (the buggy canvas override never turns on by accident).
+function queryAskMode(sessionId) {
+  const d = daemonCoords();
+  if (!d || !sessionId) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    const req = http.request(
+      { host: "127.0.0.1", port: d.port, path: `/live/ask-mode?sessionId=${encodeURIComponent(sessionId)}`,
+        method: "GET", headers: { "x-copilot-token": d.token } },
+      (res) => { let b = ""; res.on("data", (c) => (b += c)); res.on("end", () => { try { finish(res.statusCode === 200 && !!JSON.parse(b)?.override); } catch { finish(false); } }); res.on("error", () => finish(false)); },
+    );
+    req.on("error", () => finish(false));
+    req.setTimeout(3000, () => { try { req.destroy(); } catch {} finish(false); });
+    req.end();
+  });
 }
 
 // Parsed user.message count + last user text from a session's on-disk event log — the AUTHORITATIVE
@@ -77,23 +109,17 @@ function diskUserStats(sid) {
 let appHeadUsers = -1;
 let appHeadPending = 0;
 
-// ask_user override — registered ONLY when a transport is OPEN at boot (askMode.decideAskUserOverride).
-// ROOT-CAUSE FIX: the SDK decides tool overrides only at joinSession boot and a custom override can't
-// delegate back to the native tool. The old code registered the override UNCONDITIONALLY, so with the
-// daemon OFF (no phone, no open transport) the native PC modal was suppressed, the synthetic question
-// died in the daemon's empty broadcast, and the flaky PC canvas was the only fallback ⇒ the question was
-// HIDDEN and the turn hung until the user cancelled. Now: transport OPEN ⇒ override (canvas + phone);
-// transport CLOSED ("off"/absent) ⇒ keep the NATIVE ask_user (the standard PC modal, reliable, never
-// hidden). When native, the phone can STILL answer: the runtime's own user_input.requested is streamed to
-// the daemon (session.on below) and a phone answer resolves it via rpc.ui.handlePendingUserInput
-// (liveLink._runCommand). NOTE: joinSession decides the tool set ONCE at boot and the SDK can't swap it
-// live, so a session that boots with the daemon OFF stays on native for its life — arming later keeps it
-// answerable (native modal + phone via handlePendingUserInput) but does NOT auto-upgrade to the canvas
-// UX; reopen/clear the session to boot it armed.
+// ask_user override — STRICT gate, decided at THIS boot by asking the daemon (/live/ask-mode). The override
+// (canvas + phone card) turns on ONLY when the daemon is ARMED and the phone is ACTIVE on this session;
+// otherwise the NATIVE PC modal stays (reliable; the phone can still answer it via handlePendingUserInput).
+// The SDK freezes the tool set at joinSession boot, so activation is a USER ACTION: when the user arms the
+// daemon (or the phone opens this session), the daemon pushes an {signal:"askReload"} over the live channel
+// and the bridge re-boots itself via session.rpc.extensions.reload() (wired below) — the fresh boot re-queries
+// this and registers the override. Native default means the buggy override never turns on by accident.
 const bootMode = daemonMode();
-const overrideAsk = decideAskUserOverride({ mode: bootMode });
+const overrideAsk = await queryAskMode(SELF_SESSION_ID);
 const askBridge = overrideAsk ? new AskUserBridge({ log: dbg, sessionId: SELF_SESSION_ID }) : null;
-dbg(`ask_user override=${overrideAsk} (bootMode="${bootMode}")`);
+dbg(`ask_user override=${overrideAsk} (bootMode="${bootMode}" via /live/ask-mode)`);
 
 const session = await joinSession({
   tools: askBridge ? [askBridge.tool()] : [],
@@ -138,6 +164,25 @@ if (liveSessionId) {
     // Wire the ask_user override both ways: it emits the question to the phone THROUGH the liveLink,
     // and a phone answer (liveLink cmd "answer") resolves the override's blocked handler.
     if (askBridge) { askBridge.setLiveLink(liveLink); liveLink.setAskBridge(askBridge); }
+    // The daemon pushes {signal:"askReload", override} when the strict gate flips (armed/phone-active
+    // transition). Since the SDK froze our tool set at boot, we re-boot via session.rpc.extensions.reload()
+    // so the FRESH bridge re-queries /live/ask-mode and registers the override (or native). Guard: skip if
+    // we're already in the desired mode (prevents a needless reload), and single-flight so bursts coalesce.
+    let _reloading = false;
+    liveLink.setOnSignal(async (sig) => {
+      if (sig?.signal !== "askReload") return;
+      const desired = !!sig.override;
+      if (desired === !!askBridge) { dbg(`askReload: already ${desired ? "override" : "native"} — skip`); return; }
+      if (_reloading) return;
+      _reloading = true;
+      // Self-heal the single-flight latch: a successful reload tears down THIS process (timer never fires),
+      // but if reload ever resolves WITHOUT restarting us, clear the latch so future reloads aren't wedged.
+      const latchReset = setTimeout(() => { _reloading = false; }, 15000);
+      if (typeof latchReset.unref === "function") latchReset.unref();
+      dbg(`askReload: gate flipped to ${desired ? "override" : "native"} → session.rpc.extensions.reload()`);
+      try { await session.rpc.extensions.reload(); }
+      catch (e) { clearTimeout(latchReset); _reloading = false; dbg("extensions.reload err: " + (e?.message || e)); }
+    });
     // Stream EVERY live runtime event to the daemon (in addition to the user.message counter above).
     // Also release any open override question if the turn is aborted/errors, so it never dangles.
     session.on((raw) => {
