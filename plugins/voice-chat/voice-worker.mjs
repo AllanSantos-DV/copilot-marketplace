@@ -22,7 +22,7 @@ import {
 } from "./voice-state.mjs";
 import { broadcast, broadcastTo } from "./voice-net.mjs";
 import {
-    dispatchVoiceTurn, clearRecordingActive, log, settings, saveSettings,
+    dispatchVoiceTurn, clearRecordingActive, setRecordingActive, log, settings, saveSettings,
     handingOver, lastTtsPreviewSid, DEBUG_LOG, tmark, timingEnabled,
 } from "./extension.mjs";
 
@@ -324,6 +324,17 @@ function onWorkerEvent(ev) {
             break;
         case "level":
             broadcastTo(turnOwnerSid || activeSid, { type: "level", rms: ev.rms, peak: ev.peak });
+            break;
+        case "low_signal":
+            // Guarda de silêncio AO VIVO: mesma rota do level (dono da captura). Display-only,
+            // NÃO para a gravação. `reassert` = re-emissão periódica (à prova de reconexão SSE).
+            broadcastTo(turnOwnerSid || activeSid, { type: "lowSignal", state: !!ev.state, elapsed: ev.elapsed, reassert: !!ev.reassert });
+            break;
+        case "rec_alive":
+            // Heartbeat da gravação: RENOVA a lease do mic (recordingActiveSid tem TTL de 60s;
+            // sem isto uma gravação >60s deixaria outra sessão passar pelo check de "busy" e
+            // sequestrar o mic). Se o worker morrer, o heartbeat cessa -> a lease expira sozinha.
+            if (turnOwnerSid) setRecordingActive(turnOwnerSid);
             break;
         case "recording":
             broadcastTo(turnOwnerSid || activeSid, { type: "recording", state: ev.state });

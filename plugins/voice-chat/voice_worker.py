@@ -167,8 +167,29 @@ TTS_MODEL = os.environ.get("VOICE_TTS_MODEL", "").strip()
 # transcripts on noise. Override via VOICE_MIC_SILENCE_PEAK.
 MIC_SILENCE_PEAK = float(os.environ.get("VOICE_MIC_SILENCE_PEAK", "0.0032") or "0.0032")
 
+# --- Guarda de silêncio AO VIVO (push-to-talk) ------------------------------------------
+# Avisa (SEM parar a captura) após este tempo de entrada CONTÍNUA abaixo do limiar. Usa o
+# MESMO limiar de pico do veredito final -> aviso ao vivo e veredito no release nunca se
+# contradizem (princípio de design já existente no projeto). Override por env.
+SILENCE_WARN_S = float(os.environ.get("VOICE_SILENCE_WARN_S", "3.0") or "3.0")
+# Um bipe curto que o mic capte NÃO pode "curar" o aviso: só limpa após este tempo de sinal
+# CONTÍNUO (um tom de ~100ms nunca alcança). Recuperação sustentada.
+SIGNAL_RECOVER_S = float(os.environ.get("VOICE_SIGNAL_RECOVER_S", "0.3") or "0.3")
+# Veredito no_audio: a captura só conta como "com áudio real" se teve um RUN DE VOZ (tempo
+# contínuo acima do limiar) de pelo menos isto. Usar o MAIOR run (não o pico da captura
+# inteira) torna o veredito imune ao bipe de aviso — um tom curto nunca forma um run longo,
+# e bipes esparsos nunca se juntam num run só. Protege contra o pico do bipe mascarar a falha.
+MIN_VOICED_RUN_MS = int(os.environ.get("VOICE_MIN_VOICED_RUN_MS", "200") or "200")
+# Dado de captura mais velho que isto = SEM sinal: um callback de áudio morto (device
+# desconectado no meio) deixa _last_peak congelado; a idade transforma isso em silêncio real.
+FEED_STALE_S = float(os.environ.get("VOICE_FEED_STALE_S", "0.35") or "0.35")
+# Heartbeat da gravação: renova a lease do mic + re-afirma um aviso ativo (à prova de
+# reconexão SSE) a cada N s enquanto grava, INDEPENDENTE do nível de áudio.
+REC_HEARTBEAT_S = float(os.environ.get("VOICE_REC_HEARTBEAT_S", "5.0") or "5.0")
 
-def build_stop_events(res, sid, mic_silence_peak, mic_detector):
+
+def build_stop_events(res, sid, mic_silence_peak, mic_detector,
+                      min_voiced_run_ms=MIN_VOICED_RUN_MS):
     """Pure builder for the events emitted when a push-to-talk capture stops.
 
     The recorder ``sid`` is stamped on EVERY transcript event so the extension can
@@ -178,7 +199,12 @@ def build_stop_events(res, sid, mic_silence_peak, mic_detector):
     events = []
     sid = sid or ""
     peak = res.get("peak", 0.0)
-    if peak < mic_silence_peak:
+    run_ms = res.get("voiced_run_ms")
+    # "SEM áudio real" = nenhum RUN DE VOZ sustentado (imune ao bipe: um tom curto/esparso
+    # nunca forma um run longo, então o pico do bipe não mascara a falha). Cai para o gate de
+    # pico quando o run não é reportado (chamadores antigos / caminho quiet).
+    no_audio = (run_ms < min_voiced_run_ms) if run_ms is not None else (peak < mic_silence_peak)
+    if no_audio:
         mok, mname, mreason = mic_detector()
         if not mok:
             events.append({"event": "mic", "ok": False, "name": mname, "reason": mreason})
@@ -771,6 +797,35 @@ def _meter_should_emit(rms, peak, last_rms, last_peak):
     return abs(rms - last_rms) > METER_DELTA_RMS or abs(peak - last_peak) > METER_DELTA_PEAK
 
 
+def silence_signal_update(peak, silent_since, sustained_since, warned, now,
+                          threshold=MIC_SILENCE_PEAK, warn_s=SILENCE_WARN_S,
+                          recover_s=SIGNAL_RECOVER_S):
+    """Passo PURO (testável) do guarda de silêncio ao vivo. Recebe o pico atual + o estado
+    anterior e devolve ``(silent_since, sustained_since, warned, event_or_None)``.
+
+    - Abaixo do limiar: inicia/continua um run de SILÊNCIO; após ``warn_s`` contínuos, emite
+      ``low_signal:true`` UMA vez.
+    - No/acima do limiar: inicia/continua um run de SINAL; só após ``recover_s`` CONTÍNUOS
+      (um bipe curto não alcança) limpa com ``low_signal:false``.
+
+    Usa ``is None`` (um valor de relógio monotônico 0.0 é válido — não pode virar falsy)."""
+    if peak >= threshold:
+        silent_since = None
+        if sustained_since is None:
+            sustained_since = now
+        if warned and (now - sustained_since) >= recover_s:
+            return (None, sustained_since, False, {"event": "low_signal", "state": False})
+        return (silent_since, sustained_since, warned, None)
+    # abaixo do limiar
+    sustained_since = None
+    if silent_since is None:
+        silent_since = now
+    if not warned and (now - silent_since) >= warn_s:
+        return (silent_since, None, True,
+                {"event": "low_signal", "state": True, "elapsed": round(now - silent_since, 2)})
+    return (silent_since, sustained_since, warned, None)
+
+
 class _DecodeClient:
     """Adapta o decodificador injetado (``fn(seg) -> texto``, já serializado e com defer
     de TTS) para a interface ``client.transcribe(seg, **kwargs)`` que o
@@ -797,6 +852,10 @@ class Recorder:
         self._last_rms = 0.0
         self._last_peak = 0.0
         self._max_peak = 0.0
+        self._last_feed_at = 0.0     # monotonic do último feed() — idade delata device morto
+        self._cur_run_ms = 0.0       # run de voz atual (tempo contínuo >= limiar)
+        self._max_run_ms = 0.0       # MAIOR run da captura -> veredito no_audio (imune ao bipe)
+        self._rec_gen = 0            # geração da captura — barra thread de meter antiga numa nova
         self._recording = False
         self._meter_thread = None
         self._decode_fn = None
@@ -818,24 +877,54 @@ class Recorder:
             return
         # medidor + peak da captura INTEIRA (para o envelope e o mic-health gate): MEU, não do SDK
         # (peak = max-abs; o on_rms do SDK é RMS por-segmento, escala diferente — não substitui).
+        self._last_feed_at = time.monotonic()
         self._last_rms = float(np.sqrt(np.mean(block ** 2)) if block.size else 0.0)
         self._last_peak = float(np.max(np.abs(block)) if block.size else 0.0)
         if self._last_peak > self._max_peak:
             self._max_peak = self._last_peak
+        # Contabilidade de RUN DE VOZ (health imune ao bipe): acumula tempo CONTÍNUO acima do
+        # limiar; o MAIOR run — não o pico da captura inteira — decide o veredito no_audio.
+        blk_ms = (1000.0 * int(block.size) / SAMPLE_RATE) if block.size else 0.0
+        if self._last_peak >= MIC_SILENCE_PEAK:
+            self._cur_run_ms += blk_ms
+            if self._cur_run_ms > self._max_run_ms:
+                self._max_run_ms = self._cur_run_ms
+        else:
+            self._cur_run_ms = 0.0
         self._dur_samples += int(block.size)
         # segmentação + STT sobreposto: alimenta o StreamingTranscriber vendorizado (SDK).
         # A segmentação é leve (frame-rms/cut sobre o bloco); o STT pesado roda na thread do SDK.
         if self._st is not None:
             self._st.feed(block)
 
-    def _meter_loop(self):
+    def _meter_loop(self, gen):
         last_rms = last_peak = -1.0
-        while self._recording:
-            rms = round(self._last_rms, 5)
-            peak = round(self._last_peak, 4)
+        silent_since = sustained_since = None
+        warned = False
+        last_hb = time.monotonic()
+        while self._recording and gen == self._rec_gen:
+            now = time.monotonic()
+            # STALENESS: um callback de áudio morto (device desconectado no meio) congela
+            # _last_peak -> a idade do último feed transforma isso em silêncio real (senão o
+            # guarda nunca dispararia justo quando o mic morre — a causa da perda de 30 min).
+            fresh = (now - self._last_feed_at) <= FEED_STALE_S
+            eff_peak = self._last_peak if fresh else 0.0
+            rms = round(self._last_rms if fresh else 0.0, 5)
+            peak = round(eff_peak, 4)
             if _meter_should_emit(rms, peak, last_rms, last_peak):
                 emit({"event": "level", "rms": rms, "peak": peak})
                 last_rms, last_peak = rms, peak
+            silent_since, sustained_since, warned, ev = silence_signal_update(
+                eff_peak, silent_since, sustained_since, warned, now)
+            if ev is not None:
+                emit(ev)
+            # HEARTBEAT: renova a lease do mic (guarda >60s de gravação longa) + re-afirma um
+            # aviso ativo — à prova de reconexão SSE (o one-shot low_signal:true pode se perder).
+            if now - last_hb >= REC_HEARTBEAT_S:
+                last_hb = now
+                emit({"event": "rec_alive"})
+                if warned:
+                    emit({"event": "low_signal", "state": True, "reassert": True})
             time.sleep(0.12)
 
     def _on_segment(self, idx, text):
@@ -855,9 +944,15 @@ class Recorder:
             return
         self._quiet = quiet
         self._max_peak = 0.0
+        self._last_peak = 0.0
+        self._last_rms = 0.0
+        self._last_feed_at = time.monotonic()   # sem isto, um feed velho pré-captura seria "fresco"
+        self._cur_run_ms = 0.0
+        self._max_run_ms = 0.0
         self._dur_samples = 0
         self._proc_ms = 0
         self._partials = []
+        self._rec_gen += 1
         # StreamingTranscriber do SDK: dono da segmentação (StreamSegmenter) + STT sobreposto
         # numa thread própria (aposenta Recorder._consume/_stream_loop + _cut_point/_frame_rms).
         # O _decode_fn injetado (fn(seg)->texto, serializado, defer de TTS) é adaptado à interface
@@ -872,7 +967,7 @@ class Recorder:
             self._st = None
         self._recording = True
         if not quiet:
-            self._meter_thread = threading.Thread(target=self._meter_loop, daemon=True)
+            self._meter_thread = threading.Thread(target=self._meter_loop, args=(self._rec_gen,), daemon=True)
             self._meter_thread.start()
         if not quiet:
             emit({"event": "recording", "state": True})
@@ -914,6 +1009,7 @@ class Recorder:
                "dur_ms": int(1000 * self._dur_samples / SAMPLE_RATE),
                "ms": int(proc_ms),
                "peak": round(self._max_peak, 5),
+               "voiced_run_ms": int(self._max_run_ms),
                "chunks": len(self._partials)}
         self._reset()
         return res
