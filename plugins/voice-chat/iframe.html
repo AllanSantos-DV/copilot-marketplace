@@ -109,6 +109,7 @@
   .mic-btn svg { width: 42px; height: 42px; }
   .mic-meter { width: 200px; height: 7px; border-radius: 4px; background: var(--border-color-default,#30363d); overflow: hidden; }
   .mic-meter > i { display: block; height: 100%; width: 100%; transform: scaleX(0); transform-origin: left; background: var(--true-color-green,#3fb950); border-radius: 4px; transition: transform .08s linear, background .2s ease; }
+  .mic-warn { display:none; margin:6px auto 0; max-width:280px; text-align:center; font-size:12px; font-weight:600; line-height:1.35; color:var(--true-color-orange,#d29922); background:color-mix(in srgb, var(--true-color-orange,#d29922) 14%, transparent); border:1px solid color-mix(in srgb, var(--true-color-orange,#d29922) 45%, transparent); border-radius:8px; padding:6px 10px; }
   .hint { color: var(--text-color-muted, #8b949e); font-size: 12px; text-align: center; min-height: 16px; }
   .home-mic { display: flex; align-items: center; gap: 7px; justify-content: center; font-size: 12px; color: var(--text-color-muted,#8b949e); margin: 2px auto 0; max-width: 320px; }
   .home-mic .hm-ic { font-size: 13px; opacity: .85; }
@@ -255,6 +256,7 @@
   </div>
   <div id="hint" class="hint">Segure o botão ou a barra de <kbd>espaço</kbd> para falar.</div>
   <div id="micMeter" class="mic-meter" style="display:none"><i id="micMeterBar"></i></div>
+  <div id="micWarn" class="mic-warn" role="alert" aria-live="assertive"></div>
   <div id="homeMic" class="home-mic" style="display:none">
     <span class="hm-ic">🎙️</span>
     <span id="homeMicName" class="hm-name">Microfone</span>
@@ -420,6 +422,50 @@ const cancelRecBtn = $("cancelRecBtn");
 const cueLine = $("cueLine");
 const wakeBadge = $("wakeBadge");
 const micMeter = $("micMeter"), micMeterBar = $("micMeterBar");
+const micWarn = $("micWarn");
+// --- Guarda de silêncio (UI): aviso NÃO-interruptivo + bipe discreto quando o mic não capta.
+// O motor é a fonte autoritativa (evento lowSignal, mesmo limiar do veredito no_audio); o
+// backstop de start-ack cobre o caso do motor estar TOTALMENTE mudo (nenhum evento em ~4s).
+let _noSigActive = false, _lastBeepAt = 0, _startAckTimer = 0, _sawSignalSinceRec = false;
+function beepNoSignal() {
+  const now = Date.now();
+  if (now - _lastBeepAt < 8000) return;   // anti-spam: no máximo 1 bipe a cada 8s
+  _lastBeepAt = now;
+  try {
+    ensureAudioGraph(); unlockAudio();
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+    osc.type = "sine"; osc.frequency.value = 660;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.05, t + 0.02);    // discreto
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.10);  // ~100ms: curto -> não forma run de voz
+    osc.connect(g); g.connect(audioCtx.destination);
+    osc.start(t); osc.stop(t + 0.12);
+  } catch (_) { /* Web Audio indisponível: aviso visual já cobre */ }
+}
+function showNoSignal(msg, beep) {
+  if (micWarn) { micWarn.textContent = "⚠️ " + msg; micWarn.style.display = "block"; }
+  _noSigActive = true;
+  if (beep) beepNoSignal();
+}
+function hideNoSignal() {
+  if (micWarn) micWarn.style.display = "none";
+  _noSigActive = false;
+}
+function armStartAck() {
+  if (_startAckTimer) clearTimeout(_startAckTimer);
+  _startAckTimer = setTimeout(() => {
+    _startAckTimer = 0;
+    // Nenhum evento do motor em ~4s: a captura pode NEM ter iniciado -> mensagem distinta
+    // (não afirma "a gravação continua", que seria mentira se o motor estiver morto).
+    if (recording && !_sawSignalSinceRec) showNoSignal("A gravação pode não ter iniciado — verifique o motor de voz.", true);
+  }, 4000);
+}
+function cancelStartAck() {   // qualquer evento do motor (level/lowSignal/recording) prova que ele está VIVO
+  _sawSignalSinceRec = true;
+  if (_startAckTimer) { clearTimeout(_startAckTimer); _startAckTimer = 0; }
+}
 // Coalesce meter DOM writes into one per animation frame: the worker may still emit
 // several level events between frames; writing ring --level + micMeterBar transform per
 // event forces redundant style/layout work. rAF applies only the LATEST value each frame.
@@ -530,6 +576,13 @@ function startRec() {
   phase = "recording"; reflectPhase();
   mic.classList.add("recording");
   hint.textContent = handsfree ? "Gravando… toque para parar." : "Ouvindo… solte para enviar.";
+  // Medidor SÍNCRONO (não espera o echo recording:true do motor — que nunca chega se o motor
+  // estiver morto, justamente a falha a proteger). Backstop de start-ack cobre o motor mudo.
+  _sawSignalSinceRec = false;
+  if (micMeter) micMeter.style.display = "block";
+  if (micMeterBar) { micMeterBar.style.transform = "scaleX(0)"; micMeterBar.style.background = "var(--true-color-green,#3fb950)"; }
+  hideNoSignal();
+  armStartAck();
   post("/rec/start");
 }
 function stopRec() {
@@ -537,6 +590,8 @@ function stopRec() {
   recording = false;
   mic.classList.remove("recording");
   ring.style.setProperty("--level", 0);
+  cancelStartAck(); hideNoSignal();
+  if (micMeter) micMeter.style.display = "none";
   phase = "transcribing"; reflectPhase();
   hint.textContent = "Transcrevendo…";
   post("/rec/stop");
@@ -546,6 +601,8 @@ function cancelRec() {
   recording = false;
   mic.classList.remove("recording");
   ring.style.setProperty("--level", 0);
+  cancelStartAck(); hideNoSignal();
+  if (micMeter) micMeter.style.display = "none";
   phase = "ready"; reflectPhase();
   hint.textContent = defaultHint();
   post("/rec/cancel");
@@ -1382,6 +1439,9 @@ function handle(m) {
         showLoading(m.msg, m.pct);
       } else if (m.state === "error") {
         workerReady = false; hideLoading(); setPill("Erro", "error"); showBanner(m.msg || "Erro no motor de voz.");
+        if (recording) { recording = false; mic.classList.remove("recording"); }
+        cancelStartAck(); hideNoSignal();
+        if (micMeter) micMeter.style.display = "none";
       }
       reflectPhase();
       updateHomeMic();
@@ -1420,15 +1480,22 @@ function handle(m) {
       syncMonitor();
       break;
     case "level":
+      cancelStartAck();   // qualquer nível prova que o motor está VIVO -> desarma o backstop de start-ack
       if (recording) {
         const peak = m.peak || 0, rms = m.rms || 0;
         const amp = Math.min(1, Math.max(peak * 5, rms * 18));
         scheduleMeter((0.3 + amp * 0.9).toFixed(3), Math.min(100, Math.round(Math.sqrt(amp) * 100)) / 100);
-        // No speculative no-signal warning here: the live meter above already
-        // shows input level in real time, and the worker emits the authoritative
-        // verdict (no_audio) on release — so the meter and the message can never
-        // contradict each other.
+        // O guarda de silêncio AO VIVO agora vem do motor (evento lowSignal, mesmo limiar do
+        // veredito no_audio) + o bipe — então medidor, aviso e veredito nunca se contradizem.
       }
+      break;
+    case "lowSignal":
+      cancelStartAck();   // o motor falou -> está vivo; o backstop não é mais necessário
+      if (!recording) break;
+      // NÃO interrompe a gravação: só avisa (visual + bipe discreto) que não está captando som,
+      // e limpa quando o sinal volta (o motor exige recuperação sustentada, imune ao próprio bipe).
+      if (m.state) showNoSignal("Sem sinal do microfone — verifique o dispositivo. A gravação continua.", true);
+      else hideNoSignal();
       break;
     case "monitorLevel":
       if (!recording && _monitorOn) {
@@ -1447,6 +1514,7 @@ function handle(m) {
     case "recording":
       recording = m.state;
       if (m.state) {
+        cancelStartAck();   // echo do motor: gravação confirmada -> desarma o backstop
         cancelMeter();   // drop any pending monitor frame so it can't paint over the reset
         _monitorOn = false;
         _recStart = Date.now();
@@ -1455,6 +1523,7 @@ function handle(m) {
         if (micMeterBar) { micMeterBar.style.transform = "scaleX(0)"; micMeterBar.style.background = "var(--true-color-green,#3fb950)"; }
         updateHomeMic();
       } else {
+        cancelStartAck(); hideNoSignal();   // fim da captura: sem aviso pendente
         cancelMeter();   // no stale level frame after the reset
         ring.style.setProperty("--level", 0);
         if (micMeter) micMeter.style.display = "none";
@@ -1529,6 +1598,8 @@ function handle(m) {
     case "busy":
       recording = false;
       mic.classList.remove("recording");
+      cancelStartAck(); hideNoSignal();
+      if (micMeter) micMeter.style.display = "none";
       if (phase === "recording") { phase = "ready"; reflectPhase(); }
       showBanner(m.msg || "Microfone em uso por outra sessão.");
       hint.textContent = m.msg || "Microfone em uso por outra sessão.";
