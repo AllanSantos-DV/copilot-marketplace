@@ -4,12 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>voice-chat — copilot-marketplace</title>
-  <meta name="description" content="Fale com o Copilot e ouça a resposta — um único motor de voz (vox-engine) que a extensão instala, atualiza e usa sozinha no Windows, agora conferindo a assinatura Ed25519 do instalador antes de executá-lo." />
+  <meta name="description" content="Converse por voz com o Copilot em pt-BR e ouça um resumo falado — 100% local no Windows, num único motor (vox-engine) que a extensão instala, atualiza e usa sozinha. Se o microfone parar de captar no meio da fala, ela avisa antes de você perder a gravação." />
   <meta name="color-scheme" content="dark" />
   <meta name="theme-color" content="#14121C" />
   <meta property="og:type" content="article" />
   <meta property="og:title" content="voice-chat — copilot-marketplace" />
-  <meta property="og:description" content="Fale com o Copilot e ouça a resposta — um único motor de voz (vox-engine) que a extensão instala, atualiza e usa sozinha no Windows, agora conferindo a assinatura Ed25519 do instalador antes de executá-lo." />
+  <meta property="og:description" content="Converse por voz com o Copilot em pt-BR e ouça um resumo falado — 100% local no Windows, num único motor (vox-engine) que a extensão instala, atualiza e usa sozinha. Se o microfone parar de captar no meio da fala, ela avisa antes de você perder a gravação." />
   <meta property="og:url" content="https://allansantos-dv.github.io/copilot-marketplace/p/voice-chat/" />
   <link rel="canonical" href="https://allansantos-dv.github.io/copilot-marketplace/p/voice-chat/" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -39,9 +39,9 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">voice-chat</h1>
-        <span class="chip" title="versão publicada">v1.5.33</span>
+        <span class="chip" title="versão publicada">v1.5.35</span>
       </div>
-      <p class="doc-hero__lede">O <strong>voice-chat</strong> transforma o terminal numa conversa: você fala, o motor <strong><code>vox-engine</code></strong> transcreve, o agente responde e uma voz neural em pt-BR lê o resumo de volta. Fala e voz — <strong>STT e TTS</strong> — passam pelo <strong>mesmo e único</strong> motor, na sua máquina, e a extensão <strong>cuida dele sozinha</strong>: instala se faltar, atualiza se estiver velho e usa quando está em dia. Nenhum áudio sai do seu computador.</p>
+      <p class="doc-hero__lede">O <strong>voice-chat</strong> transforma o terminal numa conversa: você fala, o motor <strong><code>vox-engine</code></strong> transcreve, o agente responde e uma voz neural em pt-BR lê o resumo de volta. Fala e voz — <strong>STT e TTS</strong> — passam pelo <strong>mesmo e único</strong> motor, na sua máquina, e <strong>nenhum áudio sai do computador</strong>. A extensão cuida do motor sozinha — instala, atualiza e só conecta quando está em dia — e vigia a sua gravação: se o microfone emudecer, ela avisa <strong>sem cortar</strong> a captura, para você não falar minutos no vazio.</p>
       <div class="doc-hero__cta">
         <div class="prompt prompt--sm" data-cmd="copilot plugin install voice-chat@copilot-marketplace">
         <span class="prompt__glyph" aria-hidden="true">⌁</span>
@@ -54,20 +54,28 @@
       </div>
       <ul class="hl" aria-label="Destaques">
         <li class="hl__item">
-          <h3 class="hl__title">Um motor, STT + TTS</h3>
-          <p class="hl__body">Transcrição e voz passam pelo mesmo <code>vox-engine</code> — um daemon compartilhado por named pipe, na sua máquina. Sem nuvem, sem chave de API.</p>
+          <h3 class="hl__title">Fale e ouça a resposta</h3>
+          <p class="hl__body">Segure para falar (ou ligue as mãos-livres): o motor transcreve na sua máquina, o texto vira um turno do Copilot e a resposta volta como um <strong>resumo falado</strong>, curto e natural, em pt-BR.</p>
         </li>
         <li class="hl__item">
-          <h3 class="hl__title">Se instala e se atualiza sozinho</h3>
-          <p class="hl__body">No arranque a extensão baixa o motor se faltar, atualiza para a última versão se estiver velho e só conecta quando já está em dia. Você não roda nada à mão.</p>
+          <h3 class="hl__title">Não perca áudio</h3>
+          <p class="hl__body">Se o microfone ficar cerca de <strong>3s sem som durante a gravação</strong>, um aviso aparece — visual e um <strong>bipe curto</strong> — <strong>sem interromper</strong> a captura. A barra de intensidade fica sempre à vista, e o veredito de “sem áudio” ignora o próprio bipe.</p>
         </li>
         <li class="hl__item">
-          <h3 class="hl__title">Instalador verificado antes de rodar</h3>
-          <p class="hl__body"><strong>Novo na v1.3.4:</strong> antes de instalar ou atualizar o motor, a extensão confere a <strong>assinatura Ed25519</strong> do instalador e <strong>recusa</strong> rodar o que não bate (fail-closed). Fecha um risco de execução remota de código.</p>
+          <h3 class="hl__title">O motor se instala e se atualiza sozinho</h3>
+          <p class="hl__body">Um único <strong><code>vox-engine</code></strong> (hoje <strong>0.18.0</strong>) para STT e TTS: a extensão o instala se faltar, atualiza se estiver velho e só conecta quando está em dia. E nunca o recicla <strong>no meio</strong> de uma gravação — o update espera o motor ficar ocioso.</p>
         </li>
         <li class="hl__item">
-          <h3 class="hl__title">Windows, ponta a ponta</h3>
-          <p class="hl__body">O motor conversa por named pipe e é provisionado por um instalador <code>.ps1</code> — por isso o voice-chat é <strong>Windows-only</strong> (10/11).</p>
+          <h3 class="hl__title">Instalador verificado (Ed25519)</h3>
+          <p class="hl__body">Antes de instalar ou atualizar o motor, a extensão confere a <strong>assinatura Ed25519</strong> e <strong>recusa</strong> o que não bate (fail-closed). É uma camada de segurança, não um passo a mais para você.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Atualize sem reiniciar o app</h3>
+          <p class="hl__body">Saiu versão nova? Um selo mostra as <strong>sessões desatualizadas</strong> e separa as <strong>sincronizáveis</strong> (recarregam sozinhas) das <strong>legadas</strong> (precisam reabrir). A extensão se auto-recarrega <strong>sem</strong> fechar o Copilot.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Várias sessões, um dono do microfone</h3>
+          <p class="hl__body">Um processo primário é dono do microfone, do motor e da porta; as outras sessões se ligam a ele. Uma versão mais nova <strong>assume</strong> o comando, e depois de um <strong>Stop</strong> a sessão se recupera em vez de virar zumbi.</p>
         </li>
       </ul>
     </header>
@@ -76,44 +84,51 @@
       <article class="doc-body" id="doc-body">
         <section class="doc-section" id="o-que-e">
           <h2 class="doc-h2"><a class="doc-anchor" href="#o-que-e" aria-label="Link para O que é">#</a>O que é</h2>
-          <p>O voice-chat é uma <strong>canvas extension</strong> do GitHub Copilot: abre o painel <strong>Voz</strong> no app e liga o ciclo fala → agente → fala. Você segura para falar, o motor transcreve na sua máquina, o texto vira um turno normal do Copilot e a resposta volta como um <strong>resumo falado</strong>, curto e natural, na sua língua.</p>
-          <p>Fala e voz passam pelo <strong>mesmo motor</strong>: STT (fala→texto) e TTS (texto→voz) rodam no <code>vox-engine</code>, um daemon compartilhado com outros plugins da vitrine (como o <code>copilot-mobile</code>). É o <strong>único caminho</strong> de áudio — a extensão cuida do motor, e o motor cuida da voz.</p>
-          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Como registra um <strong>canvas</strong>, depois de instalar é preciso <strong>reiniciar o app uma vez</strong> para o painel aparecer (o <code>canvas-sync</code> cuida do espelhamento).</p></aside>
+          <p>O voice-chat é uma <strong>canvas extension</strong> do GitHub Copilot: abre o painel <strong>Voz</strong> no app e liga o ciclo fala → agente → fala. Você segura para falar, o motor transcreve na sua máquina, o texto vira um turno normal do Copilot e a resposta volta como um <strong>resumo falado</strong> em pt-BR.</p>
+          <p>Fala e voz passam pelo <strong>mesmo motor</strong>: STT (fala→texto) e TTS (texto→voz) rodam no <strong><code>vox-engine</code></strong>, um daemon <strong>local</strong> compartilhado por <strong>named pipe</strong>. É o <strong>único caminho</strong> de áudio — nenhum áudio sai da sua máquina —, e como o pipe e o instalador são específicos do Windows, o voice-chat é <strong>Windows-only</strong> (10/11).</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Como registra um <strong>canvas</strong>, depois de instalar é preciso <strong>reiniciar o app uma vez</strong> para o painel Voz aparecer (o <code>canvas-sync</code> cuida do espelhamento).</p></aside>
         </section>
 
         <section class="doc-section" id="como-usar">
           <h2 class="doc-h2"><a class="doc-anchor" href="#como-usar" aria-label="Link para Como usar">#</a>Como usar</h2>
-          <ol class="doc-steps"><li><h4>Instale o plugin</h4><p>Pelo marketplace, com o comando da seção Instalar abaixo.</p></li><li><h4>Reinicie o app</h4><p>Uma vez, para o canvas de voz ser descoberto.</p></li><li><h4>Abra o painel Voz</h4><p>Na primeira vez, a extensão instala o motor e baixa os modelos — pode levar alguns minutos; a tela mostra o progresso.</p></li><li><h4>Segure para falar</h4><p>Clique no microfone para gravar, clique de novo para enviar. O motor transcreve e o agente responde com áudio.</p></li><li><h4>Mãos livres (opcional)</h4><p>Ligue a wake word nas configurações e diga a frase de ativação (&quot;escuta jarvis&quot;) para começar sem clicar.</p></li></ol>
-          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Depois da 1ª vez o painel abre em segundos — o motor reusa os modelos e a voz já baixados.</p></aside>
+          <ol class="doc-steps"><li><h4>Instale o plugin</h4><p>Pelo marketplace, com o comando da seção Instalar abaixo.</p></li><li><h4>Reinicie o app</h4><p>Uma vez, para o canvas de voz ser descoberto.</p></li><li><h4>Abra o painel Voz</h4><p>Na 1ª vez, a extensão instala o motor e baixa a voz — pode levar alguns minutos; a tela mostra o progresso.</p></li><li><h4>Fale e ouça</h4><p>Clique no microfone para gravar e clique de novo para enviar. O motor transcreve, o agente responde e a resposta volta em áudio.</p></li><li><h4>Ajuste voz, microfone e atalho</h4><p>Nas configurações do painel: escolha a voz neural pt-BR, o microfone certo e o modo <strong>segurar para falar</strong> ou <strong>mãos-livres</strong>.</p></li></ol>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Depois da 1ª vez o painel abre em segundos — o motor reusa a voz já baixada. Cada resposta falada fica num <strong>histórico por sessão</strong>, com navegação para reouvir sem repetir o turno.</p></aside>
+        </section>
+
+        <section class="doc-section" id="nao-perca-audio">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#nao-perca-audio" aria-label="Link para Não perca áudio">#</a>Não perca áudio</h2>
+          <p>Gravar sem perceber que o microfone parou é perder minutos de fala. O voice-chat vigia a captura <strong>ao vivo</strong>: se o microfone ficar cerca de <strong>3 segundos sem som durante a gravação</strong>, ele avisa na hora — <strong>sem interromper</strong> a captura.</p>
+          <ul class="doc-list"><li><strong>Aviso que não atrapalha</strong> — um sinal visual e um <strong>bipe curto e discreto</strong> marcam o silêncio, mas a gravação <strong>continua</strong>; quem decide recomeçar é você.</li><li><strong>Intensidade sempre à vista</strong> — enquanto grava, a barra mostra o nível do microfone em tempo real, então dá para ver o som entrando (ou não) sem adivinhar.</li><li><strong>Veredito honesto</strong> — o aviso final de “sem áudio” <strong>ignora o próprio bipe</strong>, então o alerta nunca é confundido com fala.</li></ul>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>É um alerta, não um corte: parar ou seguir é sempre decisão sua. A ideia é simples — que você nunca fale para um microfone mudo sem saber.</p></aside>
         </section>
 
         <section class="doc-section" id="o-motor">
           <h2 class="doc-h2"><a class="doc-anchor" href="#o-motor" aria-label="Link para O motor único (vox-engine)">#</a>O motor único (vox-engine)</h2>
-          <p>Toda a fala passa pelo <strong><code>vox-engine</code></strong>: um motor de STT + TTS que roda como daemon e é compartilhado entre apps por um <strong>named pipe</strong>, na sua máquina. A extensão cuida do ciclo de vida dele no arranque, sem você configurar nada:</p>
-          <ul class="doc-list"><li><strong>Não instalado</strong> → baixa o instalador da release pública, <strong>confere a assinatura dele antes de executar</strong> (veja abaixo), instala numa pasta de dados do seu perfil e sobe o daemon.</li><li><strong>Desatualizado</strong> → atualiza para a última versão antes de subir, com a <strong>mesma verificação de assinatura</strong> (best-effort: se a atualização falhar, segue no que já funciona).</li><li><strong>Em dia</strong> → só conecta e usa. Se o daemon já está no ar (por exemplo, subiu para o <code>copilot-mobile</code>), ela não interrompe — apenas se liga.</li></ul>
-          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Instalações concorrentes são serializadas por um <strong>lock entre processos</strong> — dois apps subindo o motor ao mesmo tempo não corrompem o venv.</p></aside>
-          <aside class="note note--warn"><span class="note__mark" aria-hidden="true">!</span><p><strong>O motor é o único caminho.</strong> Não existe alternativa nem chave para desligá-lo: se o <code>vox-engine</code> não estiver disponível, o erro aparece <strong>alto</strong> na interface, nunca em silêncio.</p></aside>
+          <p>Toda a fala passa pelo <strong><code>vox-engine</code></strong> (hoje na versão <strong>0.18.0</strong>): um motor de STT + TTS que roda como daemon <strong>local</strong> e é compartilhado por <strong>named pipe</strong>. A extensão cuida do ciclo de vida dele no arranque, sem você configurar nada:</p>
+          <ul class="doc-list"><li><strong>Não instalado</strong> → baixa o instalador da release pública, <strong>confere a assinatura</strong> (veja Segurança) e sobe o daemon.</li><li><strong>Desatualizado</strong> → atualiza para a última versão antes de conectar, com a <strong>mesma verificação</strong>.</li><li><strong>Em dia</strong> → só conecta e usa. Se o daemon já está no ar (por exemplo, subiu para outro app de voz), ela apenas se liga.</li></ul>
+          <p>Atualizar o motor nunca atropela você: o <strong>contrato de update</strong> espera ele ficar <strong>ocioso</strong> — o motor <strong>não é reciclado no meio</strong> de uma transcrição ou gravação. O que está em curso termina; a troca vem depois.</p>
+          <aside class="note note--warn"><span class="note__mark" aria-hidden="true">!</span><p><strong>O motor é o único caminho.</strong> Não há alternativa nem chave para desligá-lo: se o <code>vox-engine</code> não estiver disponível, o erro aparece <strong>alto</strong> na interface, nunca em silêncio.</p></aside>
         </section>
 
-        <section class="doc-section" id="instalador-verificado">
-          <h2 class="doc-h2"><a class="doc-anchor" href="#instalador-verificado" aria-label="Link para Instalador verificado (novo na v1.3.4)">#</a>Instalador verificado (novo na v1.3.4)</h2>
-          <p>Provisionar o motor significa <strong>baixar e executar um instalador</strong> na sua máquina — e executar um instalador é executar código. Até a v1.3.3 esse instalador rodava sem checagem. A partir da <strong>v1.3.4</strong>, a extensão <strong>verifica a assinatura do instalador antes de rodá-lo</strong>; se algo não bate, <strong>não roda nada</strong>.</p>
-          <ul class="doc-list"><li><strong>Assinatura Ed25519 no instalador</strong> — cada instalador do <code>vox-engine</code> vem assinado com a chave <strong>privada</strong> do projeto, que nunca sai da máquina do autor.</li><li><strong>Verifica antes de executar</strong> — a extensão traz a chave <strong>pública pinada</strong> e confere a assinatura <strong>antes</strong> de dar o primeiro passo do instalador. A ordem importa: primeiro a prova, depois a execução.</li><li><strong>Fail-closed</strong> — instalador <strong>sem assinatura</strong> ou <strong>adulterado</strong> é <strong>recusado</strong> e a instalação para. Não há modo permissivo nem chave para desligar a checagem.</li><li><strong>Verificador embutido (vox-SDK)</strong> — a conferência roda num verificador <strong>Ed25519</strong> próprio, escrito só com a biblioteca padrão e <strong>empacotado junto</strong> com a extensão. Sem dependência externa: a checagem de segurança não adiciona nada novo para você confiar.</li></ul>
-          <aside class="note note--warn"><span class="note__mark" aria-hidden="true">!</span><p>Fail-closed de verdade: um instalador não assinado ou mexido <strong>nunca</strong> é executado, e o motivo aparece <strong>alto</strong> na interface — nunca em silêncio.</p></aside>
-          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>É isto que a v1.3.4 fecha: como rodar o instalador é <strong>executar código na sua máquina</strong>, conferir a assinatura antes elimina um risco de <strong>execução remota de código (RCE)</strong> — inclusive numa rede que reassina o TLS, porque a prova é a <strong>assinatura</strong>, não o transporte.</p></aside>
+        <section class="doc-section" id="seguranca">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#seguranca" aria-label="Link para Segurança: instalador e updates assinados">#</a>Segurança: instalador e updates assinados</h2>
+          <p>Provisionar o motor é <strong>baixar e executar</strong> um instalador na sua máquina — e executar um instalador é executar código. Por isso a extensão <strong>verifica a assinatura antes de rodar</strong> qualquer coisa; se algo não bate, <strong>não roda nada</strong>.</p>
+          <ul class="doc-list"><li><strong>Assinatura Ed25519</strong> — cada instalador e cada release do motor vêm assinados com a chave <strong>privada</strong> do projeto, que nunca sai da máquina do autor.</li><li><strong>Prova antes da execução</strong> — a extensão traz a chave <strong>pública pinada</strong> e confere a assinatura <strong>antes</strong> do primeiro passo do instalador. Primeiro a prova, depois a execução.</li><li><strong><code>sha256</code> e anti-rollback</strong> — ao aplicar um update, cada arquivo só entra quando o hash confere byte a byte, e a versão precisa ser <strong>maior</strong> que a instalada (ninguém força um downgrade).</li><li><strong>Fail-closed, sem modo permissivo</strong> — instalador ou update sem assinatura válida é <strong>recusado</strong>, e o motivo aparece <strong>alto</strong> na interface. Não há chave para desligar a checagem.</li></ul>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>A prova é a <strong>assinatura</strong>, não o transporte: mesmo numa rede que <strong>reassina o TLS</strong> (proxy corporativo com CA própria), nada forjado roda nem é gravado — a checagem acontece <strong>antes</strong> de qualquer byte. O verificador Ed25519 é embutido (Python puro), sem dependência externa.</p></aside>
         </section>
 
-        <section class="doc-section" id="update-assinado">
-          <h2 class="doc-h2"><a class="doc-anchor" href="#update-assinado" aria-label="Link para Update assinado (Ed25519)">#</a>Update assinado (Ed25519)</h2>
-          <p>A verificação do instalador cuida do <strong>código que roda</strong>; o update assinado cuida dos <strong>arquivos que ficam</strong>. Desde a <strong>v1.3.3</strong>, toda atualização do motor e da extensão passa por uma verificação de <strong>supply-chain</strong> antes de tocar em qualquer arquivo — ela não confia só no transporte (HTTPS), confia na <strong>assinatura</strong>.</p>
-          <ul class="doc-list"><li><strong>Manifesto assinado (Ed25519)</strong> — cada release publica um <code>manifest.json</code> assinado com a chave <strong>privada</strong> do projeto (que nunca sai da máquina do autor).</li><li><strong>Chave pública pinada</strong> — a extensão traz embutida a chave <strong>pública</strong> e recusa qualquer manifesto cuja assinatura não bata. Sem a privada, ninguém forja um manifesto válido.</li><li><strong>sha256 obrigatório</strong> — o manifesto lista o <code>sha256</code> de cada arquivo; o update só aplica um arquivo quando o hash confere byte a byte. Sem hash, o arquivo é recusado.</li><li><strong>Anti-rollback</strong> — a versão assinada precisa ser exatamente a anunciada no marketplace <strong>e</strong> maior que a instalada, então ninguém força um downgrade para uma release antiga e vulnerável — mesmo que ela tenha sido genuinamente assinada um dia.</li></ul>
-          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>As duas camadas se somam: verificação do instalador <strong>antes de executar</strong> + manifesto assinado e <code>sha256</code> <strong>antes de aplicar</strong>. Mesmo numa rede que <strong>reassina o TLS</strong> (proxy corporativo com CA própria), nada forjado roda nem é gravado — a assinatura é conferida <strong>antes</strong> de qualquer byte, e ela não depende da confiança do TLS.</p></aside>
+        <section class="doc-section" id="multi-sessao">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#multi-sessao" aria-label="Link para Multi-sessão e atualização">#</a>Multi-sessão e atualização</h2>
+          <p>Dá para ter várias sessões do Copilot abertas, mas só existe <strong>um microfone</strong>. O voice-chat resolve isso elegendo um <strong>dono</strong>:</p>
+          <ul class="doc-list"><li><strong>Um processo primário</strong> é dono do microfone, do motor e da <strong>porta canônica</strong>; as outras sessões se <strong>ligam a ele</strong> em vez de disputar o áudio.</li><li><strong>Handover ciente de versão</strong> — se entra uma sessão com versão <strong>mais nova</strong>, ela <strong>assume</strong> o papel de dono; a mais antiga cede sem drama.</li><li><strong>Recuperação após Stop</strong> — quando você para uma sessão, ela <strong>se recupera</strong> e volta a funcionar, em vez de virar zumbi.</li></ul>
+          <p>Quando sai uma versão nova, a extensão detecta sozinha e mostra um selo de <strong>sessões desatualizadas</strong>, separando o que dá para atualizar em duas classes:</p>
+          <ul class="doc-list"><li><strong>Sincronizáveis</strong> — recarregam sozinhas; <strong>Sincronizar</strong> as coloca na nova versão sem você reabrir nada.</li><li><strong>Legadas</strong> — precisam ser <strong>reabertas</strong> para pegar a nova versão, e o selo diz exatamente quais.</li><li><strong>Atualizar e reiniciar tudo</strong> — um botão põe todas na última versão de uma vez, e a extensão se auto-recarrega <strong>sem reiniciar o app do Copilot</strong>.</li></ul>
         </section>
 
         <section class="doc-section" id="como-funciona">
           <h2 class="doc-h2"><a class="doc-anchor" href="#como-funciona" aria-label="Link para Como funciona">#</a>Como funciona</h2>
-          <ul class="doc-list"><li><strong>Captura</strong> — grava o microfone no painel (push-to-talk ou wake word).</li><li><strong>STT</strong> — o worker de voz manda o áudio ao motor pelo named pipe e recebe o texto.</li><li><strong>Agente</strong> — o texto transcrito entra como um turno normal do Copilot.</li><li><strong>TTS</strong> — o mesmo motor sintetiza um resumo falado em pt-BR, que toca no canvas.</li></ul>
-          <p>Por ser um daemon compartilhado, o motor sobe uma vez e é reusado — o STT e o TTS ficam consistentes entre o voice-chat e outros plugins que também falam. Nenhum áudio sai da sua máquina.</p>
+          <ul class="doc-list"><li><strong>Captura</strong> — grava o microfone no painel (segurar para falar ou mãos-livres), com a barra de intensidade e a guarda de silêncio ao vivo.</li><li><strong>STT</strong> — o worker de voz manda o áudio ao motor pelo <strong>named pipe</strong> e recebe o texto.</li><li><strong>Agente</strong> — o texto transcrito entra como um turno normal do Copilot.</li><li><strong>TTS</strong> — o <strong>mesmo</strong> motor sintetiza um resumo falado em pt-BR, que toca no canvas e fica no histórico da sessão.</li></ul>
+          <p>Por ser um daemon compartilhado, o motor sobe uma vez e é reusado — STT e TTS ficam consistentes entre o voice-chat e outros apps de voz. Um <strong>gate de foco</strong> opcional segura o áudio quando o app do Copilot não está em primeiro plano e <strong>drena a fila</strong> quando você volta. Nenhum áudio sai da sua máquina.</p>
         </section>
 
         <section class="doc-section" id="instalar">
@@ -147,117 +162,117 @@
             <ul class="tree__list">
             <li class="tree__row">
               <code class="tree__name">_ed25519_ref.py</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Verificador Ed25519 em Python puro (RFC 8032) — confere a assinatura sem depender de biblioteca externa.</span>
               <span class="tree__size">7.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
-              <span class="tree__role">Extensão in-app: hooks e tools da sessão viva do agente.</span>
+              <span class="tree__role">Coração da extensão in-app: painel Voz, servidor da sessão, a tool <code>falar</code> e a orquestração STT → agente → TTS.</span>
               <span class="tree__size">69 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">hooks.json</code>
-              <span class="tree__role">Hooks de ciclo de vida (SessionStart e afins).</span>
+              <span class="tree__role">Registra os hooks <code>agentStop</code> e <code>postToolUseFailure</code> do plugin.</span>
               <span class="tree__size">326 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">iframe.html</code>
-              <span class="tree__role">Canvas: painel de UI carregado pelo app GUI.</span>
-              <span class="tree__size">74 KB</span>
+              <span class="tree__role">O painel <strong>Voz</strong> em si — a interface do canvas carregada pelo app, com a barra de intensidade e o histórico.</span>
+              <span class="tree__size">78 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
-              <span class="tree__role">Metadados do plugin + marcador de canvas (extensions). O runtime completo (extensão + worker de voz) vem do repositório copilot-voice, entregue pelo copilot plugin install.</span>
+              <span class="tree__role">Metadados do plugin + marcador de canvas (o painel Voz) e dos hooks.</span>
               <span class="tree__size">633 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">requirements.txt</code>
-              <span class="tree__role">Dependências Python do worker de voz.</span>
+              <span class="tree__role">Dependências Python do worker (numpy, sherpa-onnx, sounddevice…), auto-instaladas no 1º uso.</span>
               <span class="tree__size">308 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice_worker.py</code>
-              <span class="tree__role">Worker de voz local (STT / Whisper).</span>
-              <span class="tree__size">97 KB</span>
+              <span class="tree__role">Worker de voz em Python: captura o microfone e faz a ponte STT + TTS com o <code>vox-engine</code> pelo named pipe (VAD local com sherpa-onnx).</span>
+              <span class="tree__size">103 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice-audio.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Histórico de áudio por sessão: guarda, entrega ao vivo e reproduz na ordem certa ao reabrir.</span>
               <span class="tree__size">10 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice-canvas-guard.cjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Hook <code>postToolUseFailure</code>: quando o canvas ainda está subindo, manda o agente reabrir em vez de desistir.</span>
               <span class="tree__size">6.6 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice-core.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Utilitários base: log em arquivo e I/O em disco.</span>
               <span class="tree__size">2.1 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice-net.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Servidor HTTP/SSE e a eleição primário ↔ secundário entre sessões (dono da porta canônica e handover).</span>
               <span class="tree__size">50 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice-python.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Descobre o interpretador Python sozinha (py launcher, registro, pastas comuns) — não depende do PATH.</span>
               <span class="tree__size">4.5 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice-shared.cjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Contrato entre processos (pasta de dados, filas) que o hook e a extensão compartilham — para nunca divergirem.</span>
               <span class="tree__size">2.1 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice-state.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Estado compartilhado do runtime — as coleções que rede, worker, áudio e turnos dividem.</span>
               <span class="tree__size">4.6 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice-summary-stop.cjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Hook de fim de turno (<code>agentStop</code>): garante que a resposta seja <strong>falada</strong> e avisa se o painel caiu.</span>
               <span class="tree__size">12 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice-text.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Prepara o texto para a fala: limpa markdown/emoji e corta em frases (puro e testável).</span>
               <span class="tree__size">3.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice-turns.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Entrega durável dos turnos de voz por sessão (fila persistida, sem duplicar após um handover).</span>
               <span class="tree__size">11 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice-update.mjs</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Auto-update da <strong>extensão</strong>: versões, assinatura Ed25519 do manifesto, download resiliente e a decisão de recarregar a quente ou reiniciar.</span>
               <span class="tree__size">15 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice-worker.mjs</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">24 KB</span>
+              <span class="tree__role">Cuida do worker de voz em Python: sobe, vigia e cura o processo; catálogos de microfone e de vozes.</span>
+              <span class="tree__size">25 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">vox_audio_devices.py</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Descobre e resolve microfones por <strong>nome</strong> (estável ao trocar de USB), com preferência WASAPI/DirectSound.</span>
               <span class="tree__size">7.5 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">vox_capture.py</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">Captura de microfone reutilizável (16 kHz mono), segmentando fora da thread de áudio.</span>
               <span class="tree__size">13 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">vox_sdk.py</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">75 KB</span>
+              <span class="tree__role">O <strong>vox-SDK</strong>: instala/atualiza/usa o <code>vox-engine</code>, conferindo a <strong>assinatura Ed25519</strong> do instalador antes de rodar (fail-closed).</span>
+              <span class="tree__size">82 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">vox_stream.py</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">STT em tempo quase real: segmenta por pausa e transcreve sobreposto à captura (ditado ao vivo).</span>
               <span class="tree__size">40 KB</span>
             </li>
             </ul>
@@ -268,35 +283,35 @@
           <h2 class="doc-h2"><a class="doc-anchor" href="#faq" aria-label="Link para Perguntas frequentes">#</a>Perguntas frequentes</h2>
           <details class="faq">
             <summary>Precisa de internet?</summary>
-            <p>Só na primeira vez, para baixar o motor e os modelos, e depois quando há atualização. Fora isso, STT e TTS rodam na sua máquina — nenhum áudio sai do computador. O agente do Copilot usa a rede como de costume.</p>
+            <p>Só na 1ª vez, para baixar o motor e a voz, e depois quando há atualização. Fora isso, <strong>STT e TTS rodam na sua máquina</strong> — nenhum áudio sai do computador. O agente do Copilot usa a rede como sempre.</p>
           </details>
           <details class="faq">
-            <summary>Preciso instalar o vox-engine na mão?</summary>
-            <p>Não. A extensão instala, atualiza e sobe o motor sozinha no arranque; você só abre o painel Voz.</p>
+            <summary>Funciona fora do Windows?</summary>
+            <p>Não. O voice-chat é <strong>Windows-only</strong> (10/11): o <strong>named pipe</strong> e o instalador <strong><code>.ps1</code></strong> do motor são específicos do Windows. Não há versão para outros sistemas.</p>
           </details>
           <details class="faq">
-            <summary>O que muda na v1.3.4?</summary>
-            <p>A extensão passou a <strong>verificar a assinatura do instalador do motor antes de executá-lo</strong>. Antes, o instalador era baixado e rodado sem checagem; agora, um instalador não assinado ou adulterado é <strong>recusado</strong> (fail-closed), fechando um risco de <strong>execução remota de código (RCE)</strong>. A conferência usa um verificador Ed25519 próprio (o <strong>vox-SDK</strong>), empacotado com a extensão, sem biblioteca externa.</p>
+            <summary>Preciso instalar o <code>vox-engine</code> na mão?</summary>
+            <p>Não. A extensão <strong>instala, atualiza e sobe</strong> o motor sozinha no arranque; você só abre o painel Voz. E ela nunca recicla o motor <strong>no meio</strong> de uma gravação — o update espera ele ficar ocioso.</p>
+          </details>
+          <details class="faq">
+            <summary>E se o microfone não captar som?</summary>
+            <p>Se ficar cerca de <strong>3 segundos mudo durante a gravação</strong>, aparece um aviso — visual e um bipe curto — <strong>sem cortar</strong> a captura, para você não gravar minutos em silêncio sem perceber. A barra de intensidade fica sempre à vista, e o veredito final de “sem áudio” <strong>ignora o próprio bipe</strong>.</p>
+          </details>
+          <details class="faq">
+            <summary>Como o plugin se atualiza?</summary>
+            <p>Ele detecta a nova versão sozinho e mostra um selo de <strong>sessões desatualizadas</strong>: as <strong>sincronizáveis</strong> recarregam sozinhas (botão <strong>Sincronizar</strong>) e as <strong>legadas</strong> precisam <strong>reabrir</strong>. <strong>Atualizar e reiniciar tudo</strong> põe todas na última versão — a extensão se auto-recarrega <strong>sem reiniciar o app do Copilot</strong>. O motor, por baixo, só troca quando fica <strong>ocioso</strong>.</p>
           </details>
           <details class="faq">
             <summary>Como sei que uma instalação ou update é legítimo?</summary>
-            <p>São duas camadas, ambas <strong>fail-closed</strong>. Antes de <strong>executar</strong> o instalador do motor, a extensão confere a <strong>assinatura Ed25519</strong> dele contra uma chave pública <strong>pinada</strong> e recusa o que não bate (novo na v1.3.4). E, ao <strong>aplicar</strong> arquivos de uma atualização, ela exige um <code>manifest.json</code> <strong>assinado</strong>, o <code>sha256</code> de cada arquivo e uma versão <strong>maior</strong> que a instalada (<strong>anti-rollback</strong>, desde a v1.3.3). Sem a chave privada do projeto, nada forjado passa.</p>
-          </details>
-          <details class="faq">
-            <summary>Atualizar não funciona na rede da empresa?</summary>
-            <p>Em redes que reassinam o HTTPS (&quot;SSL assinado&quot;, proxy corporativo com CA própria), o download nativo do Node pode falhar porque o pacote de CAs dele não conhece a CA da empresa. Quando isso acontece, a extensão baixa pelo <code>curl.exe</code> do <code>System32</code> (stack <strong>Schannel</strong> do Windows), que confia no <strong>trust store da máquina</strong> — onde o TI já instalou a CA corporativa — e respeita o proxy. É automático, <strong>sem configurar nada</strong> e <strong>sem desligar a verificação TLS</strong>; e, mesmo assim, as <strong>assinaturas Ed25519</strong> (do instalador e do manifesto) e o <strong>sha256</strong> de cada arquivo continuam conferidos, então uma rede que reassina o TLS não consegue nem forjar um update nem fazer você rodar um instalador adulterado.</p>
+            <p>Antes de <strong>executar</strong> o instalador do motor, a extensão confere a <strong>assinatura Ed25519</strong> contra uma chave pública <strong>pinada</strong> e recusa o que não bate. Ao <strong>aplicar</strong> arquivos de um update, exige o <code>sha256</code> de cada arquivo e uma versão <strong>maior</strong> que a instalada (anti-rollback). Tudo <strong>fail-closed</strong>: sem a chave privada do projeto, nada forjado passa — nem numa rede que reassina o TLS.</p>
           </details>
           <details class="faq">
             <summary>E se o motor não subir?</summary>
-            <p>O erro aparece <strong>alto</strong> na interface, nunca em silêncio. Confira o Python 3.11+ no PATH e os logs do motor (na pasta de dados dele), feche o app e abra de novo para a extensão tentar provisionar o motor outra vez. Se um instalador for <strong>recusado</strong> por assinatura inválida (v1.3.4), a instalação para de propósito e o motivo aparece — é o comportamento fail-closed, não uma falha do motor.</p>
+            <p>O erro aparece <strong>alto</strong> na interface, nunca em silêncio. Feche o app e abra de novo para a extensão tentar provisionar o motor outra vez, e confira os logs (na pasta de dados do motor). Se um instalador for <strong>recusado</strong> por assinatura inválida, a instalação para de propósito — é o fail-closed em ação, não uma falha do motor.</p>
           </details>
           <details class="faq">
             <summary>Onde mora o código do plugin?</summary>
-            <p>O runtime (a extensão e o worker de voz) vive no repositório <code>copilot-voice</code> e é entregue pelo <code>copilot plugin install</code>/<code>update</code>. Esta vitrine guarda só os metadados — por isso a <strong>Estrutura</strong> abaixo lista apenas o <code>plugin.json</code>.</p>
-          </details>
-          <details class="faq">
-            <summary>Funciona em outros sistemas?</summary>
-            <p>Não. O voice-chat é <strong>Windows-only</strong>: o named pipe e o instalador <code>.ps1</code> são específicos do Windows. Não há versão para outros sistemas.</p>
+            <p>O código canônico vive no repositório <strong><code>copilot-voice</code></strong> e entra aqui <strong>vendado</strong> — sincronizado a cada release em <code>plugins/voice-chat/</code>. É exatamente isso que o <code>copilot plugin install</code>/<code>update</code> entrega; a <strong>Estrutura</strong> abaixo mostra a árvore completa.</p>
           </details>
         </section>
       </article>
@@ -307,9 +322,10 @@
           <ul class="toc__list">
             <li><a href="#o-que-e">O que é</a></li>
             <li><a href="#como-usar">Como usar</a></li>
+            <li><a href="#nao-perca-audio">Não perca áudio</a></li>
             <li><a href="#o-motor">O motor único (vox-engine)</a></li>
-            <li><a href="#instalador-verificado">Instalador verificado (novo na v1.3.4)</a></li>
-            <li><a href="#update-assinado">Update assinado (Ed25519)</a></li>
+            <li><a href="#seguranca">Segurança: instalador e updates assinados</a></li>
+            <li><a href="#multi-sessao">Multi-sessão e atualização</a></li>
             <li><a href="#como-funciona">Como funciona</a></li>
             <li><a href="#instalar">Instalar</a></li>
             <li><a href="#estrutura">Estrutura</a></li>
@@ -317,12 +333,12 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.5.33</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.5.35</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
             <div class="meta__row"><dt>tipo</dt><dd><span class="pill">canvas</span></dd></div>
-            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>Copilot App (desktop) com o GitHub Copilot SDK</li><li>Windows 10/11 (o motor usa named pipe e instalador <code>.ps1</code>)</li><li>Python 3.11+ no PATH (o motor cria o próprio venv)</li><li>Node 18.2+ (runtime da extensão)</li><li>Microfone e saída de áudio</li></ul></dd></div>
+            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>GitHub Copilot CLI (app de desktop, com canvas)</li><li>Windows 10/11 — o motor usa named pipe e instalador <code>.ps1</code></li><li>Node 18+ (runtime da extensão)</li><li>Python 3 — o worker de voz é Python; a extensão o encontra sozinha e instala as dependências no 1º uso</li><li>Microfone e saída de áudio</li></ul></dd></div>
             <div class="meta__row"><dt>tags</dt><dd><ul class="tags tags--meta"><li>voice</li><li>voz</li><li>tts</li><li>stt</li><li>whisper</li><li>canvas</li></ul></dd></div>
           </dl>
       </aside>
