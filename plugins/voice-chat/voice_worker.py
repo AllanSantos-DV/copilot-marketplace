@@ -125,7 +125,7 @@ _ensure_deps()
 
 import numpy as np
 
-# SDK flats re-vendorizados (vox-engine SDK 1.5.0): segmentação+STT em streaming
+# SDK flats re-vendorizados (vox-engine SDK 1.7.0): segmentação+STT em streaming
 # (StreamingTranscriber/StreamSegmenter) e enumeração/resolução de dispositivos de
 # entrada (vox_audio_devices). vox_stream depende de numpy -> importado APÓS numpy.
 from vox_stream import StreamingTranscriber, StreamSegmenter

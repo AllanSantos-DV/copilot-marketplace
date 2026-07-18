@@ -49,7 +49,7 @@ from typing import Literal
 # ---------------------------------------------------------------------------
 # CONFIG canônica — fonte única (os MESMOS valores no SDK Node irmão).
 # ---------------------------------------------------------------------------
-SDK_VERSION = "1.5.0"
+SDK_VERSION = "1.7.0"
 
 RELEASES_API = ("https://api.github.com/repos/AllanSantos-DV/"
                 "copilot-marketplace/releases")
@@ -168,6 +168,7 @@ __all__ = [
     "parse_version", "is_newer", "latest_release", "installed_version",
     "download_and_run_installer", "check_and_update",
     "start_installed_daemon", "ensure_vox", "ensure_vox_detailed",
+    "stop_daemon", "update_engine",
 ]
 
 
@@ -591,6 +592,52 @@ class VoxClient:
         """Estado do motor: ``{version, model, provider, stt_ready, tts_ready, ...}``."""
         h, _ = self._request({"cmd": "info", "req_id": self._next_rid()}, timeout=timeout)
         return h
+
+    def update_check(self, timeout: float = 8.0) -> dict:
+        """Pergunta ao motor se há release ASSINADA mais nova (endpoint READ-ONLY
+        ``update_check``) — o consumidor decide quando chamar :meth:`update`. Nunca levanta;
+        daemon legado sem o comando → ``update_available=None``. Retorna
+        ``{'current','latest','update_available'}``."""
+        try:
+            h, _ = self._request({"cmd": "update_check", "req_id": self._next_rid()},
+                                 timeout=timeout)
+        except Exception:  # noqa: BLE001
+            return {"current": None, "latest": None, "update_available": None}
+        if h.get("event") != "update_check":         # daemon legado (bad_cmd) → desconhecido
+            return {"current": h.get("version"), "latest": None, "update_available": None}
+        return {"current": h.get("current"), "latest": h.get("latest"),
+                "update_available": h.get("update_available")}
+
+    def update(self, *, force: bool = False, with_translation: bool = True,
+               boot_timeout_ms: "int | None" = None) -> dict:
+        """Pede a ATUALIZAÇÃO do motor via o comando COORDENADO ``update`` (contrato seguro:
+        só recicla OCIOSO DE VERDADE, ENFILEIRA se ocupado → ``deferred``, e responde
+        ``in_progress`` a um update concorrente). Retorna ``{action, from, to, ...}`` NA HORA
+        (a troca acontece em background). Daemon LEGADO sem o coordenador (``bad_cmd``) → cai
+        para o update orquestrado pelo cliente (:func:`update_engine`, só com o guard de sessão).
+        ``force`` atualiza mesmo com trabalho em voo."""
+        try:
+            h, _ = self._request({"cmd": "update", "force": bool(force),
+                                  "req_id": self._next_rid()}, timeout=15.0)
+        except Exception:  # noqa: BLE001
+            h = None
+        if isinstance(h, dict) and h.get("event") == "update":
+            return {k: v for k, v in h.items() if k not in ("event", "req_id")}
+        return update_engine(self.pipe_name, force=force, with_translation=with_translation,
+                             boot_timeout_ms=boot_timeout_ms)
+
+    def update_status(self, timeout: float = 8.0) -> dict:
+        """Estado do update no motor (``state``/``current``/``latest``/``update_available``/
+        ``pending``), via o endpoint READ-ONLY ``update_status``. Daemon legado → ``state``
+        ``unknown`` + o que o ``update_check`` souber. Nunca levanta."""
+        try:
+            h, _ = self._request({"cmd": "update_status", "req_id": self._next_rid()},
+                                 timeout=timeout)
+        except Exception:  # noqa: BLE001
+            return {"state": "unknown"}
+        if h.get("event") != "update_status":
+            return {"state": "unknown", **self.update_check(timeout=timeout)}
+        return {k: v for k, v in h.items() if k not in ("event", "req_id")}
 
     def capabilities(self, timeout: float = 5.0) -> Capabilities:
         """Retrato TIPADO das capacidades desta máquina (uma chamada → cliente sabe tudo).
@@ -1387,12 +1434,15 @@ def _wait_pipe_down(pipe: str, timeout: float, *, is_up, monotonic, sleep) -> bo
 def stop_daemon(pipe: str = DEFAULT_PIPE, *, pid: "int | None" = None,
                 connect=None, kill=None, is_up=None, read_pidfile=None,
                 find_pid=None, pid_matches=None, monotonic=None, sleep=None,
-                graceful_timeout: float = 8.0, kill_timeout: float = 6.0) -> bool:
+                graceful_timeout: float = 8.0, kill_timeout: float = 6.0,
+                force: bool = False) -> bool:
     """Para o daemon do ``pipe`` para reciclar (o update valer + o ditado subir com a
     versão nova). 1) shutdown GRACIOSO pelo pipe (daemon 0.9.0+); se o daemon responde
-    BUSY (sessão abriu na corrida), ABORTA — nunca mata. 2) espera o pipe cair; 3) fallback
-    KILL por pid: explícito/info (confiável) → pidfile (VERIFICADO) → scan (ancorado+verificado);
-    nunca mata um PID não verificado. 4) espera de novo. True sse o pipe caiu. Nunca levanta."""
+    BUSY (sessão abriu na corrida) e ``force`` é False, ABORTA — nunca mata. Com ``force``
+    manda ``force=True`` (o daemon derruba MESMO ocupado — uso iniciado pelo usuário). 2) espera
+    o pipe cair; 3) fallback KILL por pid: explícito/info (confiável) → pidfile (VERIFICADO) →
+    scan (ancorado+verificado); nunca mata um PID não verificado. 4) espera de novo. True sse o
+    pipe caiu. Nunca levanta."""
     connect = connect or (lambda pp: VoxClient.try_connect(pp, connect_timeout=1.0))
     kill = kill or _kill_pid
     is_up = is_up or _daemon_up
@@ -1415,8 +1465,8 @@ def stop_daemon(pipe: str = DEFAULT_PIPE, *, pid: "int | None" = None,
                     except Exception:  # noqa: BLE001
                         learned_pid = None
                 try:
-                    resp, _ = c._request({"cmd": "shutdown", "req_id": c._next_rid()},
-                                         timeout=2.0)
+                    resp, _ = c._request({"cmd": "shutdown", "force": bool(force),
+                                          "req_id": c._next_rid()}, timeout=2.0)
                     if isinstance(resp, dict) and resp.get("event") == "busy":
                         refused_busy = True
                 except Exception:  # noqa: BLE001 — daemon legado: bad_cmd / socket caiu
@@ -1644,3 +1694,89 @@ def ensure_vox(pipe: "str | None" = None, **opts) -> "VoxClient | None":
     ``None`` para o chamador cair no seu fallback. Açúcar sobre
     :func:`ensure_vox_detailed` (mesmos ``opts``)."""
     return ensure_vox_detailed(pipe, **opts)["client"]
+
+
+# ---------------------------------------------------------------------------
+# update_engine — ENDPOINT EXPLÍCITO de atualização a mando do consumidor.
+# ---------------------------------------------------------------------------
+def update_engine(pipe: "str | None" = None, *, force: bool = False,
+                  with_translation: bool = True, boot_timeout_ms: "int | None" = None,
+                  http_get=None, python_exe: "str | None" = None, stop=None, run=None) -> dict:
+    """Atualiza o motor para a ÚLTIMA release ASSINADA AGORA, a mando do consumidor
+    (voice-chat/Action chamam ``client.update()``). É o mesmo recycle da auto-cura, porém
+    DISPARADO sob demanda: reusa ``stop_daemon`` (gracioso) + ``check_and_update`` (baixa+VERIFICA
+    fail-closed + ``install.ps1 -NoStart`` sob lock cross-process) + ``start_installed_daemon``
+    (o ditado sobe com a versão nova).
+
+    ``force=True`` recicla MESMO com sessão aberta (uso iniciado pelo usuário: aceita o breve
+    reinício); sem ``force``, RECUSA quando o motor está ocupado (``busy``).
+
+    Retorna ``{'action': <estado>, 'from': <ver|None>, 'to': <ver|None>[, 'sessions']}`` onde
+    ``action`` ∈ ``up_to_date`` | ``updated`` | ``busy`` | ``no_release`` | ``failed``.
+    Nunca levanta (best-effort — sempre tenta deixar um motor no ar no fim)."""
+    pipe = pipe or DEFAULT_PIPE
+    stop = stop or stop_daemon
+    boot_timeout = (boot_timeout_ms if boot_timeout_ms is not None else BOOT_TIMEOUT_MS) / 1000.0
+
+    latest = latest_release(http_get=http_get)
+    to = latest["version"] if latest else None
+
+    c = VoxClient.try_connect(pipe, CONNECT_TIMEOUT_MS / 1000.0)
+    running_ver = running_sessions = running_pid = None
+    if c is not None:
+        try:
+            info = c.info() or {}
+            running_ver = info.get("version")
+            running_sessions = info.get("sessions")
+            running_pid = info.get("pid")
+        except Exception:  # noqa: BLE001
+            pass
+    cur = running_ver or installed_version(python_exe, run=run)
+
+    if to is None:                                   # sem release (offline)
+        if c is not None:
+            try:
+                c.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return {"action": "no_release", "from": cur, "to": None}
+
+    if cur and not is_newer(to, cur):                # já na última
+        if c is None:
+            start_installed_daemon(pipe, run=run)
+        else:
+            try:
+                c.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return {"action": "up_to_date", "from": cur, "to": to}
+
+    if c is not None:                                # motor no ar e velho → reciclar
+        if running_sessions not in (0, None) and not force:
+            try:
+                c.close()
+            except Exception:  # noqa: BLE001
+                pass
+            return {"action": "busy", "from": cur, "to": to, "sessions": running_sessions}
+        try:
+            c.close()
+        except Exception:  # noqa: BLE001
+            pass
+        if not stop(pipe, pid=running_pid, force=force):
+            return {"action": "busy", "from": cur, "to": to}
+
+    res = check_and_update(python_exe, http_get=http_get, run=run, latest=latest,
+                           pipe=pipe, with_translation=with_translation)
+    if res.get("action") in ("failed", "unavailable"):
+        start_installed_daemon(pipe, run=run)        # não deixa o consumidor sem motor
+        return {"action": "failed", "from": cur, "to": to}
+    if not start_installed_daemon(pipe, run=run):
+        return {"action": "failed", "from": cur, "to": to}
+    nc = _wait_for_pipe(pipe, boot_timeout)
+    if nc is not None:
+        try:
+            nc.close()
+        except Exception:  # noqa: BLE001
+            pass
+        return {"action": "updated", "from": cur, "to": to}
+    return {"action": "failed", "from": cur, "to": to, "reason": "boot_timeout"}
