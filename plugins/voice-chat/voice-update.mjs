@@ -255,7 +255,7 @@ export function extLogicNormalize(src) {
 // inclui worker/SDK (hot via restart do worker), o hook (roda fresco a cada agentStop) nem a UI. O hash
 // de lógica cobre TODOS eles (concatenados, versão mascarada): senão um update que só mexe num módulo
 // de lógica não dispararia o app-restart e a extensão seguiria com o código antigo em memória.
-export const LOGIC_FILES = ["extension.mjs", "voice-shared.cjs", "voice-core.mjs", "voice-python.mjs", "voice-update.mjs", "voice-text.mjs", "voice-state.mjs", "voice-audio.mjs", "voice-turns.mjs", "voice-worker.mjs", "voice-net.mjs"];
+export const LOGIC_FILES = ["extension.mjs", "voice-shared.cjs", "voice-core.mjs", "voice-python.mjs", "voice-update.mjs", "voice-text.mjs", "voice-state.mjs", "voice-audio.mjs", "voice-worker.mjs", "voice-net.mjs"];
 export function computeLogicSha(getSrc) {
     let acc = "";
     for (const rel of LOGIC_FILES) acc += rel + "\0" + extLogicNormalize(getSrc(rel)) + "\0";
