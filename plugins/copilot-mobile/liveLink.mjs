@@ -18,6 +18,8 @@
 // retries later — the app session behaves exactly as before (voice + drift only). Nothing here may
 // ever throw into the live session.
 import http from "node:http";
+import { createSseParser } from "./sse.mjs";
+import { postJson } from "./http.mjs";
 import { readFileSync } from "node:fs";
 
 const RETRY_MS = 4000;
@@ -69,17 +71,7 @@ export class LiveLink {
   }
 
   _post(d, path, body) {
-    return new Promise((resolve) => {
-      let data;
-      try { data = Buffer.from(JSON.stringify(body || {})); } catch { return resolve(0); }
-      const req = http.request(
-        { host: "127.0.0.1", port: d.port, path, method: "POST", agent: this._agent,
-          headers: { "Content-Type": "application/json", "Content-Length": data.length, "x-copilot-token": d.token } },
-        (res) => { res.resume(); res.on("end", () => resolve(res.statusCode || 0)); res.on("error", () => resolve(0)); },
-      );
-      req.on("error", () => resolve(0));
-      req.write(data); req.end();
-    });
+    return postJson({ port: d.port, path, agent: this._agent, headers: { "x-copilot-token": d.token } }, body);
   }
 
   /** Push a live runtime event to the daemon, preserving order via a single-drain queue. */
@@ -193,24 +185,11 @@ export class LiveLink {
         this._d = d;
         this.log(`live link up: session=${this.sessionId} port=${d.port}`);
         this._drain(); // flush anything queued before the SSE opened
-        let buf = "";
-        res.setEncoding("utf8");
-        res.on("data", (chunk) => {
-          buf += chunk;
-          let idx;
-          while ((idx = buf.indexOf("\n\n")) >= 0) {
-            const frame = buf.slice(0, idx); buf = buf.slice(idx + 2);
-            for (const line of frame.split("\n")) {
-              const s = line.trimStart();
-              if (!s.startsWith("data:")) continue; // ignore ":" keep-alive comments
-              const payload = s.slice(5).trim();
-              if (!payload) continue;
-              try {
-                this._handleFramePayload(payload);
-              } catch {}
-            }
-          }
+        const feed = createSseParser((payload) => {
+          try { this._handleFramePayload(payload); } catch {}
         });
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => feed(chunk));
         res.on("end", () => this._onDrop());
         res.on("error", () => this._onDrop());
       },

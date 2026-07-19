@@ -10,15 +10,15 @@
 // re-installing app/ never wipes pairing or the chosen transport.
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, openSync, closeSync, createWriteStream, renameSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, openSync, closeSync, rmSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { get as httpsGet } from "node:https";
+import { download } from "./http.mjs";
 
 // Pinned target: bump these together with a new dist release to roll the daemon forward.
-const DAEMON_VERSION = "0.1.8";
+const DAEMON_VERSION = "0.1.9";
 const DIST_OWNER = "AllanSantos-DV";
 const DIST_REPO = "copilot-mobile-daemon-dist";
-const DIST_TAG = "copilot-mobile-daemon-v0.1.8";
+const DIST_TAG = "copilot-mobile-daemon-v0.1.9";
 const DIST_ASSET = "copilot-mobile-daemon-win32-x64.tar.gz";
 const DIST_URL = `https://github.com/${DIST_OWNER}/${DIST_REPO}/releases/download/${DIST_TAG}/${DIST_ASSET}`;
 
@@ -50,26 +50,8 @@ function trayRunning() {
 }
 
 // Download with redirect-following (GitHub release URLs 302 to objects.githubusercontent.com),
-// streaming to a .part file then atomically renaming. Resolves on 200, rejects otherwise.
-function download(url, dest, redirects = 0) {
-  return new Promise((resolve, reject) => {
-    if (redirects > 5) return reject(new Error("too many redirects"));
-    const req = httpsGet(url, (res) => {
-      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
-        res.resume();
-        return resolve(download(res.headers.location, dest, redirects + 1));
-      }
-      if (res.statusCode !== 200) { res.resume(); return reject(new Error("HTTP " + res.statusCode)); }
-      const part = dest + ".part";
-      const out = createWriteStream(part);
-      res.pipe(out);
-      out.on("finish", () => out.close(() => { try { renameSync(part, dest); resolve(); } catch (e) { reject(e); } }));
-      out.on("error", reject);
-    });
-    req.on("error", reject);
-    req.setTimeout(180000, () => req.destroy(new Error("download timeout")));
-  });
-}
+// streaming to a .part file then atomically renaming — see the shared helper in ./http.mjs
+// (redirects/.part/180s-timeout are its defaults, so the call-sites keep `download(url, dest)`).
 
 function run(cmd, args, opts = {}) {
   return new Promise((resolve) => {
