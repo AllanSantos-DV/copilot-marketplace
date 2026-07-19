@@ -4,12 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>voice-chat — copilot-marketplace</title>
-  <meta name="description" content="Converse por voz com o Copilot em pt-BR: fale, veja a transcrição e ouça um resumo falado — 100% local no Windows, num único motor (vox-engine). Na 2.0.0 cada sessão virou independente e o velho bug de Stop→fala foi corrigido na raiz." />
+  <meta name="description" content="Converse por voz com o Copilot em pt-BR: fale, veja a transcrição e ouça um resumo falado — 100% local no Windows, num único motor (vox-engine). Cada sessão é independente e, na 2.0.1, vale uma sessão por microfone: sem conflito entre elas, e a sessão inativa libera o microfone sozinha." />
   <meta name="color-scheme" content="dark" />
   <meta name="theme-color" content="#14121C" />
   <meta property="og:type" content="article" />
   <meta property="og:title" content="voice-chat — copilot-marketplace" />
-  <meta property="og:description" content="Converse por voz com o Copilot em pt-BR: fale, veja a transcrição e ouça um resumo falado — 100% local no Windows, num único motor (vox-engine). Na 2.0.0 cada sessão virou independente e o velho bug de Stop→fala foi corrigido na raiz." />
+  <meta property="og:description" content="Converse por voz com o Copilot em pt-BR: fale, veja a transcrição e ouça um resumo falado — 100% local no Windows, num único motor (vox-engine). Cada sessão é independente e, na 2.0.1, vale uma sessão por microfone: sem conflito entre elas, e a sessão inativa libera o microfone sozinha." />
   <meta property="og:url" content="https://allansantos-dv.github.io/copilot-marketplace/p/voice-chat/" />
   <link rel="canonical" href="https://allansantos-dv.github.io/copilot-marketplace/p/voice-chat/" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -39,9 +39,9 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">voice-chat</h1>
-        <span class="chip" title="versão publicada">v2.0.0</span>
+        <span class="chip" title="versão publicada">v2.0.1</span>
       </div>
-      <p class="doc-hero__lede">O <strong>voice-chat</strong> transforma o terminal numa conversa: você segura para falar, o motor único local <strong><code>vox-engine</code></strong> transcreve na sua máquina, o texto vira um turno normal do Copilot e uma voz neural em pt-BR lê o resumo de volta. Fala e voz — <strong>STT e TTS</strong> — passam pelo <strong>mesmo</strong> motor, e <strong>nenhum áudio sai do computador</strong>. A <strong>2.0.0</strong> deixou a extensão <strong>fina</strong>: cada sessão do Copilot agora grava, transcreve, injeta a fala e toca o áudio <strong>na própria sessão</strong>, direto com o motor — sem a antiga camada de roteamento entre sessões que fazia a fala se perder ou duplicar depois de um <strong>Stop</strong>.</p>
+      <p class="doc-hero__lede">O <strong>voice-chat</strong> transforma o terminal numa conversa: você segura para falar, o motor único local <strong><code>vox-engine</code></strong> transcreve na sua máquina, o texto vira um turno normal do Copilot e uma voz neural em pt-BR lê o resumo de volta. Fala e voz — <strong>STT e TTS</strong> — passam pelo <strong>mesmo</strong> motor, e <strong>nenhum áudio sai do computador</strong>. A <strong>2.0.0</strong> deixou a extensão <strong>fina</strong>: cada sessão do Copilot agora grava, transcreve, injeta a fala e toca o áudio <strong>na própria sessão</strong>, direto com o motor — sem a antiga camada de roteamento entre sessões que fazia a fala se perder ou duplicar depois de um <strong>Stop</strong>. A <strong>2.0.1</strong> fecha a última corrida entre sessões: como o microfone é <strong>um só</strong> na máquina, agora <strong>só uma sessão grava por vez</strong> — as outras são avisadas na hora, e uma sessão inativa <strong>libera o microfone sozinha</strong>.</p>
       <div class="doc-hero__cta">
         <div class="prompt prompt--sm" data-cmd="copilot plugin install voice-chat@copilot-marketplace">
         <span class="prompt__glyph" aria-hidden="true">⌁</span>
@@ -54,8 +54,8 @@
       </div>
       <ul class="hl" aria-label="Destaques">
         <li class="hl__item">
-          <h3 class="hl__title">Mais robusto na 2.0.0</h3>
-          <p class="hl__body">Refactor de arquitetura: cada sessão ficou <strong>independente</strong> e o bug de <strong>Stop→fala</strong> — fala perdida ou duplicada ao falar logo após um Stop — foi corrigido <strong>na raiz</strong>. <strong>~3.100 linhas a menos</strong>, sem perder nenhuma função.</p>
+          <h3 class="hl__title">Mais robusto na 2.0</h3>
+          <p class="hl__body">Um refactor de arquitetura deixou cada sessão <strong>independente</strong> e matou <strong>na raiz</strong> o bug de <strong>Stop→fala</strong> (fala perdida ou duplicada). A <strong>2.0.1</strong> fecha a última corrida: <strong>uma sessão por microfone</strong>, sem conflito. <strong>~3.100 linhas a menos</strong>, sem perder nenhuma função.</p>
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Fale e ouça a resposta</h3>
@@ -82,10 +82,12 @@
         </section>
 
         <section class="doc-section" id="novidades">
-          <h2 class="doc-h2"><a class="doc-anchor" href="#novidades" aria-label="Link para O que mudou na 2.0.0">#</a>O que mudou na 2.0.0</h2>
-          <p>A <strong>2.0.0</strong> é um <strong>refactor de arquitetura</strong>: a extensão ficou <strong>fina</strong> e bugs antigos foram corrigidos <strong>na raiz</strong> — sem tirar nada do que você já usava.</p>
+          <h2 class="doc-h2"><a class="doc-anchor" href="#novidades" aria-label="Link para O que mudou na 2.0">#</a>O que mudou na 2.0</h2>
+          <p>A <strong>2.0.0</strong> foi um <strong>refactor de arquitetura</strong>: a extensão ficou <strong>fina</strong> e bugs antigos foram corrigidos <strong>na raiz</strong> — sem tirar nada do que você já usava.</p>
           <ul class="doc-list"><li><strong>Cada sessão é independente</strong> — grava, transcreve, injeta a fala e toca o áudio na <strong>própria</strong> sessão, falando direto com o motor único. Acabou a camada intermediária que roteava áudio e turnos <strong>entre</strong> sessões.</li><li><strong>Fim do bug de Stop→fala</strong> — antes, dar <strong>Stop</strong> no agente e falar em seguida podia <strong>perder</strong> a fala ou injetá-la <strong>duplicada ou fora de ordem</strong>. Agora a fala é capturada e injetada de forma confiável na própria sessão, <strong>uma vez só</strong>.</li><li><strong>~3.100 linhas a menos</strong> — saíram a eleição de sessão “primária”, a porta canônica e o roteamento entre sessões. Menos peças móveis: mais leve, mais robusta e mais simples de manter.</li><li><strong>Sem regressão</strong> — voz, transcrição, histórico de áudio, guarda de silêncio, mãos-livres, interromper e seleção de microfone e de voz: tudo continua.</li></ul>
           <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>No seu dia a dia nada muda no fluxo — você só ganha uma extensão que erra menos, principalmente ao intercalar <strong>Stop</strong> e fala.</p></aside>
+          <p><strong>Na 2.0.1</strong>, o fecho dessa história: o microfone é <strong>um só</strong> na máquina, e faltava impedir que <strong>duas sessões</strong> o abrissem <strong>ao mesmo tempo</strong> e embolassem o áudio. Agora um <strong>lock de gravação compartilhado</strong> garante <strong>uma sessão gravando por vez</strong>.</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Se você tenta gravar numa segunda sessão, ela avisa <strong>“O microfone está em uso por outra sessão.”</strong> em vez de abrir um segundo stream. E o lock <strong>se cura sozinho</strong>: uma sessão que fecha ou trava no meio da gravação <strong>libera o microfone em até 15s</strong> — ou <strong>na hora</strong>, se o processo já sumiu.</p></aside>
         </section>
 
         <section class="doc-section" id="como-usar">
@@ -113,7 +115,7 @@
         <section class="doc-section" id="sessoes">
           <h2 class="doc-h2"><a class="doc-anchor" href="#sessoes" aria-label="Link para Sessões independentes">#</a>Sessões independentes</h2>
           <p>Abra quantas sessões do Copilot quiser: na <strong>2.0.0</strong>, cada uma é <strong>dona da sua própria voz</strong>. A sessão grava, transcreve, injeta a fala e toca o áudio <strong>para si mesma</strong>, falando direto com o motor único — sem disputar um “dono” do microfone nem depender de outra sessão para receber o que você falou.</p>
-          <ul class="doc-list"><li><strong>Sem primário, sem porta canônica</strong> — nenhuma sessão manda nas outras; cada painel sobe o próprio servidor local numa porta efêmera que serve <strong>só ele</strong>.</li><li><strong>Fala entregue na própria sessão</strong> — mesmo com o painel em segundo plano, a fala capturada chega à <strong>própria</strong> sessão de forma durável e é injetada <strong>uma vez só</strong>, na ordem. É o que corrige o <strong>Stop→fala</strong>.</li><li><strong>Histórico por sessão</strong> — cada sessão guarda e reproduz <strong>apenas</strong> o próprio histórico de áudio.</li></ul>
+          <ul class="doc-list"><li><strong>Sem primário, sem porta canônica</strong> — nenhuma sessão manda nas outras; cada painel sobe o próprio servidor local numa porta efêmera que serve <strong>só ele</strong>.</li><li><strong>Fala entregue na própria sessão</strong> — mesmo com o painel em segundo plano, a fala capturada chega à <strong>própria</strong> sessão de forma durável e é injetada <strong>uma vez só</strong>, na ordem. É o que corrige o <strong>Stop→fala</strong>.</li><li><strong>Histórico por sessão</strong> — cada sessão guarda e reproduz <strong>apenas</strong> o próprio histórico de áudio.</li><li><strong>Uma sessão por microfone (2.0.1)</strong> — o microfone é um só na máquina, então <strong>só uma sessão grava por vez</strong>: uma segunda tentativa recebe um aviso claro e <strong>nenhum segundo stream</strong> é aberto. Se a sessão que está gravando fecha ou trava, o microfone <strong>se libera sozinho</strong>.</li></ul>
           <p>Quando sai uma versão nova, a extensão detecta sozinha, baixa e <strong>se recarrega</strong> — a própria sessão passa para a nova versão <strong>sem fechar o app do Copilot</strong>. Se algo travar o painel, ela <strong>pede uma recarga</strong> da extensão em vez de ficar quebrada.</p>
         </section>
 
@@ -160,8 +162,8 @@
             </li>
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
-              <span class="tree__role">Coração da extensão in-app: painel Voz, a tool <code>falar</code> e a orquestração STT → agente → TTS, tudo na própria sessão.</span>
-              <span class="tree__size">57 KB</span>
+              <span class="tree__role">Coração da extensão in-app: painel Voz, a tool <code>falar</code> e a orquestração STT → agente → TTS, tudo na própria sessão — e o <strong>lock de gravação</strong> compartilhado que mantém <strong>uma sessão por microfone</strong>.</span>
+              <span class="tree__size">59 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">hooks.json</code>
@@ -201,11 +203,11 @@
             <li class="tree__row">
               <code class="tree__name">voice-core.mjs</code>
               <span class="tree__role">Utilitários base: log em arquivo e I/O em disco.</span>
-              <span class="tree__size">2.1 KB</span>
+              <span class="tree__size">2.6 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice-net.mjs</code>
-              <span class="tree__role">Servidor HTTP + SSE <strong>local da própria sessão</strong> (porta efêmera que serve só o próprio painel) — sem porta canônica, eleição de primário nem roteamento entre sessões.</span>
+              <span class="tree__role">Servidor HTTP + SSE <strong>local da própria sessão</strong> (porta efêmera que serve só o próprio painel) — sem porta canônica nem roteamento entre sessões. O <code>/rec/start</code> recusa a gravação quando o microfone já está em uso por outra sessão.</span>
               <span class="tree__size">21 KB</span>
             </li>
             <li class="tree__row">
@@ -275,8 +277,8 @@
         <section class="doc-section" id="faq">
           <h2 class="doc-h2"><a class="doc-anchor" href="#faq" aria-label="Link para Perguntas frequentes">#</a>Perguntas frequentes</h2>
           <details class="faq">
-            <summary>O que mudou na 2.0.0?</summary>
-            <p>A extensão ficou <strong>fina</strong>: cada sessão do Copilot passou a gravar, transcrever, injetar a fala e tocar o áudio <strong>na própria sessão</strong>, direto com o motor único. Saiu a camada que roteava áudio e turnos <strong>entre</strong> sessões (~3.100 linhas a menos), e o antigo bug de <strong>Stop→fala</strong> — fala perdida ou duplicada ao falar logo após um Stop — foi corrigido <strong>na raiz</strong>. Nenhuma função que você já usava saiu.</p>
+            <summary>O que mudou na 2.0?</summary>
+            <p>A <strong>2.0.0</strong> deixou a extensão <strong>fina</strong>: cada sessão do Copilot passou a gravar, transcrever, injetar a fala e tocar o áudio <strong>na própria sessão</strong>, direto com o motor único. Saiu a camada que roteava áudio e turnos <strong>entre</strong> sessões (~3.100 linhas a menos), e o antigo bug de <strong>Stop→fala</strong> — fala perdida ou duplicada ao falar logo após um Stop — foi corrigido <strong>na raiz</strong>. A <strong>2.0.1</strong> fecha a última corrida entre sessões: um <strong>lock de gravação compartilhado</strong> garante <strong>uma sessão por microfone</strong> — a segunda é avisada, e uma sessão inativa <strong>libera o microfone sozinha</strong>. Nenhuma função que você já usava saiu.</p>
           </details>
           <details class="faq">
             <summary>Precisa de internet?</summary>
@@ -296,7 +298,7 @@
           </details>
           <details class="faq">
             <summary>Dá para ter várias sessões abertas?</summary>
-            <p>Sim, e na <strong>2.0.0</strong> cada uma é <strong>independente</strong>: grava, transcreve e toca o áudio para <strong>si mesma</strong>, direto com o motor. Não há mais sessão “primária”, porta canônica nem roteamento entre sessões — o que sumiu de vez junto com a fala perdida ou duplicada depois de um <strong>Stop</strong>.</p>
+            <p>Sim, e cada uma é <strong>independente</strong>: grava, transcreve e toca o áudio para <strong>si mesma</strong>, direto com o motor. Não há mais sessão “primária”, porta canônica nem roteamento entre sessões — o que sumiu de vez junto com a fala perdida ou duplicada depois de um <strong>Stop</strong>. Como o microfone é <strong>um só</strong>, na <strong>2.0.1</strong> vale <strong>uma sessão por vez</strong>: a segunda que tentar gravar é avisada, e uma sessão inativa <strong>libera o microfone sozinha</strong>.</p>
           </details>
           <details class="faq">
             <summary>Como o plugin se atualiza?</summary>
@@ -318,7 +320,7 @@
           <p class="toc__label">nesta página</p>
           <ul class="toc__list">
             <li><a href="#o-que-e">O que é</a></li>
-            <li><a href="#novidades">O que mudou na 2.0.0</a></li>
+            <li><a href="#novidades">O que mudou na 2.0</a></li>
             <li><a href="#como-usar">Como usar</a></li>
             <li><a href="#o-motor">O motor único (vox-engine)</a></li>
             <li><a href="#nao-perca-audio">Não perca áudio</a></li>
@@ -330,7 +332,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v2.0.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v2.0.1</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
