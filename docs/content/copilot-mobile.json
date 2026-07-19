@@ -13,7 +13,7 @@
       "title": "O que é",
       "blocks": [
         { "type": "p", "text": "O copilot-mobile deixa você continuar uma conversa do Copilot pelo celular. Esta extensão é a parte que precisa rodar **dentro da sessão** do agente; o trabalho pesado — transporte, pareamento, stream e a tela de configuração — vive num **daemon apartado**, sempre ligado, aberto pelo ícone da bandeja." },
-        { "type": "p", "text": "Com as **perguntas do agente** roteadas para o telefone, você responde de onde estiver. Na **0.3.6**, o **resumo falado** de cada turno chega ao celular e o app o **narra no próprio aparelho** — a resposta do agente fica limpa, sem marcador. Com o aviso de drift, dá para acompanhar um turno longo do sofá e destravar o agente sem voltar ao PC." },
+        { "type": "p", "text": "Com as **perguntas do agente** roteadas para o telefone, você responde de onde estiver. Na **0.3.6**, o **resumo falado** de cada turno chega ao celular e o app o **narra no próprio aparelho** — a resposta do agente fica limpa, sem marcador. Com o aviso de drift, dá para acompanhar um turno longo do sofá e destravar o agente sem voltar ao PC. Na **0.3.7**, a conexão ficou mais fluida: armar a rede não trava mais o Copilot, a reconexão é automática com recuo progressivo, e o app mostra o progresso da conexão em passos." },
         { "type": "note", "tone": "info", "text": "Registra um **canvas** e usa **hooks**; reinicie o app uma vez após instalar. O daemon é baixado apartado na primeira execução (release buildada, sem build)." }
       ]
     },
