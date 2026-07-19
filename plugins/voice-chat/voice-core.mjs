@@ -47,3 +47,13 @@ export function writeJsonAtomic(path, obj) {
     writeFileSync(tmp, JSON.stringify(obj));
     renameSync(tmp, path);
 }
+
+// Sonda se um PID está VIVO (cross-fork). process.kill(pid,0) NÃO envia sinal — só testa
+// existência: lança ESRCH se morto, EPERM se existe mas sem permissão (= vivo). Usado pra
+// invalidar um lock stale cuja fork dona morreu sem liberar.
+export function pidAlive(pid) {
+    const n = Number(pid);
+    if (!Number.isInteger(n) || n <= 0) return false;
+    if (n === process.pid) return true;
+    try { process.kill(n, 0); return true; } catch (e) { return !!(e && e.code === "EPERM"); }
+}
