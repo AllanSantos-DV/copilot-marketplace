@@ -3,7 +3,7 @@
   "engines": {
     "vxk": {
       "when": "Explicações rasas/comuns: ciclo, timeline, física simples, órbitas/rotação, data-structure simples, fluxo com poucos elementos. Arquivo minúsculo, nossa performance.",
-      "components": ["orbit"]
+      "components": ["orbit", "pendulum", "particleStream", "box", "arrow", "barArray", "wave", "timeline", "graphNode", "edge", "card", "banner", "frame", "toggle", "lever", "chip", "stat", "tile"]
     },
     "konva": {
       "when": "Grafos, muitos nós, arrastar/reordenar, interação pesada, diagramas de dependência/rede. Cena declarativa nodes+edges via adapter (nós arrastáveis, arestas que seguem, reorganizar).",
@@ -66,6 +66,125 @@
       "file": "kit/components/timeline.js",
       "desc": "Linha do tempo com eventos e playhead animado. Eventos clicáveis.",
       "params": { "x0": "início x", "x1": "fim x", "y": "y", "duration": "duração total (s)", "color": "cor", "events": "[{t?, label, info, color?}]" }
+    },
+    "graphNode": {
+      "engine": "vxk",
+      "file": "kit/components/graphNode.js",
+      "desc": "Nó de grafo com glow (o motivo recorrente): disco emissivo com etiqueta de tipo dentro e nome abaixo. Gradientes de glow/núcleo cacheados (origem + translate); sem shadowBlur.",
+      "params": {
+        "x": "centro x", "y": "centro y", "r": "raio do nó",
+        "color": "cor (hex) — mapeie por tipo (FILE/CLASS/…)",
+        "kind": "etiqueta curta DENTRO do nó (ex.: CLASS), escala com o mundo",
+        "label": "nome exibido ABAIXO (tamanho de tela constante)",
+        "pulse": "velocidade do anel de pulso (0/ausente = estático)",
+        "ring": "true = segundo aro externo (ênfase, ex.: seed nodes)",
+        "info": "texto do painel ao clicar"
+      }
+    },
+    "edge": {
+      "engine": "vxk",
+      "file": "kit/components/edge.js",
+      "desc": "Aresta de grafo com glow e pulsos de fluxo entre (x0,y0)-(x1,y1). Reta ou quadrática (curve). Clicável só se tiver info. Strokes rgba (sem gradiente por frame); largura em coords de mundo.",
+      "params": {
+        "x0": "origem x", "y0": "origem y", "x1": "destino x", "y1": "destino y",
+        "color": "cor (hex)", "label": "rótulo no meio (ex.: CALLS)",
+        "flow": "velocidade dos pulsos (0/ausente = estático)", "count": "nº de pulsos",
+        "curve": "empeno perpendicular em px de mundo (0 = reta)", "width": "espessura base",
+        "dashed": "true = tracejada", "arrow": "true = ponta de seta no destino",
+        "dot": "raio do pulso", "info": "painel ao clicar (torna a aresta clicável)"
+      }
+    },
+    "card": {
+      "engine": "vxk",
+      "file": "kit/components/card.js",
+      "desc": "Cartão de texto rico (kicker + título + corpo + badge/ícone). Corpo com quebra de linha CACHEADA e '\\n' para bullets. Painel escuro ou tingido (tone:'solid'). Glow de seleção cacheado; sem shadowBlur. Clicável -> painel lateral.",
+      "params": {
+        "x": "centro x", "y": "centro y", "w": "largura", "h": "altura",
+        "kicker": "rótulo pequeno em maiúsculas (ex.: ACHADO 01)",
+        "title": "título (quebra automática)", "body": "corpo; aceita '\\n'",
+        "color": "cor de acento (hex)", "badge": "pílula no canto sup. direito",
+        "icon": "glifo curto (emoji/char)", "tone": "'solid' = painel tingido",
+        "label": "título no painel lateral", "info": "texto do painel ao clicar"
+      }
+    },
+    "banner": {
+      "engine": "vxk",
+      "file": "kit/components/banner.js",
+      "desc": "Título de seção/herói (kicker + título + subtítulo + régua de acento), sem caixa. Tipografia em tamanho de tela constante (px/e.zoom). Clicável só se tiver info. Ideal como cabeçalho de cena numa timeline de cenas.",
+      "params": {
+        "x": "centro x (âncora do texto)", "y": "centro y",
+        "kicker": "rótulo pequeno em maiúsculas acima", "title": "título grande",
+        "subtitle": "subtítulo abaixo", "accent": "cor da régua/kicker (hex)",
+        "align": "'center' (default) | 'left'", "size": "escala tipográfica (1 = padrão)",
+        "w": "meia-largura da caixa de clique (opcional)", "info": "painel ao clicar"
+      }
+    },
+    "frame": {
+      "engine": "vxk",
+      "file": "kit/components/frame.js",
+      "desc": "Moldura de agrupamento com rótulo (planos, colunas, faixas). DECORATIVA — nunca clicável, não intercepta cliques do conteúdo interno. Contorno translúcido + preenchimento chapado sutil + aba de rótulo. pos() devolve o topo-centro (âncora p/ anotação).",
+      "params": {
+        "x": "centro x", "y": "centro y", "w": "largura", "h": "altura",
+        "label": "rótulo da aba (maiúsculas)", "color": "cor (hex)",
+        "dashed": "true = contorno tracejado", "fillAlpha": "alpha do preenchimento (default 0.045)",
+        "labelAlign": "'left' (default) | 'center'"
+      }
+    },
+    "toggle": {
+      "engine": "vxk",
+      "file": "kit/components/toggle.js",
+      "desc": "Interruptor (kill-switch) OFF/ON. 'on' é numérico 0..1 (o step engine consegue ANIMAR o knob deslizando). Clicar INVERTE o estado (muta n.on) e devolve a info do estado atual. Tamanho de tela constante; sem shadowBlur.",
+      "params": {
+        "x": "centro x", "y": "centro y", "key": "chave/rótulo mono acima",
+        "on": "estado 0..1 (0 = OFF, 1 = ON; animável)",
+        "offText": "legenda abaixo quando OFF", "onText": "legenda abaixo quando ON",
+        "offInfo": "painel quando OFF", "onInfo": "painel quando ON",
+        "onColor": "cor do ON (hex, default verde)", "offColor": "cor do OFF (hex, default vermelho)"
+      }
+    },
+    "lever": {
+      "engine": "vxk",
+      "file": "kit/components/lever.js",
+      "desc": "Mostrador de config: valor numérico sobre trilho min..max, com knob e marcador de alvo opcional (recomendado, tracejado). Trilho em largura de MUNDO (n.w); rótulos/knob em tamanho de tela. Clicável -> painel.",
+      "params": {
+        "x": "centro x", "y": "centro y", "w": "largura do trilho (mundo)",
+        "label": "rótulo à esquerda", "value": "valor atual", "min": "mínimo", "max": "máximo",
+        "unit": "unidade opcional (ex.: s)", "target": "valor recomendado (marcador tracejado)",
+        "targetLabel": "rótulo do alvo", "color": "cor (hex)", "info": "painel ao clicar"
+      }
+    },
+    "chip": {
+      "engine": "vxk",
+      "file": "kit/components/chip.js",
+      "desc": "Pílula compacta (item de lista, fato, invariante). Largura automática pelo texto (cacheada) ou fixa (n.w), com ponto/marca colorida à esquerda. 'danger:true' = linha vermelha (borda/tinta de alerta). Tamanho de tela constante. Clicável -> painel.",
+      "params": {
+        "x": "centro x", "y": "centro y", "label": "texto da pílula", "color": "cor (hex)",
+        "tone": "cor de fundo (css) — sobrepõe o default", "danger": "true = estilo linha vermelha",
+        "icon": "glifo curto opcional", "w": "largura fixa (opcional; senão auto)", "info": "painel ao clicar"
+      }
+    },
+    "stat": {
+      "engine": "vxk",
+      "file": "kit/components/stat.js",
+      "desc": "KPI / número grande (métrica, resultado, contador). Painel com kicker + valor grande + unidade + legenda no rodapé (aceita '\\n'). Tipografia mundo-fixa (escala com o zoom). Glow de seleção cacheado; sem shadowBlur. Clicável -> painel.",
+      "params": {
+        "x": "centro x", "y": "centro y", "w": "largura", "h": "altura",
+        "kicker": "rótulo pequeno em maiúsculas no topo", "value": "número/texto grande em destaque",
+        "unit": "unidade pequena ao lado do valor", "label": "legenda no rodapé (aceita '\\n')",
+        "color": "cor de acento (hex)", "valueSize": "px do valor (opcional)", "info": "painel ao clicar"
+      }
+    },
+    "tile": {
+      "engine": "vxk",
+      "file": "kit/components/tile.js",
+      "desc": "Célula de matriz/heatmap (linguagem, cobertura, grade). Preenchimento tingido por 'heat' (0..1), rótulo central + sub-rótulo (level) + badge flutuante. 'pruned:true' = célula apagada com borda tracejada (ex.: 'em breve'). Mundo-fixa; glow de seleção cacheado; sem shadowBlur. Clicável -> painel.",
+      "params": {
+        "x": "centro x", "y": "centro y", "w": "largura", "h": "altura",
+        "label": "rótulo principal (centralizado)", "level": "sub-rótulo pequeno embaixo",
+        "color": "cor (hex) — mapeie por nível", "heat": "0..1 = intensidade do preenchimento",
+        "pruned": "true = apagada/tracejada (podada, 'em breve')", "badge": "pílula flutuante no topo",
+        "labelSize": "px do rótulo (opcional)", "info": "painel ao clicar"
+      }
     }
   }
 }
