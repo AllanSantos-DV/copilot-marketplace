@@ -1,18 +1,16 @@
-// voice-audio.mjs — histórico de áudio durável por sessão.
+// voice-audio.mjs — histórico de áudio durável POR SESSÃO (apenas a própria sessão).
 //
-// Append -> entrega ao vivo (push) -> ACK de reprodução (markPlayed) -> persistência atômica.
-// O cursor HEARD (durável) governa o autoplay ao reabrir; DELIVERED é só dedup do push ao vivo.
-// Importa broadcastTo/sessionHasClient da entry (declarações de função = seguras no ciclo ESM).
+// Cada fork é dona e reproduz APENAS o próprio histórico, in-process — sem push/relay cross-fork.
+// Append -> ACK de reprodução (markPlayed) -> persistência atômica. O cursor HEARD (durável)
+// governa o autoplay ao reabrir (o iframe local puxa o histórico pelo hello).
 
 import { join } from "node:path";
 import shared from "./voice-shared.cjs";
-import { dbg, readJson, writeJsonAtomic } from "./voice-core.mjs";
+import { readJson, writeJsonAtomic } from "./voice-core.mjs";
 import {
-    activeSid,
     audioHistoryBySid, audioSeqBySid, audioTurnBySid, audioDeliveredBySid, audioHeardBySid,
 } from "./voice-state.mjs";
 import { broadcastTo } from "./voice-net.mjs";
-import { sessionHasClient } from "./extension.mjs";
 
 const ARTIFACTS = shared.resolveDataDir();
 const AUDIO_QUEUE_FILE = join(ARTIFACTS, "audio-queue.json");
@@ -39,54 +37,54 @@ export function appendAudioItem(sid, partial) {
     return item;
 }
 
-// Deliver to the active+connected client every history item it hasn't seen yet
-// (seq > deliveredSeq), in order, and advance the cursor. Idempotent: a second
-// call finds nothing new. Used on live append, on /focus and on reconnect.
-// Returns true iff it advanced the cursor (and thus persisted) — lets the caller
-// avoid a second whole-map write for the same audio.
-export function pushAudio(sid) {
-    if (!sid || sid !== activeSid || !sessionHasClient(sid)) return false;
-    const hist = audioHistoryBySid.get(sid) || [];
-    if (!hist.length) return false;
-    const delivered = audioDeliveredBySid.get(sid) || 0;
-    const fresh = hist.filter((it) => it.seq > delivered);
-    if (!fresh.length) return false;
-    audioDeliveredBySid.set(sid, hist[hist.length - 1].seq);
-    persistAudioState();
-    for (const item of fresh) broadcastTo(sid, { type: "audio", item });
-    dbg(`pushAudio: delivered ${fresh.length} audio item(s) to sid=${sid}`);
-    return true;
-}
-
-// Public entry used by speakToCanvas: record the audio in history, then deliver
-// it live if this session is active (else it waits in history for the reopen).
-// ONE whole-map persist per audio: if pushAudio delivered (active session) it already
-// persisted the cursor advance; otherwise (background) we persist the appended item here.
+// Public entry used by speakToCanvas: record the audio in the OWN-session history,
+// persist it, and DELIVER it live to the own iframe (broadcast {type:"audio"}). O iframe
+// local também puxa via hello (audioHistoryForHello) ao reconectar — o cursor `delivered`
+// coordena os dois p/ não tocar em dobro.
 export function playOrQueueAudio(sid, partial) {
     const item = appendAudioItem(sid, partial);
     if (!item) return;
-    if (!pushAudio(sid)) persistAudioState();
+    persistAudioState();
+    pushAudio(sid);
 }
 
-// The audio state the hello hands a (re)connecting client: the FULL per-session
-// history (for the navigable player) + playFromSeq = the first seq it hasn't
-// HEARD (ouvido de verdade), so the client autoplays only the tail that wasn't
-// played to completion yet. playFromSeq usa o cursor HEARD (durável), NÃO o de
-// entrega — assim fechar no meio da fala retoca ao reabrir. Avança o cursor de
-// ENVIO (delivered) p/ o topo só p/ o push ao vivo não reenviar o que o hello já mandou.
+// Entrega AO VIVO ao iframe da PRÓPRIA sessão: transmite os itens ainda não enviados
+// (seq > delivered) como eventos {type:"audio"} e avança o cursor de ENVIO. LOCAL-only
+// (broadcastTo aos clientes DESTE sid); se não há cliente conectado é no-op e o hello
+// reentrega. Idempotente: nunca reenvia o que o hello já entregou (delivered=último no hello).
+export function pushAudio(sid) {
+    if (!sid) return;
+    const hist = audioHistoryBySid.get(sid) || [];
+    if (!hist.length) return;
+    let delivered = audioDeliveredBySid.get(sid) || 0;
+    let changed = false;
+    for (const item of hist) {
+        if (item.seq > delivered) {
+            broadcastTo(sid, { type: "audio", item });
+            delivered = item.seq;
+            changed = true;
+        }
+    }
+    if (changed) { audioDeliveredBySid.set(sid, delivered); persistAudioState(); }
+}
+
+// The audio state the hello hands the LOCAL (re)connecting iframe: the FULL own-session
+// history (for the navigable player) + playFromSeq = the first seq it hasn't HEARD
+// (ouvido de verdade), so the client autoplays only the tail that wasn't played to
+// completion yet. playFromSeq usa o cursor HEARD (durável) — fechar no meio da fala
+// retoca ao reabrir. Leitura local: sem push cross-fork, sem avançar cursor de envio.
 export function audioHistoryForHello(sid) {
     const hist = audioHistoryBySid.get(sid) || [];
     const playFromSeq = (audioHeardBySid.get(sid) || 0) + 1;
-    if (hist.length) {
-        audioDeliveredBySid.set(sid, hist[hist.length - 1].seq);   // cursor de ENVIO (não o de "ouvido")
-        persistAudioState();
-    }
+    // Coordena com pushAudio: o hello já entregou TODO o histórico ao iframe -> marca
+    // delivered=último p/ a entrega ao vivo (pushAudio) não retransmitir esses itens.
+    if (hist.length) audioDeliveredBySid.set(sid, hist[hist.length - 1].seq);
     return { items: hist, playFromSeq, max: AUDIO_HISTORY_MAX };
 }
 
 // LEITURA PURA (contrato de PARCEIRO — ex.: copilot-mobile via GET /audio): devolve o histórico de
 // áudio da sessão SEM NENHUM efeito colateral — NÃO entrega ao vivo, NÃO avança cursor delivered/heard,
-// NÃO persiste, NÃO seta activeSid, NÃO drena pending. Retorna uma CÓPIA (slice) p/ o chamador não
+// NÃO persiste, NÃO drena pending. Retorna uma CÓPIA (slice) p/ o chamador não
 // mexer no array interno. `since` (opcional) filtra seq > since p/ polling incremental. sid desconhecido
 // ou sem áudio ⇒ { items: [] }. É o único jeito seguro de um parceiro reusar o áudio sem tocar na sessão.
 export function audioHistoryReadOnly(sid, since) {
@@ -161,30 +159,6 @@ export function restoreAudioHistory() {
             // assume heard = delivered (o antigo tratava entrega como consumo). Só o áudio
             // acumulado ANTES desta versão herda isso; o novo passa a exigir ack real.
             audioHeardBySid.set(sid, Array.isArray(v) ? 0 : (v.heard != null ? v.heard : (v.delivered || 0)));
-        }
-    } catch { }
-}
-
-// PROMOÇÃO in-process (secundário -> primário): a memória desta fork é um PREFIXO congelado no
-// boot dela (secundários não geram áudio — forwardam /speak ao primário). O disco tem a verdade
-// que o primário MORTO persistiu. Recarrega do disco antes de servir hello/ack — adota o
-// histórico/seq quando o disco está à frente e é RAISE-only no heard — p/ (a) o clamp de
-// markPlayed ver o ÚLTIMO seq real (senão um ack legítimo do cliente é descartado = replay
-// duplicado) e (b) o novo primário persistir o histórico COMPLETO (senão o persist truncaria).
-export function reloadAudioStateFromDisk() {
-    try {
-        const map = readAudioStateMap();
-        for (const [sid, v] of Object.entries(map)) {
-            if (Array.isArray(v) || !v) continue;
-            const items = Array.isArray(v.items) ? v.items : [];
-            if (!items.length) continue;
-            if ((v.seq || 0) >= (audioSeqBySid.get(sid) || 0)) {   // disco à frente-ou-igual -> adota a visão do disco
-                audioHistoryBySid.set(sid, items);
-                audioSeqBySid.set(sid, v.seq || 0);
-                audioTurnBySid.set(sid, v.turn || audioTurnBySid.get(sid) || 1);
-                audioDeliveredBySid.set(sid, v.delivered || 0);
-            }
-            audioHeardBySid.set(sid, Math.max(audioHeardBySid.get(sid) || 0, v.heard != null ? v.heard : 0));   // heard NUNCA regride
         }
     } catch { }
 }

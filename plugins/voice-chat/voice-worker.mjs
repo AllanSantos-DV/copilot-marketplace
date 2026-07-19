@@ -17,13 +17,13 @@ import shared from "./voice-shared.cjs";
 import { dbg } from "./voice-core.mjs";
 import { buildPythonCandidates, savePythonPath } from "./voice-python.mjs";
 import {
-    activeSid, turnOwnerSid, setTurnOwnerSid, monitorSid, primaryFork,
+    turnOwnerSid, setTurnOwnerSid, monitorSid,
     pendingTts, pendingTranscribe, audioHistoryBySid,
 } from "./voice-state.mjs";
-import { broadcast, broadcastTo } from "./voice-net.mjs";
+import { broadcast, broadcastTo, mySid } from "./voice-net.mjs";
 import {
-    dispatchVoiceTurn, clearRecordingActive, setRecordingActive, log, settings, saveSettings,
-    handingOver, lastTtsPreviewSid, DEBUG_LOG, tmark, timingEnabled,
+    handleVoiceTranscript, clearRecordingActive, setRecordingActive, log, settings, saveSettings,
+    lastTtsPreviewSid, DEBUG_LOG, tmark, timingEnabled,
 } from "./extension.mjs";
 
 const EXT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -58,7 +58,7 @@ export let lastAppFocused = true;   // foco do app GitHub Copilot (poller do wor
 let ttsSeq = 0;
 
 export function ensureWorker() {
-    if (worker || workerStarting || !primaryFork) return;
+    if (worker || workerStarting) return;   // modelo fino: CADA fork sobe o PRÓPRIO worker (sem eleição de primário)
     pyIndex = 0;
     pyCandidates = null;   // rebuild discovery fresh for this start sequence
     startWorker();
@@ -155,7 +155,6 @@ function startWorker() {
             setTimeout(ensureWorker, 300);
             return;
         }
-        if (handingOver) return;   // handover de versão: a fork NOVA abre o worker; não respawn aqui (evita 2 workers)
         if (errored) return; 
         const wasStable = sawReady && readyAt && (Date.now() - readyAt >= WORKER_STABLE_MS);
         if (!wasStable) crashCount++;
@@ -323,12 +322,12 @@ function onWorkerEvent(ev) {
             broadcast({ type: "worker", state: "loading", msg: ev.msg, pct: ev.pct });
             break;
         case "level":
-            broadcastTo(turnOwnerSid || activeSid, { type: "level", rms: ev.rms, peak: ev.peak });
+            broadcastTo(turnOwnerSid || mySid(), { type: "level", rms: ev.rms, peak: ev.peak });
             break;
         case "low_signal":
             // Guarda de silêncio AO VIVO: mesma rota do level (dono da captura). Display-only,
             // NÃO para a gravação. `reassert` = re-emissão periódica (à prova de reconexão SSE).
-            broadcastTo(turnOwnerSid || activeSid, { type: "lowSignal", state: !!ev.state, elapsed: ev.elapsed, reassert: !!ev.reassert });
+            broadcastTo(turnOwnerSid || mySid(), { type: "lowSignal", state: !!ev.state, elapsed: ev.elapsed, reassert: !!ev.reassert });
             break;
         case "rec_alive":
             // Heartbeat da gravação: RENOVA a lease do mic (recordingActiveSid tem TTL de 60s;
@@ -337,7 +336,7 @@ function onWorkerEvent(ev) {
             if (turnOwnerSid) setRecordingActive(turnOwnerSid);
             break;
         case "recording":
-            broadcastTo(turnOwnerSid || activeSid, { type: "recording", state: ev.state });
+            broadcastTo(turnOwnerSid || mySid(), { type: "recording", state: ev.state });
             break;
         case "monitor_level":
             if (monitorSid) broadcastTo(monitorSid, { type: "monitorLevel", rms: ev.rms, peak: ev.peak });
@@ -348,14 +347,14 @@ function onWorkerEvent(ev) {
             // The recorder sid travels WITH the capture through the worker and is
             // echoed back here, so routing is correct even if a primary failover or
             // focus change mutated the in-memory turnOwnerSid/activeSid globals.
-            const owner = ev.sid || turnOwnerSid || activeSid;
+            const owner = ev.sid || turnOwnerSid || mySid();
             setTurnOwnerSid(null);
             clearRecordingActive();
             broadcastTo(owner, { type: "transcript", text: ev.text || "", confirm, note: ev.note, peak: ev.peak, micOk: ev.micOk });
             if (t && !confirm) {
                 if (timingEnabled()) dbg(`[timing] transcript-ready sid=${owner} decode=${ev.ms}ms audio=${ev.dur_ms}ms chars=${t.length} confirm=${confirm}`);
                 tmark("recv", { ms: ev.ms, dur_ms: ev.dur_ms });
-                dispatchVoiceTurn(t, owner);
+                handleVoiceTranscript(t);   // IN-PROCESS: esta fork É a dona da sessão (sem hop cross-fork)
             }
             break;
         }
@@ -439,12 +438,12 @@ function onWorkerEvent(ev) {
             const c = (ev.text || "").trim();
             dbg(`wake command: ${c.slice(0, 120)}`);
             if (c) {
-                const owner = turnOwnerSid || activeSid;
+                const owner = turnOwnerSid || mySid();
                 setTurnOwnerSid(null);
                 broadcastTo(owner, { type: "transcript", text: c, confirm: false });
                 if (timingEnabled()) dbg(`[timing] transcript-ready(cmd) sid=${owner} decode=${ev.ms}ms audio=${ev.dur_ms}ms chars=${c.length}`);
                 tmark("recv", { ms: ev.ms, dur_ms: ev.dur_ms });
-                dispatchVoiceTurn(c, owner);
+                handleVoiceTranscript(c);
             }
             break;
         }
