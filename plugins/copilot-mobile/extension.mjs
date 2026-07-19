@@ -16,7 +16,7 @@ import { joinSession } from "@github/copilot-sdk/extension";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { readFileSync, appendFileSync, mkdirSync } from "node:fs";
-import http from "node:http";
+import { getJson } from "./http.mjs";
 import { decidePhoneDrift, driftAgentContext } from "./drift.mjs";
 import { ensureDaemonInstalled } from "./bootstrap.mjs";
 import { LiveLink } from "./liveLink.mjs";
@@ -67,18 +67,11 @@ function daemonCoords() {
 function queryAskMode(sessionId) {
   const d = daemonCoords();
   if (!d || !sessionId) return Promise.resolve(false);
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = (v) => { if (!done) { done = true; resolve(v); } };
-    const req = http.request(
-      { host: "127.0.0.1", port: d.port, path: `/live/ask-mode?sessionId=${encodeURIComponent(sessionId)}`,
-        method: "GET", headers: { "x-copilot-token": d.token } },
-      (res) => { let b = ""; res.on("data", (c) => (b += c)); res.on("end", () => { try { finish(res.statusCode === 200 && !!JSON.parse(b)?.override); } catch { finish(false); } }); res.on("error", () => finish(false)); },
-    );
-    req.on("error", () => finish(false));
-    req.setTimeout(3000, () => { try { req.destroy(); } catch {} finish(false); });
-    req.end();
-  });
+  return getJson({
+    host: "127.0.0.1", port: d.port,
+    path: `/live/ask-mode?sessionId=${encodeURIComponent(sessionId)}`,
+    headers: { "x-copilot-token": d.token }, timeoutMs: 3000,
+  }).then((r) => r.status === 200 && !!r.json?.override);
 }
 
 // Parsed user.message count + last user text from a session's on-disk event log — the AUTHORITATIVE
