@@ -22,7 +22,7 @@ import {
 import { pushAudio, audioHistoryForHello, audioHistoryReadOnly, markPlayed } from "./voice-audio.mjs";
 import {
     handleVoiceTranscript, claimVoiceOwnership, setRecordingActive, clearRecordingActive, startMonitor, stopMonitor,
-    quiesceClosedPanelCapture, sessionHasClient, checkForUpdate, readUpdateState,
+    quiesceClosedPanelCapture, sessionHasClient, checkForUpdate, readUpdateState, micLockHeldByOther,
     writeUpdateState, effectiveVersion, pendingRestartVersion, saveSettings, drainPendingSpeak,
     sanitizeSettings, settings, setSettings, setLastTtsPreviewSid,
     session, RUNNING_AS_PLUGIN, CONVERSE_ONSET_MS, log, recordingActiveSid,
@@ -280,6 +280,12 @@ export async function handleRequest(req, res) {
     if (req.method === "POST" && path === "/rec/start") {
         const body = await readBody(req);
         const reqSid = body && body.sid ? String(body.sid) : "";
+        // Cross-fork: o mic é único na máquina. Se OUTRA sessão (viva + fresca) tem o lock, recusa.
+        if (reqSid && micLockHeldByOther(reqSid)) {
+            dbg(`rec/start busy: mic locked by another session, requested by ${reqSid}`);
+            broadcastTo(reqSid, { type: "busy", msg: "O microfone está em uso por outra sessão." });
+            return sendJson(res, { ok: false, busy: true });
+        }
         if (recordingActiveSid && reqSid && recordingActiveSid !== reqSid) {
             dbg(`rec/start busy: mic in use by ${recordingActiveSid}, requested by ${reqSid}`);
             broadcastTo(reqSid, { type: "busy", msg: "O microfone está em uso por outra sessão." });

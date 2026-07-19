@@ -10,7 +10,7 @@ import { setPriority, constants as osConstants } from "node:os";
 import { randomBytes } from "node:crypto";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
 import shared from "./voice-shared.cjs";
-import { dbg, mkdirp, readJson, writeJsonAtomic } from "./voice-core.mjs";
+import { dbg, mkdirp, readJson, writeJsonAtomic, pidAlive } from "./voice-core.mjs";
 import { buildPythonCandidates, savePythonPath } from "./voice-python.mjs";
 import { cleanForSpeech, makeSpoken } from "./voice-text.mjs";
 import {
@@ -50,7 +50,7 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 
-export const CURRENT_VERSION = "2.0.0";
+export const CURRENT_VERSION = "2.0.1";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -73,6 +73,23 @@ export let lastTtsPreviewSid = null;
 export function setLastTtsPreviewSid(v) { lastTtsPreviewSid = v; }
 export let recordingActiveSid = null; 
 let recordingActiveTimer = null; 
+
+// Lock de gravação MACHINE-WIDE (dataDir é compartilhado entre todos os forks). O device de
+// microfone é ÚNICO: dois forks gravando ao mesmo tempo = dois InputStreams no mesmo device =
+// corrida/crash. O lock={sid,pid,ts} é renovado pelo heartbeat rec_alive (via setRecordingActive)
+// e EXPIRA sozinho (TTL) se a fork dona morrer sem liberar; o pid-check invalida um dono já morto
+// antes do TTL. Amarra-se a setRecordingActive/clearRecordingActive — chamados em TODOS os caminhos
+// de aquisição/liberação (rec/start, rec/cancel, transcript final, erro, painel fechado).
+const MIC_LOCK_FILE = join(ARTIFACTS, "mic.lock");
+const MIC_LOCK_TTL_MS = Number(process.env.VOICE_MIC_LOCK_TTL_MS) || 15000;
+export function micLockHeldByOther(mySid) {
+    const l = readJson(MIC_LOCK_FILE, null);
+    if (!l || !l.sid) return false;
+    if (String(l.sid) === String(mySid || "")) return false;          // é meu
+    if ((Date.now() - (Number(l.ts) || 0)) > MIC_LOCK_TTL_MS) return false;  // lease expirada
+    if (!pidAlive(l.pid)) return false;                               // fork dona morreu
+    return true;                                                      // vivo + fresco + de OUTRA sessão
+}
 
 
 
@@ -833,11 +850,13 @@ export function setRecordingActive(sid) {
     if (recordingActiveTimer) clearTimeout(recordingActiveTimer);
     recordingActiveTimer = setTimeout(() => { recordingActiveSid = null; recordingActiveTimer = null; }, 60000);
     if (recordingActiveTimer.unref) recordingActiveTimer.unref();
+    if (sid) { try { writeJsonAtomic(MIC_LOCK_FILE, { sid: String(sid), pid: process.pid, ts: Date.now() }); } catch { /* best-effort */ } }
 }
 
 export function clearRecordingActive() {
     recordingActiveSid = null;
     if (recordingActiveTimer) { clearTimeout(recordingActiveTimer); recordingActiveTimer = null; }
+    try { const l = readJson(MIC_LOCK_FILE, null); if (l && Number(l.pid) === process.pid) unlinkSync(MIC_LOCK_FILE); } catch { /* best-effort: só libero se o lock for MEU */ }
 }
 
 function hasVisibleVoiceClients(exceptSid = "") {
