@@ -21,7 +21,16 @@ import http from "node:http";
 import { readFileSync } from "node:fs";
 
 const RETRY_MS = 4000;
+const RETRY_MAX_MS = 30000;
 const EVENT_QUEUE_CAP = 500; // bound memory if the daemon wedges mid-turn (drop oldest)
+
+/** Exponential backoff for the live-link reconnect: base doubles per attempt, capped at max. Pure +
+ *  testable; the caller adds jitter and resets `attempt` on a healthy connect. A FLAT retry (the old
+ *  bare RETRY_MS) hammered the daemon every 4s while it was down/restarting — this backs off instead. */
+export function liveRetryDelay(attempt, base = RETRY_MS, max = RETRY_MAX_MS) {
+  const a = Math.max(0, attempt | 0);
+  return Math.min(base * (2 ** a), max);
+}
 
 export class LiveLink {
   constructor({ sessionId, runtimeFile, session, log = () => {} }) {
@@ -34,6 +43,7 @@ export class LiveLink {
     this._d = null;              // cached { port, token } while connected
     this._cmdReq = null;         // the open commands-SSE request
     this._retryTimer = null;
+    this._retryAttempt = 0;      // exponential-backoff counter; reset to 0 on a healthy connect
     this._stopped = false;
     this._evQ = [];
     this._draining = false;
@@ -105,12 +115,15 @@ export class LiveLink {
         const text = typeof cmd.prompt === "string"
           ? cmd.prompt
           : (cmd.prompt && typeof cmd.prompt.prompt === "string" ? cmd.prompt.prompt : "");
+        const hasPending = !!(this._askBridge && this._askBridge.hasPending());
         if (this._askBridge && this._askBridge.hasPending() && text.trim()) {
           const answered = this._askBridge.resolveFromPhone("", text);
           this.log(`override-send: normal phone message routed as freeform answer (answered=${answered}, len=${text.length})`);
           value = { answered, via: "override-send" };
         } else {
+          this.log(`cmd send: injecting into live session (textLen=${text.length}, hasPending=${hasPending})`);
           value = await this.session.send(cmd.prompt);
+          this.log(`cmd send: session.send returned messageId=${JSON.stringify(value)}`);
         }
       }
       else if (cmd.cmd === "abort") {
@@ -128,17 +141,21 @@ export class LiveLink {
         //     app never rendered a native modal, so there's nothing to dismiss.
         //  2) NATIVE (override off): resolve the runtime's pending user_input by id via rpc.ui so the
         //     phone still unblocks a native ask_user (returns { success:false } if already answered).
-        if (this._askBridge && this._askBridge.resolveFromPhone(String(cmd.requestId || ""), String(cmd.answer ?? ""))) {
+        const viaOverride = !!(this._askBridge && this._askBridge.resolveFromPhone(String(cmd.requestId || ""), String(cmd.answer ?? "")));
+        if (viaOverride) {
+          this.log(`cmd answer: resolved via override (reqId=${String(cmd.requestId || "").slice(0, 8)})`);
           value = { success: true, via: "override" };
         } else {
+          this.log(`cmd answer: resolving native user_input (reqId=${String(cmd.requestId || "").slice(0, 8)})`);
           value = await this.session.rpc.ui.handlePendingUserInput({
             requestId: String(cmd.requestId || ""),
             response: { answer: String(cmd.answer ?? ""), wasFreeform: !!cmd.wasFreeform },
           });
+          this.log(`cmd answer: native handlePendingUserInput returned ${JSON.stringify(value)}`);
         }
       }
       else { ok = false; value = "unknown_cmd:" + cmd.cmd; }
-    } catch (e) { ok = false; value = String(e?.message || e); }
+    } catch (e) { ok = false; value = String(e?.message || e); this.log(`cmd ${cmd.cmd}: FAILED ${value}`); }
     await this._post(d, "/live/result", { sessionId: this.sessionId, cmdId: cmd.cmdId, ok, value });
   }
 
@@ -172,6 +189,7 @@ export class LiveLink {
       (res) => {
         if (res.statusCode !== 200) { res.resume(); this._onDrop(); return; }
         this.connected = true;
+        this._retryAttempt = 0; // healthy link — reset the reconnect backoff
         this._d = d;
         this.log(`live link up: session=${this.sessionId} port=${d.port}`);
         this._drain(); // flush anything queued before the SSE opened
@@ -212,7 +230,9 @@ export class LiveLink {
 
   _scheduleRetry() {
     if (this._stopped || this._retryTimer) return;
-    this._retryTimer = setTimeout(() => { this._retryTimer = null; this.connect(); }, RETRY_MS);
+    const delay = liveRetryDelay(this._retryAttempt) + Math.floor(Math.random() * 500); // backoff + jitter
+    this._retryAttempt++;
+    this._retryTimer = setTimeout(() => { this._retryTimer = null; this.connect(); }, delay);
     if (typeof this._retryTimer.unref === "function") this._retryTimer.unref();
   }
 
