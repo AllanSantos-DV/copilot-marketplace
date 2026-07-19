@@ -1,22 +1,37 @@
 {
-  "tagline": "Converse por voz com o Copilot em pt-BR e ouça um resumo falado — 100% local no Windows, num único motor (vox-engine) que a extensão instala, atualiza e usa sozinha. Se o microfone parar de captar no meio da fala, ela avisa antes de você perder a gravação.",
-  "lede": "O **voice-chat** transforma o terminal numa conversa: você fala, o motor **`vox-engine`** transcreve, o agente responde e uma voz neural em pt-BR lê o resumo de volta. Fala e voz — **STT e TTS** — passam pelo **mesmo e único** motor, na sua máquina, e **nenhum áudio sai do computador**. A extensão cuida do motor sozinha — instala, atualiza e só conecta quando está em dia — e vigia a sua gravação: se o microfone emudecer, ela avisa **sem cortar** a captura, para você não falar minutos no vazio.",
+  "tagline": "Converse por voz com o Copilot em pt-BR: fale, veja a transcrição e ouça um resumo falado — 100% local no Windows, num único motor (vox-engine). Na 2.0.0 cada sessão virou independente e o velho bug de Stop→fala foi corrigido na raiz.",
+  "lede": "O **voice-chat** transforma o terminal numa conversa: você segura para falar, o motor único local **`vox-engine`** transcreve na sua máquina, o texto vira um turno normal do Copilot e uma voz neural em pt-BR lê o resumo de volta. Fala e voz — **STT e TTS** — passam pelo **mesmo** motor, e **nenhum áudio sai do computador**. A **2.0.0** deixou a extensão **fina**: cada sessão do Copilot agora grava, transcreve, injeta a fala e toca o áudio **na própria sessão**, direto com o motor — sem a antiga camada de roteamento entre sessões que fazia a fala se perder ou duplicar depois de um **Stop**.",
   "highlights": [
-    { "title": "Fale e ouça a resposta", "body": "Segure para falar (ou ligue as mãos-livres): o motor transcreve na sua máquina, o texto vira um turno do Copilot e a resposta volta como um **resumo falado**, curto e natural, em pt-BR." },
-    { "title": "Não perca áudio", "body": "Se o microfone ficar cerca de **3s sem som durante a gravação**, um aviso aparece — visual e um **bipe curto** — **sem interromper** a captura. A barra de intensidade fica sempre à vista, e o veredito de “sem áudio” ignora o próprio bipe." },
-    { "title": "O motor se instala e se atualiza sozinho", "body": "Um único **`vox-engine`** (hoje **0.18.0**) para STT e TTS: a extensão o instala se faltar, atualiza se estiver velho e só conecta quando está em dia. E nunca o recicla **no meio** de uma gravação — o update espera o motor ficar ocioso." },
-    { "title": "Instalador verificado (Ed25519)", "body": "Antes de instalar ou atualizar o motor, a extensão confere a **assinatura Ed25519** e **recusa** o que não bate (fail-closed). É uma camada de segurança, não um passo a mais para você." },
-    { "title": "Atualize sem reiniciar o app", "body": "Saiu versão nova? Um selo mostra as **sessões desatualizadas** e separa as **sincronizáveis** (recarregam sozinhas) das **legadas** (precisam reabrir). A extensão se auto-recarrega **sem** fechar o Copilot." },
-    { "title": "Várias sessões, um dono do microfone", "body": "Um processo primário é dono do microfone, do motor e da porta; as outras sessões se ligam a ele. Uma versão mais nova **assume** o comando, e depois de um **Stop** a sessão se recupera em vez de virar zumbi." }
+    { "title": "Mais robusto na 2.0.0", "body": "Refactor de arquitetura: cada sessão ficou **independente** e o bug de **Stop→fala** — fala perdida ou duplicada ao falar logo após um Stop — foi corrigido **na raiz**. **~3.100 linhas a menos**, sem perder nenhuma função." },
+    { "title": "Fale e ouça a resposta", "body": "Segure para falar (**push-to-talk**) ou ligue as **mãos-livres** com palavra de ativação: o motor transcreve na sua máquina, você vê o texto e a resposta volta como um **resumo falado** em pt-BR." },
+    { "title": "Não perca áudio", "body": "Se o microfone ficar cerca de **3s sem som durante a gravação**, um aviso aparece — visual e um **bipe curto** — **sem interromper** a captura. A barra de intensidade fica sempre à vista." },
+    { "title": "Motor único, local e verificado", "body": "STT e TTS num só **`vox-engine`** que a extensão instala e atualiza sozinha — conferindo a **assinatura Ed25519** do instalador antes de rodar (fail-closed). Nada sai da sua máquina." }
   ],
   "sections": [
     {
       "id": "o-que-e",
       "title": "O que é",
       "blocks": [
-        { "type": "p", "text": "O voice-chat é uma **canvas extension** do GitHub Copilot: abre o painel **Voz** no app e liga o ciclo fala → agente → fala. Você segura para falar, o motor transcreve na sua máquina, o texto vira um turno normal do Copilot e a resposta volta como um **resumo falado** em pt-BR." },
-        { "type": "p", "text": "Fala e voz passam pelo **mesmo motor**: STT (fala→texto) e TTS (texto→voz) rodam no **`vox-engine`**, um daemon **local** compartilhado por **named pipe**. É o **único caminho** de áudio — nenhum áudio sai da sua máquina —, e como o pipe e o instalador são específicos do Windows, o voice-chat é **Windows-only** (10/11)." },
+        { "type": "p", "text": "O voice-chat é uma **canvas extension** do GitHub Copilot: abre o painel **Voz** no app e liga o ciclo fala → agente → fala. Você segura para falar (**push-to-talk**), o motor transcreve na sua máquina, você vê a **transcrição**, o texto entra como um turno normal do Copilot e a resposta volta como um **resumo falado** em pt-BR." },
+        { "type": "p", "text": "Fala e voz passam pelo **mesmo motor**: STT (fala→texto) e TTS (texto→voz) rodam no **`vox-engine`**, um daemon **local** compartilhado por **named pipe**. É o **único caminho** de áudio — nada sai do computador —, e como o pipe e o instalador são específicos do Windows, o voice-chat é **Windows-only** (10/11)." },
         { "type": "note", "tone": "info", "text": "Como registra um **canvas**, depois de instalar é preciso **reiniciar o app uma vez** para o painel Voz aparecer (o `canvas-sync` cuida do espelhamento)." }
+      ]
+    },
+    {
+      "id": "novidades",
+      "title": "O que mudou na 2.0.0",
+      "blocks": [
+        { "type": "p", "text": "A **2.0.0** é um **refactor de arquitetura**: a extensão ficou **fina** e bugs antigos foram corrigidos **na raiz** — sem tirar nada do que você já usava." },
+        {
+          "type": "list",
+          "items": [
+            "**Cada sessão é independente** — grava, transcreve, injeta a fala e toca o áudio na **própria** sessão, falando direto com o motor único. Acabou a camada intermediária que roteava áudio e turnos **entre** sessões.",
+            "**Fim do bug de Stop→fala** — antes, dar **Stop** no agente e falar em seguida podia **perder** a fala ou injetá-la **duplicada ou fora de ordem**. Agora a fala é capturada e injetada de forma confiável na própria sessão, **uma vez só**.",
+            "**~3.100 linhas a menos** — saíram a eleição de sessão “primária”, a porta canônica e o roteamento entre sessões. Menos peças móveis: mais leve, mais robusta e mais simples de manter.",
+            "**Sem regressão** — voz, transcrição, histórico de áudio, guarda de silêncio, mãos-livres, interromper e seleção de microfone e de voz: tudo continua."
+          ]
+        },
+        { "type": "note", "tone": "info", "text": "No seu dia a dia nada muda no fluxo — você só ganha uma extensão que erra menos, principalmente ao intercalar **Stop** e fala." }
       ]
     },
     {
@@ -29,11 +44,30 @@
             { "title": "Instale o plugin", "text": "Pelo marketplace, com o comando da seção Instalar abaixo." },
             { "title": "Reinicie o app", "text": "Uma vez, para o canvas de voz ser descoberto." },
             { "title": "Abra o painel Voz", "text": "Na 1ª vez, a extensão instala o motor e baixa a voz — pode levar alguns minutos; a tela mostra o progresso." },
-            { "title": "Fale e ouça", "text": "Clique no microfone para gravar e clique de novo para enviar. O motor transcreve, o agente responde e a resposta volta em áudio." },
-            { "title": "Ajuste voz, microfone e atalho", "text": "Nas configurações do painel: escolha a voz neural pt-BR, o microfone certo e o modo **segurar para falar** ou **mãos-livres**." }
+            { "title": "Fale e ouça", "text": "Segure o botão do microfone (ou a barra de **espaço**) para gravar e solte para enviar. O motor transcreve, o agente responde e o resumo volta em áudio." },
+            { "title": "Navegue no histórico", "text": "Cada resposta falada fica no histórico da sessão: **Anterior**, **Repetir**, **Pausar** e **Próximo** para reouvir sem repetir o turno." },
+            { "title": "Ajuste voz, microfone e modo", "text": "Escolha a **voz** neural pt-BR e o **microfone** certo, e ligue **mãos-livres** (com palavra de ativação) ou **Interromper** — a fala corta o turno atual do agente e entra na hora." }
           ]
         },
-        { "type": "note", "tone": "info", "text": "Depois da 1ª vez o painel abre em segundos — o motor reusa a voz já baixada. Cada resposta falada fica num **histórico por sessão**, com navegação para reouvir sem repetir o turno." }
+        { "type": "note", "tone": "info", "text": "Depois da 1ª vez o painel abre em segundos — o motor reusa a voz já baixada. Com o app fora de foco, um gate opcional **segura o áudio** e toca quando você volta." }
+      ]
+    },
+    {
+      "id": "o-motor",
+      "title": "O motor único (vox-engine)",
+      "blocks": [
+        { "type": "p", "text": "Toda a fala passa pelo **`vox-engine`**: um motor de **STT + TTS** que roda como daemon **local** e é compartilhado por **named pipe**. A extensão cuida do ciclo de vida dele sozinha, sem você configurar nada:" },
+        {
+          "type": "list",
+          "items": [
+            "**Não instalado** → baixa o instalador da release pública, **confere a assinatura** (veja Segurança) e sobe o daemon.",
+            "**Desatualizado** → atualiza para a última versão antes de conectar, com a **mesma verificação**.",
+            "**Em dia** → só conecta e usa. Se o daemon já está no ar (subiu para outro app de voz), ela apenas se liga."
+          ]
+        },
+        { "type": "p", "text": "Atualizar o motor nunca atropela você: o **contrato de update** espera ele ficar **ocioso** — o motor **não é reciclado no meio** de uma transcrição ou gravação." },
+        { "type": "p", "text": "O ciclo de um turno, por baixo: **captura** o microfone no painel → **STT** manda o áudio ao motor pelo named pipe e recebe o texto → o texto entra como um **turno** do Copilot → o **mesmo** motor sintetiza o **resumo falado** em pt-BR, que toca no painel e fica no histórico da sessão." },
+        { "type": "note", "tone": "warn", "text": "**O motor é o único caminho.** Não há alternativa nem chave para desligá-lo: se o `vox-engine` não estiver disponível, o erro aparece **alto** na interface, nunca em silêncio." }
       ]
     },
     {
@@ -44,7 +78,7 @@
         {
           "type": "list",
           "items": [
-            "**Aviso que não atrapalha** — um sinal visual e um **bipe curto e discreto** marcam o silêncio, mas a gravação **continua**; quem decide recomeçar é você.",
+            "**Aviso que não atrapalha** — um sinal visual e um **bipe curto** marcam o silêncio, mas a gravação **continua**; quem decide recomeçar é você.",
             "**Intensidade sempre à vista** — enquanto grava, a barra mostra o nível do microfone em tempo real, então dá para ver o som entrando (ou não) sem adivinhar.",
             "**Veredito honesto** — o aviso final de “sem áudio” **ignora o próprio bipe**, então o alerta nunca é confundido com fala."
           ]
@@ -53,20 +87,19 @@
       ]
     },
     {
-      "id": "o-motor",
-      "title": "O motor único (vox-engine)",
+      "id": "sessoes",
+      "title": "Sessões independentes",
       "blocks": [
-        { "type": "p", "text": "Toda a fala passa pelo **`vox-engine`** (hoje na versão **0.18.0**): um motor de STT + TTS que roda como daemon **local** e é compartilhado por **named pipe**. A extensão cuida do ciclo de vida dele no arranque, sem você configurar nada:" },
+        { "type": "p", "text": "Abra quantas sessões do Copilot quiser: na **2.0.0**, cada uma é **dona da sua própria voz**. A sessão grava, transcreve, injeta a fala e toca o áudio **para si mesma**, falando direto com o motor único — sem disputar um “dono” do microfone nem depender de outra sessão para receber o que você falou." },
         {
           "type": "list",
           "items": [
-            "**Não instalado** → baixa o instalador da release pública, **confere a assinatura** (veja Segurança) e sobe o daemon.",
-            "**Desatualizado** → atualiza para a última versão antes de conectar, com a **mesma verificação**.",
-            "**Em dia** → só conecta e usa. Se o daemon já está no ar (por exemplo, subiu para outro app de voz), ela apenas se liga."
+            "**Sem primário, sem porta canônica** — nenhuma sessão manda nas outras; cada painel sobe o próprio servidor local numa porta efêmera que serve **só ele**.",
+            "**Fala entregue na própria sessão** — mesmo com o painel em segundo plano, a fala capturada chega à **própria** sessão de forma durável e é injetada **uma vez só**, na ordem. É o que corrige o **Stop→fala**.",
+            "**Histórico por sessão** — cada sessão guarda e reproduz **apenas** o próprio histórico de áudio."
           ]
         },
-        { "type": "p", "text": "Atualizar o motor nunca atropela você: o **contrato de update** espera ele ficar **ocioso** — o motor **não é reciclado no meio** de uma transcrição ou gravação. O que está em curso termina; a troca vem depois." },
-        { "type": "note", "tone": "warn", "text": "**O motor é o único caminho.** Não há alternativa nem chave para desligá-lo: se o `vox-engine` não estiver disponível, o erro aparece **alto** na interface, nunca em silêncio." }
+        { "type": "p", "text": "Quando sai uma versão nova, a extensão detecta sozinha, baixa e **se recarrega** — a própria sessão passa para a nova versão **sem fechar o app do Copilot**. Se algo travar o painel, ela **pede uma recarga** da extensão em vez de ficar quebrada." }
       ]
     },
     {
@@ -85,76 +118,37 @@
         },
         { "type": "note", "tone": "info", "text": "A prova é a **assinatura**, não o transporte: mesmo numa rede que **reassina o TLS** (proxy corporativo com CA própria), nada forjado roda nem é gravado — a checagem acontece **antes** de qualquer byte. O verificador Ed25519 é embutido (Python puro), sem dependência externa." }
       ]
-    },
-    {
-      "id": "multi-sessao",
-      "title": "Multi-sessão e atualização",
-      "blocks": [
-        { "type": "p", "text": "Dá para ter várias sessões do Copilot abertas, mas só existe **um microfone**. O voice-chat resolve isso elegendo um **dono**:" },
-        {
-          "type": "list",
-          "items": [
-            "**Um processo primário** é dono do microfone, do motor e da **porta canônica**; as outras sessões se **ligam a ele** em vez de disputar o áudio.",
-            "**Handover ciente de versão** — se entra uma sessão com versão **mais nova**, ela **assume** o papel de dono; a mais antiga cede sem drama.",
-            "**Recuperação após Stop** — quando você para uma sessão, ela **se recupera** e volta a funcionar, em vez de virar zumbi."
-          ]
-        },
-        { "type": "p", "text": "Quando sai uma versão nova, a extensão detecta sozinha e mostra um selo de **sessões desatualizadas**, separando o que dá para atualizar em duas classes:" },
-        {
-          "type": "list",
-          "items": [
-            "**Sincronizáveis** — recarregam sozinhas; **Sincronizar** as coloca na nova versão sem você reabrir nada.",
-            "**Legadas** — precisam ser **reabertas** para pegar a nova versão, e o selo diz exatamente quais.",
-            "**Atualizar e reiniciar tudo** — um botão põe todas na última versão de uma vez, e a extensão se auto-recarrega **sem reiniciar o app do Copilot**."
-          ]
-        }
-      ]
-    },
-    {
-      "id": "como-funciona",
-      "title": "Como funciona",
-      "blocks": [
-        {
-          "type": "list",
-          "items": [
-            "**Captura** — grava o microfone no painel (segurar para falar ou mãos-livres), com a barra de intensidade e a guarda de silêncio ao vivo.",
-            "**STT** — o worker de voz manda o áudio ao motor pelo **named pipe** e recebe o texto.",
-            "**Agente** — o texto transcrito entra como um turno normal do Copilot.",
-            "**TTS** — o **mesmo** motor sintetiza um resumo falado em pt-BR, que toca no canvas e fica no histórico da sessão."
-          ]
-        },
-        { "type": "p", "text": "Por ser um daemon compartilhado, o motor sobe uma vez e é reusado — STT e TTS ficam consistentes entre o voice-chat e outros apps de voz. Um **gate de foco** opcional segura o áudio quando o app do Copilot não está em primeiro plano e **drena a fila** quando você volta. Nenhum áudio sai da sua máquina." }
-      ]
     }
   ],
   "requirements": [
     "GitHub Copilot CLI (app de desktop, com canvas)",
-    "Windows 10/11 — o motor usa named pipe e instalador `.ps1`",
+    "Windows 10/11 — o motor usa named pipe e instalador do Windows",
     "Node 18+ (runtime da extensão)",
     "Python 3 — o worker de voz é Python; a extensão o encontra sozinha e instala as dependências no 1º uso",
     "Microfone e saída de áudio"
   ],
   "faq": [
+    { "q": "O que mudou na 2.0.0?", "a": "A extensão ficou **fina**: cada sessão do Copilot passou a gravar, transcrever, injetar a fala e tocar o áudio **na própria sessão**, direto com o motor único. Saiu a camada que roteava áudio e turnos **entre** sessões (~3.100 linhas a menos), e o antigo bug de **Stop→fala** — fala perdida ou duplicada ao falar logo após um Stop — foi corrigido **na raiz**. Nenhuma função que você já usava saiu." },
     { "q": "Precisa de internet?", "a": "Só na 1ª vez, para baixar o motor e a voz, e depois quando há atualização. Fora isso, **STT e TTS rodam na sua máquina** — nenhum áudio sai do computador. O agente do Copilot usa a rede como sempre." },
-    { "q": "Funciona fora do Windows?", "a": "Não. O voice-chat é **Windows-only** (10/11): o **named pipe** e o instalador **`.ps1`** do motor são específicos do Windows. Não há versão para outros sistemas." },
-    { "q": "Preciso instalar o `vox-engine` na mão?", "a": "Não. A extensão **instala, atualiza e sobe** o motor sozinha no arranque; você só abre o painel Voz. E ela nunca recicla o motor **no meio** de uma gravação — o update espera ele ficar ocioso." },
+    { "q": "Funciona fora do Windows?", "a": "Não. O voice-chat é **Windows-only** (10/11): o **named pipe** e o instalador do motor são específicos do Windows. Não há versão para outros sistemas." },
+    { "q": "Preciso instalar o `vox-engine` na mão?", "a": "Não. A extensão **instala, atualiza e sobe** o motor sozinha; você só abre o painel Voz. E ela nunca recicla o motor **no meio** de uma gravação — o update espera ele ficar ocioso." },
     { "q": "E se o microfone não captar som?", "a": "Se ficar cerca de **3 segundos mudo durante a gravação**, aparece um aviso — visual e um bipe curto — **sem cortar** a captura, para você não gravar minutos em silêncio sem perceber. A barra de intensidade fica sempre à vista, e o veredito final de “sem áudio” **ignora o próprio bipe**." },
-    { "q": "Como o plugin se atualiza?", "a": "Ele detecta a nova versão sozinho e mostra um selo de **sessões desatualizadas**: as **sincronizáveis** recarregam sozinhas (botão **Sincronizar**) e as **legadas** precisam **reabrir**. **Atualizar e reiniciar tudo** põe todas na última versão — a extensão se auto-recarrega **sem reiniciar o app do Copilot**. O motor, por baixo, só troca quando fica **ocioso**." },
+    { "q": "Dá para ter várias sessões abertas?", "a": "Sim, e na **2.0.0** cada uma é **independente**: grava, transcreve e toca o áudio para **si mesma**, direto com o motor. Não há mais sessão “primária”, porta canônica nem roteamento entre sessões — o que sumiu de vez junto com a fala perdida ou duplicada depois de um **Stop**." },
+    { "q": "Como o plugin se atualiza?", "a": "Ele detecta a versão nova sozinho, baixa e **se recarrega** — a própria sessão passa para a nova versão **sem fechar o app do Copilot**. Se o painel cair, a extensão pede uma recarga em vez de ficar quebrada. O motor, por baixo, só troca quando fica **ocioso**." },
     { "q": "Como sei que uma instalação ou update é legítimo?", "a": "Antes de **executar** o instalador do motor, a extensão confere a **assinatura Ed25519** contra uma chave pública **pinada** e recusa o que não bate. Ao **aplicar** arquivos de um update, exige o `sha256` de cada arquivo e uma versão **maior** que a instalada (anti-rollback). Tudo **fail-closed**: sem a chave privada do projeto, nada forjado passa — nem numa rede que reassina o TLS." },
-    { "q": "E se o motor não subir?", "a": "O erro aparece **alto** na interface, nunca em silêncio. Feche o app e abra de novo para a extensão tentar provisionar o motor outra vez, e confira os logs (na pasta de dados do motor). Se um instalador for **recusado** por assinatura inválida, a instalação para de propósito — é o fail-closed em ação, não uma falha do motor." },
     { "q": "Onde mora o código do plugin?", "a": "O código canônico vive no repositório **`copilot-voice`** e entra aqui **vendado** — sincronizado a cada release em `plugins/voice-chat/`. É exatamente isso que o `copilot plugin install`/`update` entrega; a **Estrutura** abaixo mostra a árvore completa." }
   ],
   "files": {
-    "plugin.json": "Metadados do plugin + marcador de canvas (o painel Voz) e dos hooks.",
-    "extension.mjs": "Coração da extensão in-app: painel Voz, servidor da sessão, a tool `falar` e a orquestração STT → agente → TTS.",
-    "iframe.html": "O painel **Voz** em si — a interface do canvas carregada pelo app, com a barra de intensidade e o histórico.",
+    "plugin.json": "Metadados do plugin + marcadores do canvas (o painel Voz) e dos hooks.",
+    "extension.mjs": "Coração da extensão in-app: painel Voz, a tool `falar` e a orquestração STT → agente → TTS, tudo na própria sessão.",
+    "iframe.html": "O painel **Voz** em si — a interface do canvas: microfone, barra de intensidade, histórico (anterior/repetir/pausar/próximo) e os modos mãos-livres e interromper.",
     "hooks.json": "Registra os hooks `agentStop` e `postToolUseFailure` do plugin.",
     "voice-worker.mjs": "Cuida do worker de voz em Python: sobe, vigia e cura o processo; catálogos de microfone e de vozes.",
-    "voice-net.mjs": "Servidor HTTP/SSE e a eleição primário ↔ secundário entre sessões (dono da porta canônica e handover).",
-    "voice-update.mjs": "Auto-update da **extensão**: versões, assinatura Ed25519 do manifesto, download resiliente e a decisão de recarregar a quente ou reiniciar.",
-    "voice-turns.mjs": "Entrega durável dos turnos de voz por sessão (fila persistida, sem duplicar após um handover).",
-    "voice-audio.mjs": "Histórico de áudio por sessão: guarda, entrega ao vivo e reproduz na ordem certa ao reabrir.",
-    "voice-state.mjs": "Estado compartilhado do runtime — as coleções que rede, worker, áudio e turnos dividem.",
+    "voice-net.mjs": "Servidor HTTP + SSE **local da própria sessão** (porta efêmera que serve só o próprio painel) — sem porta canônica, eleição de primário nem roteamento entre sessões.",
+    "voice-update.mjs": "Auto-update da **extensão**: versões, assinatura Ed25519 do manifesto, download resiliente e a decisão de recarregar a quente.",
+    "voice-turns.mjs": "Entrega durável da fala capturada **na própria sessão**: injeta **uma vez só** e na ordem, mesmo com o painel em segundo plano (o que corrige o Stop→fala).",
+    "voice-audio.mjs": "Histórico de áudio **da própria sessão**: guarda, entrega ao vivo e reproduz na ordem certa ao reabrir.",
+    "voice-state.mjs": "Estado do runtime **da própria sessão** (modelo fino v2): clientes SSE do painel, histórico de áudio e inferências em voo — sem registro de sessões nem roteamento.",
     "voice-text.mjs": "Prepara o texto para a fala: limpa markdown/emoji e corta em frases (puro e testável).",
     "voice-core.mjs": "Utilitários base: log em arquivo e I/O em disco.",
     "voice-shared.cjs": "Contrato entre processos (pasta de dados, filas) que o hook e a extensão compartilham — para nunca divergirem.",
