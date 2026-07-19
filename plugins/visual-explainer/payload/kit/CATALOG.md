@@ -169,6 +169,18 @@ Aplicado da **pesquisa de design** (Ciechanowski, Nicky Case, Red Blob, Distill 
 
 **Auto-enquadramento (`spec.autoframe:true`) — preenche a tela, aproveita o zoom.** Liga por spec: cada passo calcula a câmera para **encaixar o conteúdo que o passo revela/foca** na tela (margens: topo 13,5% p/ o título, laterais 5,5%, base 11%; zoom clampado 0.4–1.75). **Ignora `camera` autorada** (não precisa mais escolher zoom/cx/cy à mão) e **exclui conectores** (flowPipe/arrow, sem centro) do bbox — senão eles esticam o enquadramento. Escape por passo: `step.fit:false` (mantém a `camera` explícita). Para medir bem componentes grandes, exponha `bounds(n,e)` → `[x0,y0,x1,y1]` (ex.: `httpMsg`, `codeGrid`); os demais são estimados por `x/y/w/h` ou `x0/y0/x1/y1`. **Use em fluxos que trocam conteúdo por passo com `hide`** (o enquadramento segue o passo). **Não** combine com story mode (que já tem câmera por nó) nem com física de câmera precisa.
 
+## Geometria compartilhada (`VXK.geom`) — reuse, não reimplemente
+
+`kit/lib/geom.mjs` é a **fonte única** de geometria pura (sem canvas/IO), inlinada pelo builder como `window.VXK.geom` (após o core, antes dos componentes) **e** importada no Node pelo builder (ex.: `explode.mjs`). Antes havia 3 cópias (bbox em `part.js`+`explode.mjs`, ray-cast em `shape.js`+`layer.js`) — agora **um lugar só**:
+
+| Helper | O que faz | Use em |
+|---|---|---|
+| `VXK.geom.pointInPoly(pts,x,y)` | Ray-cast even-odd (contenção em polígono). | Qualquer hit-test de forma poligonal. |
+| `VXK.geom.shapeBounds(sh)` | Bounds locais `[x0,y0,x1,y1]` de UMA forma (circle/ellipse/rect/line/poly/text/path) ou `null`. | bounds/âncora por forma. |
+| `VXK.geom.shapesBBox(shapes,{minExtent,empty})` | bbox agregada; `minExtent` dá corpo mínimo a peça fina; `empty` = fallback quando nada contribui. | enquadrar peças (`part`, `explode`). |
+
+**Nunca reescreva bbox/point-in-poly à mão** num componente novo — chame `VXK.geom` (equivalência das 3 cópias antigas provada: 22/22 bbox, 882/882 pontos).
+
 ## Ícones (Lucide) — glifos semânticos no canvas
 
 `kit/lib/icons.js` (inlinado pelo builder, **offline**) traz `VXK.drawIcon(ctx, nome, cx, cy, size, cor, strokeWidth)` + `VXK.hasIcon(nome)`, com ~60 ícones **Lucide (ISC)** desenhados via `Path2D` (stroke FLAT 24×24, sem preenchimento). Regenerar/ampliar o conjunto: um gerador build-time baixa os SVGs do Lucide e emite o dict inlinado (rede só no build; saída offline). Nomes disponíveis incluem: `server database cpu cloud globe wifi network monitor smartphone code terminal lock lock-open key shield link mail send download upload folder file-text users user credit-card package git-branch git-merge git-pull-request workflow layers box search eye zap activity clock settings refresh-cw repeat circle-check circle-x triangle-alert info bell rocket bug` (e mais). Use em `box.icon` (card rico) ou em qualquer componente novo via `VXK.drawIcon`. **Por que importa:** a pesquisa de explainers (Ciechanowski, Stripe, Distill) mostrou que o que separa "rico" de "rústico" é **semântica**, não polish — um glifo de banco num cilindro **não é uma caixa**.
@@ -213,3 +225,5 @@ Demos: `specs/teclado-mecanico.json` (iso, placas), `specs/camadas-rede.json` (f
 2. Prefira combinar componentes existentes com `camera`, `reveal`, `focus`, `annotate` e `animate`.
 3. Se faltar uma forma, crie **um** componente novo, geral e paramétrico em `kit/components/<type>.js`, mantendo fills sólidos e traços finos.
 4. Documente o novo componente nesta página no mesmo formato: propósito, props, `parts()` e opções.
+5. **Reuso-primeiro:** antes de criar QUALQUER coisa, procure em `VXK.mat` (tint/card/type/ease), `VXK.geom` (bbox/hit) e `VXK.drawIcon` (glifos). Componente novo **só** quando nenhuma combinação serve — e então geral/paramétrico.
+6. **O build garante a voz:** a narração é assada com **cache** (`kit/lib/tts_cache.mjs`, chave `sha256(motor+voz+formato+texto)` em `~/.cache/vxk-tts`) — rebuild idêntico é ~instantâneo; trocar voz/motor invalida sozinho (`VXK_NO_CACHE=1` desliga). Um **gate de áudio** falha o build se a spec quer narração mas o HTML sai sem clipe real (escape: `VXK_ALLOW_SILENT=1`). O engine `konva` ainda **não** reproduz narração — use `vxk` (padrão) para explicações faladas.

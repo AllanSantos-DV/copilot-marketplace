@@ -9,23 +9,7 @@
   const num = (v,d)=> (typeof v==='number' && isFinite(v)) ? v : d;
   const DEF_FILL='#8aa4d6', DEF_STROKE='rgba(16,22,40,.42)', DEF_LINE='#33456b', DEF_TXT='#eef3ff';
 
-  // --- bounds locais de UMA forma [minX,minY,maxX,maxY] (antes do transform do nó) ---
-  function boundsOf(sh){
-    switch(sh.kind){
-      case 'circle':  { const cx=num(sh.cx,0),cy=num(sh.cy,0),r=Math.abs(num(sh.r,0)); return [cx-r,cy-r,cx+r,cy+r]; }
-      case 'ellipse': { const cx=num(sh.cx,0),cy=num(sh.cy,0),rx=Math.abs(num(sh.rx,0)),ry=Math.abs(num(sh.ry,0)); return [cx-rx,cy-ry,cx+rx,cy+ry]; }
-      case 'rect':    { const x=num(sh.x,0),y=num(sh.y,0),w=num(sh.w,0),h=num(sh.h,0); return [Math.min(x,x+w),Math.min(y,y+h),Math.max(x,x+w),Math.max(y,y+h)]; }
-      case 'line':    { const x1=num(sh.x1,0),y1=num(sh.y1,0),x2=num(sh.x2,0),y2=num(sh.y2,0); return [Math.min(x1,x2),Math.min(y1,y2),Math.max(x1,x2),Math.max(y1,y2)]; }
-      case 'polyline':
-      case 'polygon': { const p=sh.points||[]; if(!p.length) return null; let a=Infinity,b=Infinity,c=-Infinity,d=-Infinity; for(const pt of p){ a=Math.min(a,pt[0]); b=Math.min(b,pt[1]); c=Math.max(c,pt[0]); d=Math.max(d,pt[1]); } return [a,b,c,d]; }
-      case 'text':    { const x=num(sh.x,0),y=num(sh.y,0),s=num(sh.size,14),w=String(sh.text||'').length*s*0.58;
-                        let x0=x; if(sh.align==='center') x0=x-w/2; else if(sh.align==='right') x0=x-w;
-                        let y0=y-s*0.8, y1=y+s*0.25; if(sh.baseline==='middle'){y0=y-s*0.5;y1=y+s*0.5;} else if(sh.baseline==='top'){y0=y;y1=y+s;}
-                        return [x0,y0,x0+w,y1]; }
-      case 'path':    { const bb=sh.bbox; if(Array.isArray(bb)&&bb.length===4) return [bb[0],bb[1],bb[0]+bb[2],bb[1]+bb[3]]; return null; } // path sem bbox: fora dos bounds
-      default: return null;
-    }
-  }
+  // bounds/centro por forma: bounds agora em VXK.geom.shapeBounds (kit/lib/geom.mjs) — fonte única.
   // centro local de UMA forma (âncora de anotação)
   function centerOf(sh, b){
     switch(sh.kind){
@@ -36,14 +20,14 @@
       default: return b ? [(b[0]+b[2])/2,(b[1]+b[3])/2] : [num(sh.x,0),num(sh.y,0)];
     }
   }
-  function pointInPoly(pts, x, y){ let ins=false; for(let i=0,j=pts.length-1;i<pts.length;j=i++){ const xi=pts[i][0],yi=pts[i][1],xj=pts[j][0],yj=pts[j][1]; if(((yi>y)!==(yj>y)) && (x < (xj-xi)*(y-yi)/((yj-yi)||1e-12)+xi)) ins=!ins; } return ins; }
+  // pointInPoly: em VXK.geom.pointInPoly (kit/lib/geom.mjs) — fonte única.
 
   // recomputa bounds só quando a referência de n.shapes muda (barato por frame)
   function ensure(inst, n){
     if(inst._ref === n.shapes && inst._sb) return;
     const list = Array.isArray(n.shapes) ? n.shapes : [];
     const sb=[]; let U=null;
-    for(const sh of list){ const b = sh ? boundsOf(sh) : null; sb.push(b); if(b){ if(!U) U=[b[0],b[1],b[2],b[3]]; else { U[0]=Math.min(U[0],b[0]); U[1]=Math.min(U[1],b[1]); U[2]=Math.max(U[2],b[2]); U[3]=Math.max(U[3],b[3]); } } }
+    for(const sh of list){ const b = sh ? VXK.geom.shapeBounds(sh) : null; sb.push(b); if(b){ if(!U) U=[b[0],b[1],b[2],b[3]]; else { U[0]=Math.min(U[0],b[0]); U[1]=Math.min(U[1],b[1]); U[2]=Math.max(U[2],b[2]); U[3]=Math.max(U[3],b[3]); } } }
     inst._sb=sb; inst._bounds=U; inst._ref=n.shapes;
   }
   function pathOf(inst, d){ let p=inst._p2d.get(d); if(!p){ p=new Path2D(d); inst._p2d.set(d,p); } return p; }
@@ -70,7 +54,7 @@
     switch(sh.kind){
       case 'circle': { const cx=num(sh.cx,0),cy=num(sh.cy,0),r=Math.abs(num(sh.r,0)); return (lx-cx)*(lx-cx)+(ly-cy)*(ly-cy)<=r*r; }
       case 'ellipse': { const cx=num(sh.cx,0),cy=num(sh.cy,0),rx=Math.abs(num(sh.rx,0))||1e-6,ry=Math.abs(num(sh.ry,0))||1e-6; const u=(lx-cx)/rx,v=(ly-cy)/ry; return u*u+v*v<=1; }
-      case 'polygon': return pointInPoly(sh.points||[], lx, ly);
+      case 'polygon': return VXK.geom.pointInPoly(sh.points||[], lx, ly);
       case 'path': {
         if(e && e.ctx && typeof e.ctx.isPointInPath==='function'){        // preciso: isPointInPath com CTM identidade
           const p=pathOf(inst, String(sh.d||'')); let ok=false;

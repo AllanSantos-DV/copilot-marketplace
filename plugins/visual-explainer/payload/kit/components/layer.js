@@ -75,8 +75,7 @@ VXK.register('layer', {
       const HX=0.9,HY=0.46,th=(n.thickness!=null?n.thickness:16),w2=w/2,h2=h/2;
       const P=(u,v)=>[cx+(u-v)*HX, cy+(u+v)*HY], d=p=>[p[0],p[1]+th];
       const Tb=P(-w2,-h2),Tr=P(w2,-h2),Tf=P(w2,h2),Tl=P(-w2,h2);
-      const inPoly=(pts)=>{ let inside=false; for(let i=0,j=pts.length-1;i<pts.length;j=i++){ const xi=pts[i][0],yi=pts[i][1],xj=pts[j][0],yj=pts[j][1];
-        if(((yi>wy)!==(yj>wy)) && (wx < (xj-xi)*(wy-yi)/((yj-yi)||1e-9)+xi)) inside=!inside; } return inside; };
+      const inPoly=(pts)=>VXK.geom.pointInPoly(pts, wx, wy);   // ray-cast agora em VXK.geom (fonte única)
       return (inPoly([Tb,Tr,Tf,Tl]) || inPoly([Tr,Tf,d(Tf),d(Tr)]) || inPoly([Tl,Tf,d(Tf),d(Tl)])) ? ok : false;
     }
     return (wx>=cx-w/2&&wx<=cx+w/2&&wy>=cy-h/2&&wy<=cy+h/2) ? ok : false;

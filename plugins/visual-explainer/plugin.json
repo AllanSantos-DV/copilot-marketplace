@@ -1,6 +1,6 @@
 {
   "name": "visual-explainer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Explicações visuais animadas, narradas por voz e interativas: peça um assunto e um agente desenhista gera UMA página HTML autocontida e offline, com narração assada pelo motor (vox-engine), play/pause, zoom, câmera passo a passo e peças clicáveis — incluindo vista explodida (montado→desmontado) e design system rico. Você escreve só uma spec; o builder assa a voz e monta o HTML otimizado.",
   "author": {
     "name": "Allan Santos",

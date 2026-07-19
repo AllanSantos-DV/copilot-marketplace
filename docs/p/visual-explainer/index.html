@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">visual-explainer</h1>
-        <span class="chip" title="versão publicada">v0.2.0</span>
+        <span class="chip" title="versão publicada">v0.3.0</span>
       </div>
       <p class="doc-hero__lede">O <strong>visual-explainer</strong> transforma um pedido em texto — &quot;explica o ciclo da água&quot;, &quot;o motor 4 tempos&quot;, &quot;o fluxo HTTP&quot;, &quot;como funciona uma tecla mecânica&quot; — numa <strong>página HTML autocontida e offline</strong>, com <strong>narração por voz</strong>, câmera passo a passo, play/pause, zoom e peças clicáveis. Você não desenha nada: um <strong>agente desenhista</strong> escreve uma spec declarativa, o builder <strong>assa a voz pelo motor (vox-engine)</strong> e entrega o HTML pronto, aberto no navegador.</p>
       <div class="doc-hero__cta">
@@ -55,7 +55,7 @@
       <ul class="hl" aria-label="Destaques">
         <li class="hl__item">
           <h3 class="hl__title">Narrada com a voz do motor</h3>
-          <p class="hl__body">Cada explicação nasce com <strong>áudio</strong>: o builder assa a narração pelo vox-engine e embute no HTML. Nada de voz robótica do navegador — a página fala ao abrir e conta o passo a passo.</p>
+          <p class="hl__body">Cada explicação nasce com <strong>áudio</strong>: o builder assa a narração pelo vox-engine e embute no HTML. Nada de voz robótica do navegador — a página fala ao abrir e conta o passo a passo. O build <strong>garante o áudio</strong>: se a síntese falhar, ele para em vez de entregar a página muda.</p>
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Do pedido à página, sem desenhar</h3>
@@ -161,7 +161,7 @@
             <li class="tree__row">
               <code class="tree__name">payload/build-artifact.mjs</code>
               <span class="tree__role">O builder (empacotado, roda standalone): transforma a spec em HTML autocontido e assa a narração pelo vox-engine.</span>
-              <span class="tree__size">117 KB</span>
+              <span class="tree__size">123 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/README.md</code>
@@ -181,7 +181,7 @@
             <li class="tree__row">
               <code class="tree__name">payload/kit/CATALOG.md</code>
               <span class="tree__role"></span>
-              <span class="tree__size">33 KB</span>
+              <span class="tree__size">35 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/registry.json</code>
@@ -321,7 +321,7 @@
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/layer.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">6.4 KB</span>
+              <span class="tree__size">6.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/leaf.js</code>
@@ -351,7 +351,7 @@
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/part.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">6.3 KB</span>
+              <span class="tree__size">5.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/particleStream.js</code>
@@ -381,7 +381,7 @@
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/shape.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">10 KB</span>
+              <span class="tree__size">8.6 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/stat.js</code>
@@ -426,7 +426,12 @@
             <li class="tree__row">
               <code class="tree__name">payload/kit/lib/explode.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">7.0 KB</span>
+              <span class="tree__size">5.8 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/kit/lib/geom.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.8 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/lib/icons.js</code>
@@ -447,6 +452,11 @@
               <code class="tree__name">payload/kit/lib/theme-import.mjs</code>
               <span class="tree__role"></span>
               <span class="tree__size">7.2 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/kit/lib/tts_cache.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.5 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/lib/vox_client.mjs</code>
@@ -534,7 +544,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.2.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.3.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>

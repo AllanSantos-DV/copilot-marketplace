@@ -42,7 +42,7 @@ VXK.register('part', {
     // rótulo-pílula à direita (fade-in ao explodir), ancorado na aresta direita da silhueta
     const lift=n.lift!=null?Math.max(0,Math.min(1,n.lift)):0, la=Math.max(0,Math.min(1,(lift-0.15)/0.5));
     if(la>0.02 && n.label){
-      const bb=shapesBBox(shapes); const rightX=cx+(bb?bb[2]*sc:0)+18, midY=cy+(bb?((bb[1]+bb[3])/2)*sc:0);
+      const bb=VXK.geom.shapesBBox(shapes,{minExtent:16,skipText:true}); const rightX=cx+(bb?bb[2]*sc:0)+18, midY=cy+(bb?((bb[1]+bb[3])/2)*sc:0);
       const baseA=ctx.globalAlpha, bx=rightX+6, by=cy;
       ctx.globalAlpha=baseA*la;
       ctx.strokeStyle=M.rgba(M.hex2rgb(accent),0.6); ctx.lineWidth=1.4*k;
@@ -61,30 +61,15 @@ VXK.register('part', {
   },
   hit(inst,n,wx,wy){
     const [cx,cy]=VXK.liftCenter(n), sc=(n.artScale!=null?n.artScale:1);
-    const bb=shapesBBox(n.shapes||[]); if(!bb) return false;
+    const bb=VXK.geom.shapesBBox(n.shapes||[],{minExtent:16,skipText:true}); if(!bb) return false;
     const lx=(wx-cx)/sc, ly=(wy-cy)/sc, pad=8;                          // slop p/ peças finas (só linha)
     return (lx>=bb[0]-pad&&lx<=bb[2]+pad&&ly>=bb[1]-pad&&ly<=bb[3]+pad)
       ? { label:n.label, info:n.info||n.sublabel, color:n.accent||'#8ab4ff' } : false;
   },
   bounds(n){
     const [cx,cy]=VXK.liftCenter(n), sc=(n.artScale!=null?n.artScale:1);
-    const bb=shapesBBox(n.shapes||[]); if(!bb) return [cx-40,cy-20,cx+40,cy+20];
+    const bb=VXK.geom.shapesBBox(n.shapes||[],{minExtent:16,skipText:true}); if(!bb) return [cx-40,cy-20,cx+40,cy+20];
     return [cx+bb[0]*sc, cy+bb[1]*sc, cx+bb[2]*sc + (n.label? 140:0), cy+bb[3]*sc];
   }
 });
-function shapesBBox(shapes){
-  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9, any=false;
-  const put=(a,b,c,d)=>{ any=true; if(a<x0)x0=a; if(b<y0)y0=b; if(c>x1)x1=c; if(d>y1)y1=d; };
-  for(const sh of (shapes||[])){ if(!sh||!sh.kind) continue;
-    if(sh.kind==='rect'){ const x=sh.x||0,y=sh.y||0,w=sh.w||0,h=sh.h||0; put(Math.min(x,x+w),Math.min(y,y+h),Math.max(x,x+w),Math.max(y,y+h)); }
-    else if(sh.kind==='circle'){ const cx=sh.cx||0,cy=sh.cy||0,r=Math.abs(sh.r||0); put(cx-r,cy-r,cx+r,cy+r); }
-    else if(sh.kind==='ellipse'){ const cx=sh.cx||0,cy=sh.cy||0,rx=Math.abs(sh.rx||0),ry=Math.abs(sh.ry||0); put(cx-rx,cy-ry,cx+rx,cy+ry); }
-    else if(sh.kind==='line'){ put(Math.min(sh.x1,sh.x2),Math.min(sh.y1,sh.y2),Math.max(sh.x1,sh.x2),Math.max(sh.y1,sh.y2)); }
-    else if(sh.kind==='polygon'||sh.kind==='polyline'){ for(const p of (sh.points||[])) put(p[0],p[1],p[0],p[1]); }
-    else if(sh.kind==='path' && Array.isArray(sh.bbox)&&sh.bbox.length===4){ put(sh.bbox[0],sh.bbox[1],sh.bbox[0]+sh.bbox[2],sh.bbox[1]+sh.bbox[3]); }
-  }
-  if(!any) return null;
-  if(x1-x0<16){ const c=(x0+x1)/2; x0=c-8; x1=c+8; }                    // peça fina ganha extensão mínima
-  if(y1-y0<16){ const c=(y0+y1)/2; y0=c-8; y1=c+8; }
-  return [x0,y0,x1,y1];
-}
+// bbox local das formas: reusa VXK.geom.shapesBBox (kit/lib/geom.mjs) — fonte única.
