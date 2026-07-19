@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 // build-artifact.mjs
-import { readFileSync as readFileSync2, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { join, dirname, resolve, extname as extname2 } from "node:path";
+import { readFileSync as readFileSync3, writeFileSync as writeFileSync2, existsSync as existsSync2, mkdirSync as mkdirSync2 } from "node:fs";
+import { join as join2, dirname, resolve, extname as extname2 } from "node:path";
 import { fileURLToPath } from "node:url";
-import os from "node:os";
+import os2 from "node:os";
 import { spawn } from "node:child_process";
 
 // kit/lib/vox_client.mjs
@@ -184,6 +184,86 @@ var VoxClient = class _VoxClient {
     }
   }
 };
+
+// kit/lib/tts_cache.mjs
+import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, renameSync, statSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+import os from "node:os";
+var CACHE_SCHEMA = "v1";
+function ttsKey({ engine = "", voice = "", format = "", speed = 1, text = "" }) {
+  return createHash("sha256").update([CACHE_SCHEMA, String(engine), String(voice), String(format), String(speed), String(text)].join("\0")).digest("hex");
+}
+function defaultCacheDir() {
+  return process.env.VXK_TTS_CACHE_DIR || join(os.homedir(), ".cache", "vxk-tts");
+}
+function makeFileCache(dir = defaultCacheDir()) {
+  let ready = false;
+  const ensure = () => {
+    if (!ready) {
+      mkdirSync(dir, { recursive: true });
+      ready = true;
+    }
+  };
+  return {
+    dir,
+    get(key) {
+      const p2 = join(dir, key + ".bin");
+      if (!existsSync(p2)) return null;
+      try {
+        if (statSync(p2).size === 0) return null;
+        return readFileSync(p2);
+      } catch {
+        return null;
+      }
+    },
+    put(key, buf) {
+      if (!buf || buf.length === 0) return;
+      ensure();
+      const final = join(dir, key + ".bin");
+      const tmp = join(dir, key + "." + process.pid + "." + Date.now() + ".tmp");
+      try {
+        writeFileSync(tmp, buf);
+        renameSync(tmp, final);
+      } catch (e) {
+        try {
+          if (existsSync(tmp)) unlinkSync(tmp);
+        } catch {
+        }
+        throw e;
+      }
+    }
+  };
+}
+function cached(cache, meta, synthFn) {
+  const off = process.env.VXK_NO_CACHE === "1";
+  let warned = false;
+  const warnOnce = (e) => {
+    if (!warned) {
+      warned = true;
+      console.warn("WARN  cache TTS indispon\xEDvel (seguindo sem cache): " + (e && e.message || e));
+    }
+  };
+  return async (text) => {
+    if (off) return { audio: await synthFn(text), cached: false };
+    const key = ttsKey({ ...meta, text });
+    let hit = null;
+    try {
+      hit = cache.get(key);
+    } catch (e) {
+      warnOnce(e);
+      hit = null;
+    }
+    if (hit) return { audio: hit, cached: true };
+    const audio = await synthFn(text);
+    try {
+      cache.put(key, audio);
+    } catch (e) {
+      warnOnce(e);
+    }
+    return { audio, cached: false };
+  };
+}
 
 // node_modules/@dagrejs/dagre/dist/dagre.esm.js
 var ge = Object.defineProperty;
@@ -2137,6 +2217,95 @@ function buildStorySteps(spec) {
   return { applied: true, steps: steps.length };
 }
 
+// kit/lib/geom.mjs
+var _num = (v2, d) => typeof v2 === "number" && isFinite(v2) ? v2 : d;
+function shapeBounds(sh) {
+  if (!sh || !sh.kind) return null;
+  switch (sh.kind) {
+    case "circle": {
+      const cx = _num(sh.cx, 0), cy = _num(sh.cy, 0), r = Math.abs(_num(sh.r, 0));
+      return [cx - r, cy - r, cx + r, cy + r];
+    }
+    case "ellipse": {
+      const cx = _num(sh.cx, 0), cy = _num(sh.cy, 0), rx = Math.abs(_num(sh.rx, 0)), ry = Math.abs(_num(sh.ry, 0));
+      return [cx - rx, cy - ry, cx + rx, cy + ry];
+    }
+    case "rect": {
+      const x3 = _num(sh.x, 0), y = _num(sh.y, 0), w2 = _num(sh.w, 0), h = _num(sh.h, 0);
+      return [Math.min(x3, x3 + w2), Math.min(y, y + h), Math.max(x3, x3 + w2), Math.max(y, y + h)];
+    }
+    case "line": {
+      const x1 = _num(sh.x1, 0), y1 = _num(sh.y1, 0), x22 = _num(sh.x2, 0), y2 = _num(sh.y2, 0);
+      return [Math.min(x1, x22), Math.min(y1, y2), Math.max(x1, x22), Math.max(y1, y2)];
+    }
+    case "polyline":
+    case "polygon": {
+      const p2 = sh.points || [];
+      if (!p2.length) return null;
+      let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+      for (const pt of p2) {
+        a = Math.min(a, pt[0]);
+        b = Math.min(b, pt[1]);
+        c = Math.max(c, pt[0]);
+        d = Math.max(d, pt[1]);
+      }
+      return [a, b, c, d];
+    }
+    case "text": {
+      const x3 = _num(sh.x, 0), y = _num(sh.y, 0), s = _num(sh.size, 14), w2 = String(sh.text || "").length * s * 0.58;
+      let x0 = x3;
+      if (sh.align === "center") x0 = x3 - w2 / 2;
+      else if (sh.align === "right") x0 = x3 - w2;
+      let y0 = y - s * 0.8, y1 = y + s * 0.25;
+      if (sh.baseline === "middle") {
+        y0 = y - s * 0.5;
+        y1 = y + s * 0.5;
+      } else if (sh.baseline === "top") {
+        y0 = y;
+        y1 = y + s;
+      }
+      return [x0, y0, x0 + w2, y1];
+    }
+    case "path": {
+      const bb = sh.bbox;
+      if (Array.isArray(bb) && bb.length === 4) return [bb[0], bb[1], bb[0] + bb[2], bb[1] + bb[3]];
+      return null;
+    }
+    default:
+      return null;
+  }
+}
+function shapesBBox(shapes, opts) {
+  const minExtent = opts && opts.minExtent || 0;
+  const empty = opts && "empty" in opts ? opts.empty : null;
+  const skipText = !!(opts && opts.skipText);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, any = false;
+  for (const sh of shapes || []) {
+    if (skipText && sh && sh.kind === "text") continue;
+    const b = shapeBounds(sh);
+    if (!b) continue;
+    any = true;
+    if (b[0] < x0) x0 = b[0];
+    if (b[1] < y0) y0 = b[1];
+    if (b[2] > x1) x1 = b[2];
+    if (b[3] > y1) y1 = b[3];
+  }
+  if (!any) return empty;
+  if (minExtent > 0) {
+    if (x1 - x0 < minExtent) {
+      const c = (x0 + x1) / 2, h = minExtent / 2;
+      x0 = c - h;
+      x1 = c + h;
+    }
+    if (y1 - y0 < minExtent) {
+      const c = (y0 + y1) / 2, h = minExtent / 2;
+      y0 = c - h;
+      y1 = c + h;
+    }
+  }
+  return [x0, y0, x1, y1];
+}
+
 // kit/lib/explode.mjs
 var PALETTE = ["#3a5a8c", "#4a6f7a", "#57806a", "#7a6f4a", "#8a5a5a", "#6a5a8a", "#4a7a8a", "#7a7a5a"];
 function buildExplodeScenes(spec) {
@@ -2155,50 +2324,9 @@ function buildExplodeScenes(spec) {
   const expGap = cfg.expGap != null ? cfg.expGap : physical ? 152 : iso ? 150 : 96;
   const asmY = (i2) => (i2 - (N2 - 1) / 2) * asmGap;
   const expY = (i2) => (i2 - (N2 - 1) / 2) * expGap;
-  function shapesBBox(shapes) {
-    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, any = false;
-    const put = (a, b, c, d) => {
-      any = true;
-      if (a < x0) x0 = a;
-      if (b < y0) y0 = b;
-      if (c > x1) x1 = c;
-      if (d > y1) y1 = d;
-    };
-    for (const sh of shapes || []) {
-      if (!sh || !sh.kind) continue;
-      if (sh.kind === "rect") {
-        const x3 = sh.x || 0, y = sh.y || 0, ww = sh.w || 0, hh = sh.h || 0;
-        put(Math.min(x3, x3 + ww), Math.min(y, y + hh), Math.max(x3, x3 + ww), Math.max(y, y + hh));
-      } else if (sh.kind === "circle") {
-        const c = sh.cx || 0, d = sh.cy || 0, r = Math.abs(sh.r || 0);
-        put(c - r, d - r, c + r, d + r);
-      } else if (sh.kind === "ellipse") {
-        const c = sh.cx || 0, d = sh.cy || 0, rx = Math.abs(sh.rx || 0), ry = Math.abs(sh.ry || 0);
-        put(c - rx, d - ry, c + rx, d + ry);
-      } else if (sh.kind === "line") {
-        put(Math.min(sh.x1, sh.x2), Math.min(sh.y1, sh.y2), Math.max(sh.x1, sh.x2), Math.max(sh.y1, sh.y2));
-      } else if (sh.kind === "polygon" || sh.kind === "polyline") {
-        for (const p2 of sh.points || []) put(p2[0], p2[1], p2[0], p2[1]);
-      } else if (sh.kind === "path" && Array.isArray(sh.bbox) && sh.bbox.length === 4) {
-        put(sh.bbox[0], sh.bbox[1], sh.bbox[0] + sh.bbox[2], sh.bbox[1] + sh.bbox[3]);
-      }
-    }
-    if (!any) return [-40, -20, 40, 20];
-    if (x1 - x0 < 16) {
-      const c = (x0 + x1) / 2;
-      x0 = c - 8;
-      x1 = c + 8;
-    }
-    if (y1 - y0 < 16) {
-      const c = (y0 + y1) / 2;
-      y0 = c - 8;
-      y1 = c + 8;
-    }
-    return [x0, y0, x1, y1];
-  }
   function localBox(L2) {
     if (Array.isArray(L2.shapes) && L2.shapes.length) {
-      const s = L2.artScale != null ? L2.artScale : 1, b = shapesBBox(L2.shapes);
+      const s = L2.artScale != null ? L2.artScale : 1, b = shapesBBox(L2.shapes, { minExtent: 16, empty: [-40, -20, 40, 20], skipText: true });
       return [b[0] * s, b[1] * s, b[2] * s, b[3] * s];
     }
     if (iso) {
@@ -2322,7 +2450,7 @@ function buildExplodeScenes(spec) {
 }
 
 // kit/lib/theme-import.mjs
-import { readFileSync } from "node:fs";
+import { readFileSync as readFileSync2 } from "node:fs";
 import { extname } from "node:path";
 
 // node_modules/fflate/esm/index.mjs
@@ -2825,7 +2953,7 @@ function slotColor(xml, slot) {
   return norm(pick(/<a:srgbClr\s+val="([0-9a-fA-F]{6,8})"/, body) || pick(/<a:sysClr\b[^>]*lastClr="([0-9a-fA-F]{6})"/, body));
 }
 function importPptxTheme(pptxPath) {
-  const buf = readFileSync(pptxPath);
+  const buf = readFileSync2(pptxPath);
   const zip = unzipSync(new Uint8Array(buf));
   let themeKey = Object.keys(zip).find((k2) => /^ppt\/theme\/theme1\.xml$/i.test(k2)) || Object.keys(zip).find((k2) => /^ppt\/theme\/theme\d+\.xml$/i.test(k2));
   if (!themeKey) throw new Error("theme n\xE3o encontrado no .pptx (ppt/theme/themeN.xml ausente)");
@@ -2873,7 +3001,7 @@ function extractPptxFonts(zip) {
   return out;
 }
 function importHtmlTheme(htmlPath) {
-  const html = readFileSync(htmlPath, "utf8");
+  const html = readFileSync2(htmlPath, "utf8");
   const root = /:root\s*\{([\s\S]*?)\}/.exec(html);
   const vars = {};
   if (root) for (const m of root[1].matchAll(/(--[\w-]+)\s*:\s*(#[0-9a-fA-F]{3,8}|[a-z]+\([^)]*\))/g)) vars[m[1]] = m[2];
@@ -2895,7 +3023,7 @@ function importHtmlTheme(htmlPath) {
   return toTheme(colors, font, font, "html:" + htmlPath.split(/[\\/]/).pop());
 }
 function importTokensTheme(jsonPath) {
-  const t = JSON.parse(readFileSync(jsonPath, "utf8"));
+  const t = JSON.parse(readFileSync2(jsonPath, "utf8"));
   const g = (...ks) => {
     for (const k2 of ks) {
       const v2 = k2.split(".").reduce((o, p2) => o && o[p2], t);
@@ -2947,8 +3075,8 @@ if (process.argv[1] && process.argv[1].endsWith("theme-import.mjs")) {
 
 // build-artifact.mjs
 var __dirname = dirname(fileURLToPath(import.meta.url));
-var KIT = join(__dirname, "kit");
-var read = (p2) => readFileSync2(p2, "utf8");
+var KIT = join2(__dirname, "kit");
+var read = (p2) => readFileSync3(p2, "utf8");
 var escHtml = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
 function safeColor(c, fallback) {
   const s = String(c == null ? "" : c).trim();
@@ -2965,12 +3093,12 @@ function slug(s) {
   return String(s || "arte").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 60) || "arte";
 }
 function desktopDir() {
-  return join(os.homedir(), "Desktop", "visual-explanations");
+  return join2(os2.homedir(), "Desktop", "visual-explanations");
 }
 var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function voxEngineExe() {
-  const p2 = join(os.homedir(), "AppData", "Local", "vox-engine", "venv", "Scripts", "vox-engine.exe");
-  return existsSync(p2) ? p2 : null;
+  const p2 = join2(os2.homedir(), "AppData", "Local", "vox-engine", "venv", "Scripts", "vox-engine.exe");
+  return existsSync2(p2) ? p2 : null;
 }
 async function ensureMotor() {
   let client = await VoxClient.tryConnect();
@@ -2999,9 +3127,24 @@ function specHasNarrationText(spec) {
   if (Array.isArray(spec.scenes) && spec.scenes.some((sc) => (sc.steps || []).some((st2) => st2.narration))) return true;
   return (spec.nodes || []).some((n) => n.narration || n.info);
 }
+function wantsNarration(spec) {
+  return spec.narrate === true || !!spec.voice || spec.narrate !== false && specHasNarrationText(spec);
+}
+function collectAudioClips(a) {
+  if (!a) return [];
+  const out = [];
+  if (a.intro) out.push(a.intro);
+  for (const k2 of ["board", "steps", "nodes"]) {
+    if (Array.isArray(a[k2])) out.push(...a[k2]);
+  }
+  return out;
+}
+function isRealAudioClip(c) {
+  return typeof c === "string" && /^data:audio\/(ogg|mpeg|wav);base64,[A-Za-z0-9+/]{100,}/.test(c);
+}
 async function synthNarration(spec) {
   const allowSilent = process.env.VXK_ALLOW_SILENT === "1";
-  const wants = spec.narrate === true || !!spec.voice || spec.narrate !== false && specHasNarrationText(spec);
+  const wants = wantsNarration(spec);
   if (!wants) return;
   const client = await ensureMotor();
   if (!client) {
@@ -3012,6 +3155,8 @@ async function synthNarration(spec) {
     }
     throw new Error(msg + "  (para gerar mudo deliberadamente: defina VXK_ALLOW_SILENT=1)");
   }
+  let sayReport = () => {
+  };
   try {
     const info = await client.info();
     const catalog = info.tts_voices || [];
@@ -3032,15 +3177,27 @@ async function synthNarration(spec) {
       throw new Error(m);
     }
     const mime = pick2 === "opus" ? "audio/ogg" : pick2 === "mp3" ? "audio/mpeg" : "audio/wav";
+    const engine = info.version || "vox";
+    const ttsCache = makeFileCache();
+    let nHit = 0, nMiss = 0;
+    const synth = cached(ttsCache, { engine, voice: voice || "", format: pick2, speed: 1 }, async (t) => {
+      const { header, audio: audio2 } = await client.tts(t, { voice, format: pick2, speed: 1 });
+      const buf = Buffer.isBuffer(audio2) ? audio2 : audio2 ? Buffer.from(audio2) : Buffer.alloc(0);
+      if (header && (header.event === "error" || header.error)) throw new Error("motor de voz falhou ao assar narra\xE7\xE3o: " + (header.error || header.event));
+      if (buf.length === 0) throw new Error('motor de voz devolveu \xE1udio VAZIO (frame de erro?) para: "' + t.slice(0, 48) + '\u2026"');
+      return buf;
+    });
     const say = async (text) => {
       const t = String(text || "").trim();
       if (!t) return null;
-      const { audio: audio2 } = await client.tts(t, { voice, format: pick2 });
+      const { audio: audio2, cached: wasHit } = await synth(t);
+      wasHit ? nHit++ : nMiss++;
       return "data:" + mime + ";base64," + Buffer.from(audio2).toString("base64");
     };
+    sayReport = () => console.log(`narra\xE7\xE3o: ${nHit + nMiss} clipes (${nHit} do cache, ${nMiss} sintetizados) \u2014 ${ttsCache.dir}`);
     if (spec.mode === "board") {
       const board = [];
-      const introClip = await say(spec.intro || "");
+      const introClip = await say(spec.intro || spec.narration && spec.narration.intro || "");
       if (introClip) board.push(introClip);
       for (const b of spec.blocks || []) {
         const clip = await say(b && b.say || "");
@@ -3100,6 +3257,7 @@ async function synthNarration(spec) {
       console.log("narra\xE7\xE3o assada: voz=" + voice + ", formato=" + pick2 + ", trechos=" + count);
     }
   } finally {
+    sayReport();
     client.close();
   }
 }
@@ -3162,26 +3320,30 @@ function resolveTheme(spec, specPath) {
     }
   }
 }
+function inlineGeom() {
+  const g = read(join2(KIT, "lib", "geom.mjs")).replace(/^export\s+function/gm, "function");
+  return "(function(){\n" + g + '\nif(typeof window!=="undefined"&&window.VXK) window.VXK.geom={pointInPoly, shapeBounds, shapesBBox};\n})();';
+}
 function buildVxk(spec) {
-  const css = read(join(KIT, "vxk-core.css"));
-  const core = read(join(KIT, "vxk-core.js"));
+  const css = read(join2(KIT, "vxk-core.css"));
+  const core = read(join2(KIT, "vxk-core.js"));
   const types = [...new Set((spec.nodes || []).map((n) => n.type))];
   const comps = types.map((t) => {
-    const f = join(KIT, "components", t + ".js");
-    if (!existsSync(f)) throw new Error('Componente ausente no design system: "' + t + '"  -> crie kit/components/' + t + ".js");
+    const f = join2(KIT, "components", t + ".js");
+    if (!existsSync2(f)) throw new Error('Componente ausente no design system: "' + t + '"  -> crie kit/components/' + t + ".js");
     return read(f);
   });
   const head = "<style>" + css + (spec.css || "") + "</style>" + themeStyle(spec._theme);
-  const icons = existsSync(join(KIT, "lib", "icons.js")) ? read(join(KIT, "lib", "icons.js")) : "";
-  const scripts = "<script>" + core + "</script>\n" + (icons ? "<script>" + icons + "</script>\n" : "") + comps.map((c) => "<script>" + c + "</script>").join("\n") + "\n<script>VXK.mount(" + JSON.stringify(spec) + ', "#vxk-root");</script>';
+  const icons = existsSync2(join2(KIT, "lib", "icons.js")) ? read(join2(KIT, "lib", "icons.js")) : "";
+  const scripts = "<script>" + core + "</script>\n<script>" + inlineGeom() + "</script>\n" + (icons ? "<script>" + icons + "</script>\n" : "") + comps.map((c) => "<script>" + c + "</script>").join("\n") + "\n<script>VXK.mount(" + JSON.stringify(spec) + ', "#vxk-root");</script>';
   return page(spec, head, scripts);
 }
 function buildKonva(spec) {
-  const adapterPath = join(KIT, "konva", "konva-adapter.js");
-  if (!existsSync(adapterPath)) throw new Error("Motor Konva ainda n\xE3o implementado (F3): falta kit/konva/konva-adapter.js");
-  const konva = read(join(KIT, "konva", "konva.min.js"));
+  const adapterPath = join2(KIT, "konva", "konva-adapter.js");
+  if (!existsSync2(adapterPath)) throw new Error("Motor Konva ainda n\xE3o implementado (F3): falta kit/konva/konva-adapter.js");
+  const konva = read(join2(KIT, "konva", "konva.min.js"));
   const adapter = read(adapterPath);
-  const css = read(join(KIT, "vxk-core.css"));
+  const css = read(join2(KIT, "vxk-core.css"));
   const head = "<style>" + css + (spec.css || "") + "</style>";
   const scripts = "<script>" + konva + "</script>\n<script>" + adapter + "</script>\n<script>VXKKonva.mount(" + JSON.stringify(spec) + ', "#vxk-root");</script>';
   return page(spec, head, scripts);
@@ -3261,7 +3423,7 @@ function boardRuntime() {
   return 'function BOARD_NAR(NAR){\n  if(!NAR||!NAR.length) return;\n  var reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;\n  var au=new Audio(), idx=-1, playing=false;\n  var btn=document.querySelector(".bd-explain"), prev=document.querySelector(".bd-prev"),\n      next=document.querySelector(".bd-next"), cnt=document.querySelector(".bd-count");\n  function clear(){ var a=document.querySelectorAll(".active"); for(var i=0;i<a.length;i++) a[i].classList.remove("active"); }\n  function mark(i){ clear(); var el=document.getElementById(NAR[i].id);\n    if(el){ el.classList.add("active"); el.scrollIntoView({behavior:reduce?"auto":"smooth",block:"center"}); }\n    if(cnt) cnt.textContent=(i+1)+" / "+NAR.length; }\n  function setBtn(){ if(btn) btn.textContent=playing?"\u23F8 Pausar":(idx>=0?"\u{1F50A} Continuar":"\u{1F50A} Explicar"); }\n  function play(i){ if(i<0||i>=NAR.length) return; idx=i; mark(i); au.src=NAR[i].audio;\n    au.play().then(function(){ playing=true; setBtn(); }).catch(function(){ playing=false; setBtn(); }); }\n  function pause(){ au.pause(); playing=false; setBtn(); }\n  au.addEventListener("ended", function(){ if(idx+1<NAR.length) play(idx+1); else { playing=false; setBtn(); } });\n  if(btn) btn.addEventListener("click", function(){ if(playing) pause(); else play(idx<0?0:idx); });\n  if(prev) prev.addEventListener("click", function(){ pause(); play(Math.max(0,(idx<0?0:idx)-1)); });\n  if(next) next.addEventListener("click", function(){ pause(); play(Math.min(NAR.length-1,(idx<0?0:idx)+1)); });\n  if(cnt) cnt.textContent="1 / "+NAR.length;\n}';
 }
 function buildBoard(spec) {
-  const css = read(join(KIT, "board.css"));
+  const css = read(join2(KIT, "board.css"));
   const accent = safeColor(spec.accent, "#5b8cff");
   const blocks = Array.isArray(spec.blocks) ? spec.blocks : [];
   const introText = String(spec.intro || "").trim();
@@ -3327,13 +3489,19 @@ async function main() {
   } else {
     html = engine === "konva" ? buildKonva(spec) : buildVxk(spec);
   }
+  if (wantsNarration(spec) && process.env.VXK_ALLOW_SILENT !== "1") {
+    if (engine === "konva") throw new Error('gate de \xE1udio: narra\xE7\xE3o ainda N\xC3O \xE9 suportada no engine "konva" (o player konva n\xE3o reproduz os clipes). Use o engine vxk (padr\xE3o) ou VXK_ALLOW_SILENT=1.');
+    const clips = collectAudioClips(spec._audio).filter(isRealAudioClip);
+    if (clips.length === 0) throw new Error("gate de \xE1udio: a spec quer narra\xE7\xE3o mas NENHUM clipe real foi assado (data:audio vazio/ausente). Motor de voz falhou ou o pipeline n\xE3o assou. Mudo deliberado: VXK_ALLOW_SILENT=1.");
+    if (!/data:audio\/(ogg|mpeg|wav);base64,[A-Za-z0-9+/]{100,}/.test(html)) throw new Error("gate de \xE1udio: clipes assados n\xE3o foram embutidos no HTML (regress\xE3o de build). Mudo deliberado: VXK_ALLOW_SILENT=1.");
+  }
   let out = process.argv[3];
   if (!out) {
     const d = desktopDir();
-    if (!existsSync(d)) mkdirSync(d, { recursive: true });
-    out = join(d, slug(spec.slug || spec.title) + ".html");
+    if (!existsSync2(d)) mkdirSync2(d, { recursive: true });
+    out = join2(d, slug(spec.slug || spec.title) + ".html");
   }
-  writeFileSync(out, html, "utf8");
+  writeFileSync2(out, html, "utf8");
   const tag = spec.mode === "board" ? "mode=board, blocos=" + (spec.blocks || []).length : "engine=" + engine + ", componentes=" + [...new Set((spec.nodes || []).map((n) => n.type))].join(",");
   console.log("OK  " + out + "  (" + Buffer.byteLength(html, "utf8") + " bytes, " + tag + (spec._audio ? ", narrado" : "") + ")");
 }

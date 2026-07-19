@@ -12,7 +12,7 @@ import { join, sep, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-export const VXK_VERSION = "0.2.0";
+export const VXK_VERSION = "0.3.0";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Resolve ~/.copilot de forma portável. Em hook de plugin,
