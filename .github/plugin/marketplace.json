@@ -31,8 +31,8 @@
     },
     {
       "name": "visual-explainer",
-      "description": "Explicações visuais animadas e interativas: peça um assunto e um agente desenhista gera uma página HTML autocontida (Canvas/SVG) com play/pause, zoom e peças clicáveis. Usa um kit de componentes (motor leve próprio + Konva para grafos) e escreve só uma spec — o builder monta o HTML otimizado.",
-      "version": "0.1.0",
+      "description": "Explicações visuais animadas, narradas por voz e interativas: peça um assunto e um agente desenhista gera UMA página HTML autocontida e offline, com narração assada pelo motor (vox-engine), play/pause, zoom, câmera passo a passo e peças clicáveis — incluindo vista explodida (montado→desmontado) e design system rico. Você escreve só uma spec; o builder assa a voz e monta o HTML otimizado.",
+      "version": "0.2.0",
       "source": "./plugins/visual-explainer",
       "author": {
         "name": "Allan Santos"

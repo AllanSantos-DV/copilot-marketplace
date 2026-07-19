@@ -1,21 +1,67 @@
-:root{ --vxk-bg:#0b0f1a; --vxk-panel:#131a2b; --vxk-line:#243049; --vxk-txt:#e7ecf6; --vxk-muted:#9aa7c2; --vxk-accent:#5b8cff; }
-html,body{margin:0;height:100%;background:var(--vxk-bg);color:var(--vxk-txt);font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif}
+:root{
+  --vxk-bg:#0a0e18; --vxk-panel:#121a2b; --vxk-line:#243049; --vxk-txt:#e7ecf6; --vxk-muted:#9aa7c2; --vxk-accent:#5b8cff;
+  --vxk-accent-2:#7aa2ff;
+  --vxk-shadow:0 10px 30px -12px rgba(0,0,0,.7);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;color:var(--vxk-txt);font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;
+  background:radial-gradient(1200px 700px at 50% -10%, #14203a 0%, #0a0e18 55%, #070a12 100%)}
 #vxk-root,.vxk-wrap{height:100%}
 .vxk-wrap{display:flex;flex-direction:column;overflow:hidden}
-.vxk-header{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--vxk-line);background:linear-gradient(180deg,#111830,#0d1424)}
-.vxk-header h1{font-size:15px;margin:0;font-weight:650}
-.vxk-tag{margin-left:auto;font-size:11px;color:var(--vxk-muted);border:1px solid var(--vxk-line);padding:4px 10px;border-radius:999px}
+
+.vxk-header{display:flex;align-items:center;gap:12px;padding:13px 20px;position:relative;z-index:2;
+  border-bottom:1px solid var(--vxk-line);
+  background:linear-gradient(180deg,#16203a,#0d1626);
+  box-shadow:0 1px 0 rgba(255,255,255,.04) inset, 0 8px 22px -14px rgba(0,0,0,.8)}
+.vxk-header h1{font-size:15px;margin:0;font-weight:680;letter-spacing:-0.28px}
+.vxk-tag{margin-left:auto;font-size:11px;color:var(--vxk-muted);border:1px solid var(--vxk-line);padding:4px 11px;border-radius:999px;
+  background:rgba(255,255,255,.03);box-shadow:0 1px 0 rgba(255,255,255,.05) inset}
+
 .vxk-main{display:flex;flex:1;min-height:0}
-.vxk-stage{flex:1;position:relative;background:radial-gradient(1000px 500px at 45% 25%,#141d33,#0a0e18)}
+.vxk-stage{flex:1;position:relative;border-top:3px solid var(--vxk-accent);
+  background:radial-gradient(1000px 520px at 45% 22%, #16223c 0%, #0c1322 55%, #080b14 100%);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.05), inset 0 14px 40px -30px rgba(0,0,0,.9)}
 .vxk-stage > canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
 .vxk-stage > canvas:active{cursor:grabbing}
-.vxk-hint{position:absolute;top:10px;left:12px;font-size:11px;color:var(--vxk-muted);background:rgba(10,14,24,.66);padding:5px 9px;border:1px solid var(--vxk-line);border-radius:8px;pointer-events:none}
-.vxk-aside{width:300px;border-left:1px solid var(--vxk-line);background:var(--vxk-panel);padding:16px 18px;overflow:auto}
-.vxk-aside h2{font-size:14px;margin:0 0 6px;display:flex;align-items:center;gap:8px}
-.vxk-sw{width:12px;height:12px;border-radius:3px;background:var(--vxk-accent);flex:none}
-.vxk-aside p{font-size:13px;line-height:1.55;color:var(--vxk-muted);margin:0}
-.vxk-footer{display:flex;align-items:center;gap:10px;padding:11px 18px;border-top:1px solid var(--vxk-line);background:#0f1524;flex-wrap:wrap}
-.vxk-footer button{all:unset;cursor:pointer;padding:7px 13px;border-radius:8px;font-size:13px;font-weight:600;background:var(--vxk-accent);color:#fff}
-.vxk-footer button.ghost{background:transparent;border:1px solid var(--vxk-line);color:var(--vxk-txt)}
-.vxk-ctl{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--vxk-muted)}
+.vxk-hint{position:absolute;top:11px;left:13px;font-size:11px;color:var(--vxk-muted);
+  background:rgba(9,13,22,.72);backdrop-filter:blur(6px);padding:6px 10px;border:1px solid var(--vxk-line);border-radius:9px;
+  box-shadow:var(--vxk-shadow);pointer-events:none}
+
+.vxk-aside{width:308px;flex:none;border-left:1px solid var(--vxk-line);padding:18px 20px;overflow:auto;position:relative;z-index:1;
+  background:linear-gradient(180deg,#141d30,#101827);
+  box-shadow:-16px 0 30px -20px rgba(0,0,0,.8), 1px 0 0 rgba(255,255,255,.03) inset}
+.vxk-aside h2{font-size:15px;margin:0 0 12px;padding-bottom:11px;display:flex;align-items:center;gap:9px;font-weight:680;
+  letter-spacing:-0.3px;color:var(--vxk-txt);border-bottom:1px solid var(--vxk-line)}
+.vxk-sw{width:13px;height:13px;border-radius:4px;background:var(--vxk-accent);flex:none;
+  box-shadow:0 0 0 1px rgba(255,255,255,.12) inset, 0 2px 6px -1px rgba(0,0,0,.6)}
+.vxk-aside p{font-size:13.5px;line-height:1.65;color:var(--vxk-muted);margin:0}
+
+.vxk-footer{display:flex;align-items:center;gap:10px;padding:12px 20px;position:relative;z-index:2;
+  border-top:1px solid var(--vxk-line);background:linear-gradient(180deg,#101827,#0b1120);flex-wrap:wrap;
+  box-shadow:0 -8px 22px -16px rgba(0,0,0,.85), 0 1px 0 rgba(255,255,255,.04) inset}
+.vxk-footer button{all:unset;cursor:pointer;padding:8px 14px;border-radius:9px;font-size:13px;font-weight:640;
+  color:#fff;background:linear-gradient(180deg,var(--vxk-accent-2),var(--vxk-accent));
+  box-shadow:0 1px 0 rgba(255,255,255,.25) inset, 0 6px 16px -8px rgba(30,80,220,.9), 0 1px 2px rgba(0,0,0,.4);
+  transition:transform .08s ease, box-shadow .12s ease, filter .12s ease}
+.vxk-footer button:hover{filter:brightness(1.07)}
+.vxk-footer button:active{transform:translateY(1px);box-shadow:0 1px 0 rgba(255,255,255,.15) inset, 0 3px 8px -6px rgba(30,80,220,.9)}
+.vxk-footer button.ghost{background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));
+  border:1px solid var(--vxk-line);color:var(--vxk-txt);
+  box-shadow:0 1px 0 rgba(255,255,255,.05) inset, 0 4px 12px -8px rgba(0,0,0,.7)}
+.vxk-footer button:focus-visible{outline:2px solid var(--vxk-accent-2);outline-offset:2px}
+.vxk-ctl{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--vxk-muted)}
 .vxk-footer input[type=range]{accent-color:var(--vxk-accent)}
+
+/* ---- Step engine HUD (só aparece quando o spec tem scenes) ---- */
+.vxk-steptitle{position:absolute;top:11px;left:50%;transform:translateX(-50%);max-width:74%;text-align:center;
+  font-size:13px;font-weight:680;letter-spacing:-0.2px;color:var(--vxk-txt);
+  background:rgba(9,13,22,.82);backdrop-filter:blur(6px);padding:7px 15px;border:1px solid var(--vxk-line);
+  border-radius:10px;box-shadow:var(--vxk-shadow);pointer-events:none;z-index:3}
+.vxk-caption{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);max-width:84%;text-align:center;
+  font-size:12.5px;line-height:1.5;color:var(--vxk-muted);
+  background:rgba(9,13,22,.75);backdrop-filter:blur(6px);padding:8px 14px;border:1px solid var(--vxk-line);
+  border-radius:10px;box-shadow:var(--vxk-shadow);pointer-events:none;z-index:3}
+.vxk-stepnav{gap:7px}
+.vxk-stepcount{display:inline-block;min-width:54px;text-align:center;font-variant-numeric:tabular-nums;color:var(--vxk-muted)}
+
+@media (max-width:720px){ .vxk-aside{display:none} }

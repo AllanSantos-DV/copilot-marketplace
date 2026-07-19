@@ -1,11 +1,12 @@
 {
-  "tagline": "Peça uma explicação e receba uma página animada e interativa: um agente desenhista escreve a spec, o builder monta o HTML autocontido e abre no seu navegador.",
-  "lede": "O **visual-explainer** transforma um pedido em texto — \"explica o ciclo da água\", \"o motor 4 tempos\", \"bubble sort\", \"um grafo de dependências\" — numa **página HTML autocontida** com play/pause, velocidade, zoom, arrastar e peças clicáveis. Você não desenha nada: um **agente desenhista** escreve uma spec declarativa e um builder inlina o motor certo e entrega o HTML pronto, offline, aberto no navegador.",
+  "tagline": "Peça uma explicação e receba uma página animada, narrada por voz e interativa: um agente desenhista escreve a spec, o builder assa a narração pelo motor e monta o HTML autocontido, aberto no seu navegador.",
+  "lede": "O **visual-explainer** transforma um pedido em texto — \"explica o ciclo da água\", \"o motor 4 tempos\", \"o fluxo HTTP\", \"como funciona uma tecla mecânica\" — numa **página HTML autocontida e offline**, com **narração por voz**, câmera passo a passo, play/pause, zoom e peças clicáveis. Você não desenha nada: um **agente desenhista** escreve uma spec declarativa, o builder **assa a voz pelo motor (vox-engine)** e entrega o HTML pronto, aberto no navegador.",
   "highlights": [
+    { "title": "Narrada com a voz do motor", "body": "Cada explicação nasce com **áudio**: o builder assa a narração pelo vox-engine e embute no HTML. Nada de voz robótica do navegador — a página fala ao abrir e conta o passo a passo." },
     { "title": "Do pedido à página, sem desenhar", "body": "Você descreve o assunto; o agente escolhe o motor, escreve a spec em JSON e o builder monta o HTML. Nada de arrastar formas na mão." },
+    { "title": "Câmera passo a passo + vista explodida", "body": "A câmera navega, foca e revela uma ideia por vez, com auto-enquadramento. Para aparelhos, a **vista explodida** desmonta em camadas (abstrato em placas, ou peças com forma real) e explica cada uma." },
     { "title": "Animada e interativa", "body": "As páginas têm play/pause, controle de velocidade, zoom, arrastar e peças clicáveis — não é uma imagem estática, é uma explicação que você explora." },
-    { "title": "Dois motores, um kit", "body": "O motor `vxk` (leve, próprio) cobre órbitas, física, fluxo, algoritmos e timelines; o `konva` cuida de grafos e redes com nós arrastáveis. Um design system de componentes cresce a cada arte." },
-    { "title": "Autocontido e offline", "body": "O builder inlina o motor escolhido: a página é um único HTML, sem dependência externa, que roda no seu navegador — com performance embutida (~30 FPS, pausa em aba oculta)." }
+    { "title": "Autocontida e offline", "body": "O builder inlina motor, componentes e áudio: a página é um único HTML, sem dependência externa, que roda no seu navegador — com performance embutida (~30 FPS, pausa em aba oculta)." }
   ],
   "sections": [
     {
@@ -48,6 +49,23 @@
       ]
     },
     {
+      "id": "voz-e-camera",
+      "title": "Narração por voz, câmera e vista explodida",
+      "blocks": [
+        { "type": "p", "text": "As explicações não são só desenho: elas **falam**. O builder assa a narração de cada passo pela voz do motor **vox-engine** e embute o áudio no próprio HTML — a página conta a história enquanto anima." },
+        {
+          "type": "list",
+          "items": [
+            "**Narração assada** — a página nasce com voz; se o motor não estiver disponível, o build falha em vez de entregar mudo.",
+            "**Câmera passo a passo** — a câmera navega, dá zoom e foca uma ideia por vez, com auto-enquadramento que preenche a tela.",
+            "**Vista explodida** — para aparelhos: o objeto se desmonta em camadas e a câmera explica cada uma. Conceitos abstratos viram placas; objetos físicos ganham a silhueta real da peça.",
+            "**Design system rico** — cards com ícone, chips, medidores, conectores com fluxo e um catálogo de componentes que cresce a cada arte."
+          ]
+        },
+        { "type": "note", "tone": "info", "text": "Requer o motor de voz **vox-engine** instalado (o mesmo do plugin de voz). O áudio é assado no build e fica embutido — a página toca offline." }
+      ]
+    },
+    {
       "id": "como-funciona",
       "title": "Como funciona",
       "blocks": [
@@ -67,10 +85,13 @@
   "requirements": [
     "Copilot App (desktop) com o GitHub Copilot SDK",
     "Node 18+ (runtime da extensão e do builder)",
+    "Motor de voz vox-engine instalado (para a narração assada)",
     "Um navegador para abrir as páginas geradas"
   ],
   "faq": [
-    { "q": "Preciso saber desenhar ou animar?", "a": "Não. Você descreve o assunto em texto; o agente escreve a spec e o builder monta a página. Você recebe o HTML pronto, animado e interativo." },
+    { "q": "As páginas têm áudio?", "a": "Sim. Cada explicação nasce narrada: o builder assa a fala de cada passo pela voz do motor vox-engine e embute o áudio no HTML. A página fala ao abrir e roda offline. Requer o vox-engine instalado; sem ele, o build falha em vez de entregar mudo." },
+    { "q": "Dá para explicar como um aparelho é montado?", "a": "Sim, com a vista explodida: o objeto se desmonta em camadas e a câmera explica cada peça, remontando no fim. Conceitos abstratos (como uma pilha de protocolos) viram placas; objetos com forma física (uma tecla, um aparelho) ganham a silhueta real de cada peça." },
+    { "q": "Preciso saber desenhar ou animar?", "a": "Não. Você descreve o assunto em texto; o agente escreve a spec e o builder monta a página. Você recebe o HTML pronto, animado, narrado e interativo." },
     { "q": "A página depende de internet para abrir?", "a": "Não. O builder inlina o motor escolhido, então a página é um único HTML autocontido que roda offline no seu navegador. Você pode guardar e reabrir quando quiser." },
     { "q": "Qual a diferença entre os motores vxk e konva?", "a": "O `vxk` é o motor leve próprio, para explicações comuns (órbitas, física, fluxo, algoritmos, timelines). O `konva` é para grafos e redes, com nós arrastáveis e interação mais pesada. O agente escolhe o motor pelo tipo de assunto." },
     { "q": "Onde ficam as páginas geradas?", "a": "Em `Desktop\\visual-explanations\\`. Cada explicação vira um arquivo HTML autocontido nessa pasta." },
@@ -81,8 +102,8 @@
     "plugin.json": "Metadados do plugin + marcador de hooks.",
     "hooks.json": "SessionStart → node boot.mjs.",
     "boot.mjs": "Instala o kit e o agente desenhista em ~/.copilot (idempotente, por versão).",
-    "payload/kit/": "Motores (vxk + konva) e o design system de componentes.",
-    "payload/build-artifact.mjs": "O builder: transforma a spec declarativa em HTML autocontido.",
+    "payload/kit/": "Motores (vxk + konva), o design system de componentes (`kit/CATALOG.md`) e a `lib/` (auto-layout, story, explode, tema, ícones, cliente de voz).",
+    "payload/build-artifact.mjs": "O builder (empacotado, roda standalone): transforma a spec em HTML autocontido e assa a narração pelo vox-engine.",
     "payload/templates/": "Exemplos por tipo de visual (fluxo, onda, órbita, timeline, pêndulo).",
     "payload/visual-explainer.agent.md": "O agente desenhista, instalado em ~/.copilot/agents."
   }
