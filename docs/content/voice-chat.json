@@ -1,8 +1,8 @@
 {
-  "tagline": "Converse por voz com o Copilot em pt-BR: fale, veja a transcrição e ouça um resumo falado — 100% local no Windows, num único motor (vox-engine). Na 2.0.0 cada sessão virou independente e o velho bug de Stop→fala foi corrigido na raiz.",
-  "lede": "O **voice-chat** transforma o terminal numa conversa: você segura para falar, o motor único local **`vox-engine`** transcreve na sua máquina, o texto vira um turno normal do Copilot e uma voz neural em pt-BR lê o resumo de volta. Fala e voz — **STT e TTS** — passam pelo **mesmo** motor, e **nenhum áudio sai do computador**. A **2.0.0** deixou a extensão **fina**: cada sessão do Copilot agora grava, transcreve, injeta a fala e toca o áudio **na própria sessão**, direto com o motor — sem a antiga camada de roteamento entre sessões que fazia a fala se perder ou duplicar depois de um **Stop**.",
+  "tagline": "Converse por voz com o Copilot em pt-BR: fale, veja a transcrição e ouça um resumo falado — 100% local no Windows, num único motor (vox-engine). Cada sessão é independente e, na 2.0.1, vale uma sessão por microfone: sem conflito entre elas, e a sessão inativa libera o microfone sozinha.",
+  "lede": "O **voice-chat** transforma o terminal numa conversa: você segura para falar, o motor único local **`vox-engine`** transcreve na sua máquina, o texto vira um turno normal do Copilot e uma voz neural em pt-BR lê o resumo de volta. Fala e voz — **STT e TTS** — passam pelo **mesmo** motor, e **nenhum áudio sai do computador**. A **2.0.0** deixou a extensão **fina**: cada sessão do Copilot agora grava, transcreve, injeta a fala e toca o áudio **na própria sessão**, direto com o motor — sem a antiga camada de roteamento entre sessões que fazia a fala se perder ou duplicar depois de um **Stop**. A **2.0.1** fecha a última corrida entre sessões: como o microfone é **um só** na máquina, agora **só uma sessão grava por vez** — as outras são avisadas na hora, e uma sessão inativa **libera o microfone sozinha**.",
   "highlights": [
-    { "title": "Mais robusto na 2.0.0", "body": "Refactor de arquitetura: cada sessão ficou **independente** e o bug de **Stop→fala** — fala perdida ou duplicada ao falar logo após um Stop — foi corrigido **na raiz**. **~3.100 linhas a menos**, sem perder nenhuma função." },
+    { "title": "Mais robusto na 2.0", "body": "Um refactor de arquitetura deixou cada sessão **independente** e matou **na raiz** o bug de **Stop→fala** (fala perdida ou duplicada). A **2.0.1** fecha a última corrida: **uma sessão por microfone**, sem conflito. **~3.100 linhas a menos**, sem perder nenhuma função." },
     { "title": "Fale e ouça a resposta", "body": "Segure para falar (**push-to-talk**) ou ligue as **mãos-livres** com palavra de ativação: o motor transcreve na sua máquina, você vê o texto e a resposta volta como um **resumo falado** em pt-BR." },
     { "title": "Não perca áudio", "body": "Se o microfone ficar cerca de **3s sem som durante a gravação**, um aviso aparece — visual e um **bipe curto** — **sem interromper** a captura. A barra de intensidade fica sempre à vista." },
     { "title": "Motor único, local e verificado", "body": "STT e TTS num só **`vox-engine`** que a extensão instala e atualiza sozinha — conferindo a **assinatura Ed25519** do instalador antes de rodar (fail-closed). Nada sai da sua máquina." }
@@ -19,9 +19,9 @@
     },
     {
       "id": "novidades",
-      "title": "O que mudou na 2.0.0",
+      "title": "O que mudou na 2.0",
       "blocks": [
-        { "type": "p", "text": "A **2.0.0** é um **refactor de arquitetura**: a extensão ficou **fina** e bugs antigos foram corrigidos **na raiz** — sem tirar nada do que você já usava." },
+        { "type": "p", "text": "A **2.0.0** foi um **refactor de arquitetura**: a extensão ficou **fina** e bugs antigos foram corrigidos **na raiz** — sem tirar nada do que você já usava." },
         {
           "type": "list",
           "items": [
@@ -31,7 +31,9 @@
             "**Sem regressão** — voz, transcrição, histórico de áudio, guarda de silêncio, mãos-livres, interromper e seleção de microfone e de voz: tudo continua."
           ]
         },
-        { "type": "note", "tone": "info", "text": "No seu dia a dia nada muda no fluxo — você só ganha uma extensão que erra menos, principalmente ao intercalar **Stop** e fala." }
+        { "type": "note", "tone": "info", "text": "No seu dia a dia nada muda no fluxo — você só ganha uma extensão que erra menos, principalmente ao intercalar **Stop** e fala." },
+        { "type": "p", "text": "**Na 2.0.1**, o fecho dessa história: o microfone é **um só** na máquina, e faltava impedir que **duas sessões** o abrissem **ao mesmo tempo** e embolassem o áudio. Agora um **lock de gravação compartilhado** garante **uma sessão gravando por vez**." },
+        { "type": "note", "tone": "info", "text": "Se você tenta gravar numa segunda sessão, ela avisa **“O microfone está em uso por outra sessão.”** em vez de abrir um segundo stream. E o lock **se cura sozinho**: uma sessão que fecha ou trava no meio da gravação **libera o microfone em até 15s** — ou **na hora**, se o processo já sumiu." }
       ]
     },
     {
@@ -96,7 +98,8 @@
           "items": [
             "**Sem primário, sem porta canônica** — nenhuma sessão manda nas outras; cada painel sobe o próprio servidor local numa porta efêmera que serve **só ele**.",
             "**Fala entregue na própria sessão** — mesmo com o painel em segundo plano, a fala capturada chega à **própria** sessão de forma durável e é injetada **uma vez só**, na ordem. É o que corrige o **Stop→fala**.",
-            "**Histórico por sessão** — cada sessão guarda e reproduz **apenas** o próprio histórico de áudio."
+            "**Histórico por sessão** — cada sessão guarda e reproduz **apenas** o próprio histórico de áudio.",
+            "**Uma sessão por microfone (2.0.1)** — o microfone é um só na máquina, então **só uma sessão grava por vez**: uma segunda tentativa recebe um aviso claro e **nenhum segundo stream** é aberto. Se a sessão que está gravando fecha ou trava, o microfone **se libera sozinho**."
           ]
         },
         { "type": "p", "text": "Quando sai uma versão nova, a extensão detecta sozinha, baixa e **se recarrega** — a própria sessão passa para a nova versão **sem fechar o app do Copilot**. Se algo travar o painel, ela **pede uma recarga** da extensão em vez de ficar quebrada." }
@@ -128,23 +131,23 @@
     "Microfone e saída de áudio"
   ],
   "faq": [
-    { "q": "O que mudou na 2.0.0?", "a": "A extensão ficou **fina**: cada sessão do Copilot passou a gravar, transcrever, injetar a fala e tocar o áudio **na própria sessão**, direto com o motor único. Saiu a camada que roteava áudio e turnos **entre** sessões (~3.100 linhas a menos), e o antigo bug de **Stop→fala** — fala perdida ou duplicada ao falar logo após um Stop — foi corrigido **na raiz**. Nenhuma função que você já usava saiu." },
+    { "q": "O que mudou na 2.0?", "a": "A **2.0.0** deixou a extensão **fina**: cada sessão do Copilot passou a gravar, transcrever, injetar a fala e tocar o áudio **na própria sessão**, direto com o motor único. Saiu a camada que roteava áudio e turnos **entre** sessões (~3.100 linhas a menos), e o antigo bug de **Stop→fala** — fala perdida ou duplicada ao falar logo após um Stop — foi corrigido **na raiz**. A **2.0.1** fecha a última corrida entre sessões: um **lock de gravação compartilhado** garante **uma sessão por microfone** — a segunda é avisada, e uma sessão inativa **libera o microfone sozinha**. Nenhuma função que você já usava saiu." },
     { "q": "Precisa de internet?", "a": "Só na 1ª vez, para baixar o motor e a voz, e depois quando há atualização. Fora isso, **STT e TTS rodam na sua máquina** — nenhum áudio sai do computador. O agente do Copilot usa a rede como sempre." },
     { "q": "Funciona fora do Windows?", "a": "Não. O voice-chat é **Windows-only** (10/11): o **named pipe** e o instalador do motor são específicos do Windows. Não há versão para outros sistemas." },
     { "q": "Preciso instalar o `vox-engine` na mão?", "a": "Não. A extensão **instala, atualiza e sobe** o motor sozinha; você só abre o painel Voz. E ela nunca recicla o motor **no meio** de uma gravação — o update espera ele ficar ocioso." },
     { "q": "E se o microfone não captar som?", "a": "Se ficar cerca de **3 segundos mudo durante a gravação**, aparece um aviso — visual e um bipe curto — **sem cortar** a captura, para você não gravar minutos em silêncio sem perceber. A barra de intensidade fica sempre à vista, e o veredito final de “sem áudio” **ignora o próprio bipe**." },
-    { "q": "Dá para ter várias sessões abertas?", "a": "Sim, e na **2.0.0** cada uma é **independente**: grava, transcreve e toca o áudio para **si mesma**, direto com o motor. Não há mais sessão “primária”, porta canônica nem roteamento entre sessões — o que sumiu de vez junto com a fala perdida ou duplicada depois de um **Stop**." },
+    { "q": "Dá para ter várias sessões abertas?", "a": "Sim, e cada uma é **independente**: grava, transcreve e toca o áudio para **si mesma**, direto com o motor. Não há mais sessão “primária”, porta canônica nem roteamento entre sessões — o que sumiu de vez junto com a fala perdida ou duplicada depois de um **Stop**. Como o microfone é **um só**, na **2.0.1** vale **uma sessão por vez**: a segunda que tentar gravar é avisada, e uma sessão inativa **libera o microfone sozinha**." },
     { "q": "Como o plugin se atualiza?", "a": "Ele detecta a versão nova sozinho, baixa e **se recarrega** — a própria sessão passa para a nova versão **sem fechar o app do Copilot**. Se o painel cair, a extensão pede uma recarga em vez de ficar quebrada. O motor, por baixo, só troca quando fica **ocioso**." },
     { "q": "Como sei que uma instalação ou update é legítimo?", "a": "Antes de **executar** o instalador do motor, a extensão confere a **assinatura Ed25519** contra uma chave pública **pinada** e recusa o que não bate. Ao **aplicar** arquivos de um update, exige o `sha256` de cada arquivo e uma versão **maior** que a instalada (anti-rollback). Tudo **fail-closed**: sem a chave privada do projeto, nada forjado passa — nem numa rede que reassina o TLS." },
     { "q": "Onde mora o código do plugin?", "a": "O código canônico vive no repositório **`copilot-voice`** e entra aqui **vendado** — sincronizado a cada release em `plugins/voice-chat/`. É exatamente isso que o `copilot plugin install`/`update` entrega; a **Estrutura** abaixo mostra a árvore completa." }
   ],
   "files": {
     "plugin.json": "Metadados do plugin + marcadores do canvas (o painel Voz) e dos hooks.",
-    "extension.mjs": "Coração da extensão in-app: painel Voz, a tool `falar` e a orquestração STT → agente → TTS, tudo na própria sessão.",
+    "extension.mjs": "Coração da extensão in-app: painel Voz, a tool `falar` e a orquestração STT → agente → TTS, tudo na própria sessão — e o **lock de gravação** compartilhado que mantém **uma sessão por microfone**.",
     "iframe.html": "O painel **Voz** em si — a interface do canvas: microfone, barra de intensidade, histórico (anterior/repetir/pausar/próximo) e os modos mãos-livres e interromper.",
     "hooks.json": "Registra os hooks `agentStop` e `postToolUseFailure` do plugin.",
     "voice-worker.mjs": "Cuida do worker de voz em Python: sobe, vigia e cura o processo; catálogos de microfone e de vozes.",
-    "voice-net.mjs": "Servidor HTTP + SSE **local da própria sessão** (porta efêmera que serve só o próprio painel) — sem porta canônica, eleição de primário nem roteamento entre sessões.",
+    "voice-net.mjs": "Servidor HTTP + SSE **local da própria sessão** (porta efêmera que serve só o próprio painel) — sem porta canônica nem roteamento entre sessões. O `/rec/start` recusa a gravação quando o microfone já está em uso por outra sessão.",
     "voice-update.mjs": "Auto-update da **extensão**: versões, assinatura Ed25519 do manifesto, download resiliente e a decisão de recarregar a quente.",
     "voice-turns.mjs": "Entrega durável da fala capturada **na própria sessão**: injeta **uma vez só** e na ordem, mesmo com o painel em segundo plano (o que corrige o Stop→fala).",
     "voice-audio.mjs": "Histórico de áudio **da própria sessão**: guarda, entrega ao vivo e reproduz na ordem certa ao reabrir.",
