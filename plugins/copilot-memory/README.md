@@ -88,6 +88,31 @@ plugin não recria nada disso.
 **Hooks** (`onSessionStart`, `onUserPromptSubmitted`): injetam o recall two-tier escopado.
 `COPILOT_MEMORY_DISABLE=1` desliga o recall passivo sem desinstalar.
 
+## Grafo semântico (tools `graph_*`)
+
+Navegam um **grafo do código** (símbolos = nós; CALLS/CONTAINS/IMPORTS = arestas; PageRank) do projeto
+aberto ou de um repo externo (via `root`), consumindo o Session Graph Engine do servidor — ir direto ao
+ponto sem garimpar arquivo por arquivo. `graph_status`/`graph_ingest`/`graph_symbols`/`graph_search`/
+`graph_callers`/`graph_references`/`graph_analyze`.
+
+### `graph_tag_node` — feedback governado por INTENÇÃO (ADR-021 2b)
+
+Ensina o grafo a achar um nó por **intenção** (o que o código faz), não só por nome. Loop:
+
+1. `graph_search` por uma intenção **não** traz o nó certo (miss).
+2. Você acha o nó por **nome exato** em `graph_symbols` (determinístico) — confirma qual é.
+3. `graph_tag_node` taggeia esse nó com as palavras da **query que falhou** (passe a `query`; o plugin
+   extrai ≤3 termos de conteúdo, sem stopwords, e monta **1 tag-frase canônica ordenada** — ou passe
+   `terms` explícitos). `source`: `search_validated` (padrão) ou `build_time`.
+4. Numa próxima sessão/agente, a mesma intenção passa a casar **sem** o nome exato.
+
+**Governado pelo servidor** (nada silencioso — devolve `accepted`/`dropped`/`rejected`): ≤3 termos por
+escrita, teto de 5 tags/nó + dedup, tag **amarrada ao símbolo** (morre quando ele muda), TTL 90 dias. O
+plugin **recusa** taguear com <2 termos (o retrieval exige ≥2 casando) e **nunca** taggeia por palpite —
+só após a confirmação por nome exato. A fusão denso+sparse (RRF) é do servidor e vem **desligada por
+padrão**; a busca (`graph_search`) consome o canal sparse de forma transparente quando ligada — o cliente
+não muda (read-path é NO-OP).
+
 ## O formato de skill
 
 Uma skill é **um documento de memória** (`type:"skill"`), não uma pasta `SKILL.md`. O servidor só
