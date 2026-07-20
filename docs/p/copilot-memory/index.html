@@ -39,9 +39,9 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">copilot-memory</h1>
-        <span class="chip" title="versão publicada">v1.9.0</span>
+        <span class="chip" title="versão publicada">v1.10.0</span>
       </div>
-      <p class="doc-hero__lede">O <strong>copilot-memory</strong> dá ao agente uma memória que dura além da sessão, <strong>escopada por projeto</strong>. Ele injeta o contexto certo no começo de cada conversa (decisões, convenções, pendências), deixa você buscar e salvar conhecimento, e <strong>destila</strong> o que deu certo em skills reusáveis. É um <strong>cliente puro</strong> do servidor de memória <code>native-java</code>: descobre o daemon, reusa se estiver no ar e, se não estiver, <strong>baixa e sobe o servidor</strong> — verificando a assinatura antes de rodar. Toda a memória fica na sua máquina. Ele também <strong>impõe</strong> os passos que dá pra esquecer: desde a <strong>v1.8</strong>, um <strong>gate</strong> barra o <code>git push</code> até um <strong>revisor externo independente</strong> aprovar exatamente aquele commit. <strong>Novo na v1.9.0:</strong> um <strong>grafo semântico</strong> do código deixa o agente <strong>navegar</strong> um repositório — o aberto ou um externo gigante — em vez de garimpar arquivo por arquivo com grep.</p>
+      <p class="doc-hero__lede">O <strong>copilot-memory</strong> dá ao agente uma memória que dura além da sessão, <strong>escopada por projeto</strong>. Ele injeta o contexto certo no começo de cada conversa (decisões, convenções, pendências), deixa você buscar e salvar conhecimento, e <strong>destila</strong> o que deu certo em skills reusáveis. É um <strong>cliente puro</strong> do servidor de memória <code>native-java</code>: descobre o daemon, reusa se estiver no ar e, se não estiver, <strong>baixa e sobe o servidor</strong> — verificando a assinatura antes de rodar. Toda a memória fica na sua máquina. Ele também <strong>impõe</strong> os passos que dá pra esquecer: desde a <strong>v1.8</strong>, um <strong>gate</strong> barra o <code>git push</code> até um <strong>revisor externo independente</strong> aprovar exatamente aquele commit. Desde a <strong>v1.9.0</strong>, um <strong>grafo semântico</strong> do código deixa o agente <strong>navegar</strong> um repositório — o aberto ou um externo gigante — em vez de garimpar arquivo por arquivo com grep. <strong>Novo na v1.10.0:</strong> esse grafo começa a <strong>aprender com a intenção</strong> — quando uma busca por comportamento falha e o agente confirma o nó certo pelo <strong>nome exato</strong>, ele <strong>taggeia</strong> aquele símbolo, de forma governada, para ensinar o grafo a reconhecer aquela intenção.</p>
       <div class="doc-hero__cta">
         <div class="prompt prompt--sm" data-cmd="copilot plugin install copilot-memory@copilot-marketplace">
         <span class="prompt__glyph" aria-hidden="true">⌁</span>
@@ -55,7 +55,11 @@
       <ul class="hl" aria-label="Destaques">
         <li class="hl__item">
           <h3 class="hl__title">Navega o código, não garimpa</h3>
-          <p class="hl__body"><strong>Novo na v1.9.0.</strong> Sete tools <code>graph_*</code> montam um <strong>grafo semântico</strong> do repo — símbolos viram nós; chamadas, imports e contêm viram arestas; ranqueado por <strong>PageRank</strong>. O agente vai direto aos pontos-chave, sem varrer arquivo por arquivo. Vale pro projeto aberto ou pra um repo externo gigante.</p>
+          <p class="hl__body"><strong>Desde a v1.9.0.</strong> Sete tools <code>graph_*</code> montam um <strong>grafo semântico</strong> do repo — símbolos viram nós; chamadas, imports e contêm viram arestas; ranqueado por <strong>PageRank</strong>. O agente vai direto aos pontos-chave, sem varrer arquivo por arquivo. Vale pro projeto aberto ou pra um repo externo gigante.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Acha por intenção, não só por nome</h3>
+          <p class="hl__body"><strong>Novo na v1.10.0.</strong> A busca no grafo acha por <strong>nome e estrutura</strong> — &quot;onde tratamos rate limit&quot; pode não trazer <code>Throttler.guard()</code>. A <strong>oitava</strong> tool, <code>graph_tag_node</code>, fecha o vão: quando a busca por intenção falha e o agente confirma o nó certo pelo <strong>nome exato</strong> (via <code>graph_symbols</code>, nunca por palpite), ela <strong>taggeia</strong> o símbolo com os termos que falharam, num canal governado. O corpus de intenção começa a acumular já; a <strong>leitura</strong> colhe quando o servidor liga a fusão.</p>
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Barra o <code>git push</code> sem revisão</h3>
@@ -133,6 +137,17 @@
           <p>Se a composição do recall demora ou falha, o plugin cai para uma busca escopada mais barata — sempre pelo <code>project_id</code>, nunca uma busca aberta que vazaria de outros projetos. E um teto de tempo garante que o recall nunca trave a sua sessão.</p>
         </section>
 
+        <section class="doc-section" id="feedback-intencao">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#feedback-intencao" aria-label="Link para Feedback de intenção no grafo (governado)">#</a>Feedback de intenção no grafo (governado)</h2>
+          <p>Assim como o recall traz a <strong>memória</strong> certa, o grafo traz o <strong>código</strong> certo — mas por <strong>nome</strong> e <strong>estrutura</strong>. Intenção é outra coisa: perguntar &quot;onde tratamos rate limit&quot; pode não trazer <code>Throttler.guard()</code>, mesmo sendo o método certo. A <strong>v1.10.0</strong> fecha esse vão com um <strong>loop de feedback governado</strong>, pela oitava tool do grafo — a <code>graph_tag_node</code>.</p>
+          <ol class="doc-steps"><li><h4>A busca por intenção falha</h4><p>Uma query por <strong>comportamento</strong> não traz o método certo — a busca acha por <strong>nome</strong> e <strong>estrutura</strong>, não pelo que o código *faz*.</p></li><li><h4>Confirma o nó pelo nome exato</h4><p>O agente confirma o símbolo certo por <strong>nome exato</strong>, com <code>graph_symbols</code> — <strong>determinístico</strong>, nunca por palpite. Sem essa confirmação, nada é taggeado.</p></li><li><h4>Taggeia com os termos que falharam</h4><p>A <code>graph_tag_node</code> marca aquele nó com as palavras da query que falhou. A tag entra num <strong>canal à parte</strong>, governado — nenhuma linha do código é reescrita.</p></li><li><h4>A próxima sessão colhe</h4><p>Numa sessão ou agente seguinte, a mesma intenção passa a casar <strong>sem</strong> precisar do nome exato — assim que o servidor tem a <strong>fusão</strong> ligada (veja a nota abaixo).</p></li></ol>
+          <p>A governança é toda do <strong>servidor</strong> (o plugin só consome) e é rígida de propósito, para a tag <strong>ajudar</strong> sem virar lixo:</p>
+          <ul class="doc-list"><li><strong>Canal esparso, separado.</strong> As tags vivem num canal <strong>sparse</strong> à parte — o embedding <strong>denso</strong> do código <strong>nunca</strong> é mutado, então o fallback continua pristino.</li><li><strong>Teto e dedup.</strong> No máximo <strong>5 tags por nó</strong>, sem repetição.</li><li><strong>Morre com o símbolo.</strong> Cada tag é amarrada à <strong>impressão semântica</strong> do símbolo (o <code>semantic_fingerprint</code>): se o código muda, a tag <strong>morre</strong> junto — sem lixo acumulado. Fora isso, expira por <strong>TTL de 90 dias</strong>.</li><li><strong>Frase canônica, com gate.</strong> O plugin manda <strong>uma</strong> tag-frase canônica (≤3 palavras de conteúdo, ordenada) e <strong>só</strong> quando há <strong>≥2 termos</strong> — o gate de match do servidor exige <strong>2 distintos</strong>.</li><li><strong>Nada silencioso.</strong> O servidor devolve <code>accepted</code>, <code>dropped</code> ou <code>rejected</code>: você sempre sabe o que entrou — e o que não.</li></ul>
+          <p>A fronteira é limpa: o <strong>servidor</strong> entrega as <strong>primitivas</strong> — storage, governança atômica, TTL e a fusão densa+esparsa (via <strong>RRF</strong>); o <strong>plugin</strong> entrega a <strong>estratégia</strong> — quando e como taggear. É o mesmo desenho que Cody, Cursor e Copilot usam para fazer retrieval no cliente.</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p><strong>Sem exagero: a leitura ainda não colhe — por enquanto.</strong> A fusão densa+esparsa que faz a tag <strong>ajudar</strong> na busca vem <strong>desligada por padrão</strong> no servidor (atrás de um protocolo de prova em escala). Então, na <strong>v1.10.0</strong>, o plugin já <strong>escreve</strong> as tags de forma governada e validada — o corpus de intenção <strong>começa a acumular</strong> — e a <strong>leitura</strong> passa a se beneficiar quando o servidor ligar a fusão, <strong>sem o cliente mudar</strong> (o read-path é NO-OP). É <strong>preparar o terreno</strong>: inócuo hoje, valioso amanhã.</p></aside>
+          <p><strong>Feito com método:</strong> ADR, TDD, um <strong>revisor externo</strong> independente (o mesmo padrão dos gates) e <strong>validação ao vivo</strong> contra o servidor <code>native-java</code> <strong>v2.31.0</strong> — 13 de 13 checagens verdes.</p>
+        </section>
+
         <section class="doc-section" id="destilador">
           <h2 class="doc-h2"><a class="doc-anchor" href="#destilador" aria-label="Link para O destilador de aprendizado (curadoria por agente)">#</a>O destilador de aprendizado (curadoria por agente)</h2>
           <p>O destilador fecha o ciclo: a experiência da sessão vira conhecimento reusável. Quem faz isso é um <strong>agente curador</strong> — um modelo que <strong>lê a conversa</strong> e entende o que aconteceu, não um filtro de palavras-chave. Roda sozinho, em <strong>background</strong>, quando a sessão abre.</p>
@@ -196,7 +211,7 @@
             </li>
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
-              <span class="tree__role">Entrypoint: 17 tools + painel (canvas) + 2 hooks — memória, recall, skills, destilador e os gates.</span>
+              <span class="tree__role">Entrypoint: 17 tools de memória + 8 tools graph_* (com a nova graph_tag_node) + painel (canvas) + 2 hooks — memória, recall, skills, destilador, gates e o grafo de código.</span>
               <span class="tree__size">55 KB</span>
             </li>
             <li class="tree__row">
@@ -207,12 +222,12 @@
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
               <span class="tree__role">Metadados + extensão (.) + marcador de hooks.</span>
-              <span class="tree__size">1.3 KB</span>
+              <span class="tree__size">1.6 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">README.md</code>
               <span class="tree__role">Documentação vinda do repositório de origem.</span>
-              <span class="tree__size">13 KB</span>
+              <span class="tree__size">15 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/checkpoints.mjs</code>
@@ -260,14 +275,19 @@
               <span class="tree__size">26 KB</span>
             </li>
             <li class="tree__row">
+              <code class="tree__name">lib/feedbackLoop.mjs</code>
+              <span class="tree__role">A estratégia do feedback de intenção: confirma o nó por nome exato (graph_symbols) e escreve a tag com os termos que falharam — fail-loud, nunca por palpite.</span>
+              <span class="tree__size">2.6 KB</span>
+            </li>
+            <li class="tree__row">
               <code class="tree__name">lib/graphClient.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">13 KB</span>
+              <span class="tree__size">14 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/graphTools.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">14 KB</span>
+              <span class="tree__size">20 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/ledger.mjs</code>
@@ -333,6 +353,11 @@
               <code class="tree__name">lib/skillGuide.mjs</code>
               <span class="tree__role">Guia de autoria de skill (memory_skill_guide).</span>
               <span class="tree__size">6.5 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/termExtract.mjs</code>
+              <span class="tree__role">Captura determinística de até 3 termos de conteúdo da query que falhou — tokeniza, tira stopwords PT+EN e deduplica por ordem (sem heurística de sentido).</span>
+              <span class="tree__size">3.9 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/transcript.mjs</code>
@@ -440,6 +465,7 @@
             <li><a href="#gates">Gates obrigatórios</a></li>
             <li><a href="#escopo">O escopo do projeto (.memory/project.json)</a></li>
             <li><a href="#recall">Recall em dois níveis</a></li>
+            <li><a href="#feedback-intencao">Feedback de intenção no grafo (governado)</a></li>
             <li><a href="#destilador">O destilador de aprendizado (curadoria por agente)</a></li>
             <li><a href="#provisionamento">Sobe o servidor sozinho</a></li>
             <li><a href="#painel">O painel (canvas)</a></li>
@@ -450,7 +476,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.9.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.10.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>

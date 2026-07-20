@@ -188,6 +188,22 @@ export async function references(base, ctx, { id, limit } = {}) {
     return capList(json, "references", clampInt(limit, 50, 100));
 }
 
+// ESCRITA governada (ADR-021 Trilho 2b): registra tags de query validada num nó. Cliente FINO — o servidor
+// é a autoridade da governança (≤3 termos por tag, teto 5 tags live/nó, dedup, amarração ao fingerprint,
+// TTL). Aqui só guardas fail-loud contra payload obviamente inválido (nunca clampa/mascara silenciosamente)
+// e passthrough do veredito estruturado {accepted, dropped_over_cap, rejected}. A governança por-termo NÃO
+// é erro: volta VISÍVEL num 200 (accepted/dropped_over_cap/rejected). source: search_validated (default) |
+// build_time — qualquer outro valor o servidor recusa com 400. id vai VERBATIM (mesma string de graph_symbols).
+export async function tagNode(base, ctx, { id, terms, source } = {}) {
+    if (!id || !String(id).trim()) throw new GraphError(0, "BAD_FIELD", "graph_tag_node exige 'id' (node_id confirmado por nome exato).");
+    if (!Array.isArray(terms) || terms.length === 0) throw new GraphError(0, "BAD_FIELD", "graph_tag_node exige 'terms' não-vazio (≤3 palavras da query que falhou).");
+    if (!terms.every((t) => typeof t === "string" && t.trim())) throw new GraphError(0, "BAD_FIELD", "'terms' deve conter só strings não-vazias.");
+    const src = source === "build_time" || source === "search_validated" ? source : "search_validated";
+    const { json } = await post(base, "tags", ctx, { id: String(id), terms, source: src });
+    return json; // {project_id, root, state, id, accepted:[str], dropped_over_cap:[str], rejected:[{term,reason}]}
+}
+
+
 // Trunca no CLIENTE (o servidor Cut 1 não pagina callers/references): mantém os top-N por PageRank e marca
 // truncated. Protege o contexto do agente num hub gigante (spec §3.2) sem depender do servidor.
 function capList(json, key, cap) {

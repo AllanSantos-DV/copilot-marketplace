@@ -6,6 +6,8 @@
 // 0 nós, ressalva de CALLS por linguagem.
 
 import * as G from "./graphClient.mjs";
+import { extractTerms, canonicalTag } from "./termExtract.mjs";
+import { tagOnMiss } from "./feedbackLoop.mjs";
 
 function fmtNode(n) {
     if (!n) return "";
@@ -17,6 +19,21 @@ function fmtList(nodes, cap = 15) {
     const arr = Array.isArray(nodes) ? nodes : [];
     const head = arr.slice(0, cap).map(fmtNode).join("\n");
     return arr.length > cap ? `${head}\n… (+${arr.length - cap})` : (head || "(vazio)");
+}
+
+// Formata o veredito de uma escrita de tag (nada silencioso): aceitos/além-do-teto/recusados.
+// Contrato do servidor: accepted/dropped_over_cap = arrays de STRINGS; rejected = array de OBJETOS
+// {term, reason}. source: search_validated | build_time (exibo rótulo PT).
+const SOURCE_LABEL = { search_validated: "busca-validada", build_time: "construção" };
+function fmtTagVerdict(id, source, verdict) {
+    const acc = verdict?.accepted || [], drop = verdict?.dropped_over_cap || [], rej = verdict?.rejected || [];
+    const rejStr = rej.map((o) => (typeof o === "string" ? o : `${o?.term ?? "?"} (${o?.reason ?? "?"})`));
+    const parts = [`🏷️ Tag em ${id} (${SOURCE_LABEL[source] || "busca-validada"}):`];
+    parts.push(`  ✓ aceitos: ${acc.length ? acc.join(", ") : "—"}`);
+    if (drop.length) parts.push(`  ⤵️ além do teto (5/nó): ${drop.join(", ")}`);
+    if (rejStr.length) parts.push(`  ✗ recusados: ${rejStr.join("; ")}`);
+    if (!acc.length && !drop.length && !rejStr.length) parts.push("  (servidor não reportou termos — verifique o contrato)");
+    return parts.join("\n");
 }
 
 // Traduz um GraphError num texto acionável (nunca lança). ctx opcional p/ contexto de raiz.
@@ -35,6 +52,8 @@ function explainError(e) {
             ].join("\n");
         case "ID_MISMATCH":
             return `O project_id esperado (${e.expected || "?"}) difere do derivado do caminho (${e.actual || "?"}). Verifique o 'root' passado.`;
+        case "VALIDATION_ERROR":
+            return `Requisição inválida para o grafo: ${e.message}. (Ex.: 'id'/'terms' ausentes ou malformados, nó inexistente, source inválida, path inválido.)`;
         case "QUEUE_SATURATED":
             return `Fila de indexação cheia. Tente de novo em ${e.retryAfter || "alguns"}s (graph_status/graph_analyze).`;
         case "GRAPH_API_MISSING":
@@ -220,6 +239,61 @@ export function graphTools({ toolCwd }) {
                         out.push(fmtList(sr.seed, 6));
                     }
                     return out.join("\n");
+                } catch (e) { return explainError(e); }
+            },
+        },
+        {
+            name: "graph_tag_node",
+            description:
+                "Feedback GOVERNADO (ADR-021 2b): ensina o grafo a achar um nó por INTENÇÃO, taggeando-o com as palavras da " +
+                "query que FALHOU. Use SÓ depois de uma busca semântica (graph_search) NÃO trazer o nó certo — NUNCA por palpite. " +
+                "Dois modos: (A) passe 'id' já confirmado por nome exato (graph_symbols) + a 'query' que falhou (extraio ≤3 termos) " +
+                "ou 'terms' explícitos; (B) passe 'expectedName' (o nome exato do símbolo) + a 'query' que falhou, e EU confirmo o nó " +
+                "por nome exato e taggeio (o loop completo). O servidor governa (teto 5 tags/nó, dedup, tag amarrada ao fingerprint, " +
+                "TTL 90d) e devolve accepted/dropped/rejected (nada silencioso). Numa próxima sessão/agente, a mesma intenção casa sem o nome exato.",
+            parameters: {
+                type: "object",
+                properties: {
+                    root: { type: "string", description: "Repo externo (opcional; padrão = projeto aberto)." },
+                    id: { type: "string", description: "Modo A: node_id CONFIRMADO por nome exato (graph_symbols)." },
+                    expectedName: { type: "string", description: "Modo B: nome EXATO do símbolo; a tool confirma o nó por você (garimpo determinístico) antes de taggear." },
+                    query: { type: "string", description: "A query de intenção que FALHOU; dela extraio até 3 termos de conteúdo (sem stopwords)." },
+                    terms: { type: "array", items: { type: "string" }, description: "Modo A alternativo a 'query': termos explícitos (≤3, palavras da query real)." },
+                    source: { type: "string", enum: ["search_validated", "build_time"], description: "Origem da tag: search_validated (padrão, tag de busca que falhou) ou build_time (taggeando enquanto escreve o código)." },
+                },
+                additionalProperties: false,
+            },
+            handler: async (args) => {
+                const p = await prep(args.root, toolCwd);
+                if (p.error) return p.error;
+                if (!args.id && !args.expectedName) {
+                    return "🚫 Passe 'id' (nó já confirmado em graph_symbols) OU 'expectedName' (o nome exato do símbolo, que eu confirmo por você) + a 'query' que falhou.";
+                }
+                try {
+                    // Exige grafo pronto (a tag amarra a um nó existente) — guia se não estiver.
+                    const st = await G.status(p.base, p.ctx);
+                    if (st.state !== "ready") {
+                        return `🕸️ O grafo ainda não está pronto (${st.state}). Rode graph_analyze${args.root ? ` root:"${args.root}"` : ""} antes de taggear.`;
+                    }
+                    // Modo B: loop completo — confirma o nó por NOME EXATO e taggeia (garimpo + captura + escrita).
+                    if (!args.id && args.expectedName) {
+                        const r = await tagOnMiss({ base: p.base, ctx: p.ctx, query: args.query || "", expectedName: args.expectedName, source: args.source });
+                        if (r.ok) return fmtTagVerdict(r.id, args.source, r.verdict);
+                        if (r.reason === "node-not-found") return `🚫 Não achei um símbolo com o nome EXATO "${args.expectedName}" (graph_symbols). Confirme o nome — nunca taggeio por palpite.`;
+                        if (r.reason === "too-few-terms") return `🚫 Não taggeei: <2 termos de conteúdo em "${args.query || ""}" (o servidor exige ≥2 distintos casando). Passe uma query com mais palavras de conteúdo.`;
+                        return `🚫 Não taggeei (${r.reason}).`;
+                    }
+                    // Modo A: id já confirmado pelo agente. termos explícitos OU da query (mesma normalização).
+                    const words = Array.isArray(args.terms) && args.terms.length
+                        ? extractTerms(args.terms.join(" "))
+                        : extractTerms(args.query || "");
+                    if (words.length < 2) {
+                        return `🚫 Não taggeei: preciso de ao menos 2 termos de conteúdo (o servidor exige ≥2 distintos casando no retrieval). ` +
+                            `Recebi ${words.length} de "${args.query || (args.terms || []).join(" ")}". Passe uma query com mais palavras ou 'terms' explícitos.`;
+                    }
+                    // 1 tag-frase canônica (ordenada) — 1 slot dos 5, convergente entre sessões/agentes.
+                    const r = await G.tagNode(p.base, p.ctx, { id: args.id, terms: [canonicalTag(words)], source: args.source });
+                    return fmtTagVerdict(args.id, args.source, r);
                 } catch (e) { return explainError(e); }
             },
         },
