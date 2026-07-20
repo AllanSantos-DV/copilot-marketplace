@@ -775,7 +775,7 @@ function applyAudioHistory(ah) {
 }
 function stopPlayback() {   // corta o que toca e cancela o autoplay (controle manual/gravação)
   playQueue = [];
-  try { audio.pause(); } catch (e) {}
+  softPause();   // corte SUAVE (fade-out anti-clique) em vez de pause seco
   playing = false; previewPlaying = false; playingSeq = null;   // o item já foi marcado OUVIDO no início do play (não regride ao cortar)
 }
 function goPrev() {
@@ -840,12 +840,12 @@ pauseBtn.addEventListener("click", () => {
       .then(() => { phase = "speaking"; reflectPhase(); setPauseBtn(true); hint.textContent = defaultHint(); })
       .catch(() => {});
   } else {                               
-    audio.pause(); phase = "paused"; reflectPhase(); setPauseBtn(false);
+    softPause(); phase = "paused"; reflectPhase(); setPauseBtn(false);
     hint.textContent = "Fala pausada. Toque em ▶ Continuar para retomar.";
   }
 });
 
-let currentGain = 1.0, audioCtx = null, gainNode = null, srcNode = null;
+let currentGain = 1.0, audioCtx = null, gainNode = null, srcNode = null, _fadeTok = 0;
 function makeSoftClipCurve(threshold) {
   const N = 1024, c = new Float32Array(N), T = threshold, R = 1 - threshold;
   for (let i = 0; i < N; i++) {
@@ -881,6 +881,49 @@ function setGain(pct) {
   else audio.volume = Math.min(1, currentGain); 
 }
 ["pointerdown","keydown"].forEach((ev) => window.addEventListener(ev, unlockAudio, { once: true }));
+
+// --- Fade anti-clique: rampa curta no gainNode nos INÍCIOS e CORTES de reprodução, pra
+// matar o "tec" do onset (silêncio→amplitude cheia) e do corte (barge-in/pausa). ~22ms:
+// abaixo da percepção de latência, suave o bastante pra eliminar o transiente. Sem Web Audio
+// (gainNode null) degrada pra pausa/volume direto (sem custo de rampa no elemento).
+const FADE_S = 0.022;
+function rampGain(target, dur) {
+  if (gainNode && audioCtx) {
+    const g = gainNode.gain, t = audioCtx.currentTime;
+    try {
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(Math.max(g.value, 1e-4), t);
+      g.linearRampToValueAtTime(Math.max(target, 1e-4), t + (dur || FADE_S));
+    } catch (e) { try { g.value = target; } catch (_e) {} }
+  } else if (audio) {
+    audio.volume = Math.min(1, Math.max(0, target));
+  }
+}
+// "play" (pedido de reprodução) zera o ganho ANTES do 1º sample; "playing" (saída real
+// começou) rampa até o volume atual → o onset entra suave. UM listener cobre TODOS os
+// starts/resumes (reply, preview, botão, retomada de foco), sem tocar no fluxo da fila.
+audio.addEventListener("play", () => {
+  _fadeTok++;   // um novo start cancela qualquer softPause pendente
+  if (gainNode && audioCtx) {
+    try { gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+          gainNode.gain.setValueAtTime(1e-4, audioCtx.currentTime); } catch (e) {}
+  }
+});
+audio.addEventListener("playing", () => { rampGain(currentGain, FADE_S); });
+// Pausa/corte SUAVE: rampa a ~0 e SÓ ENTÃO pausa (guardado por token — se um novo play
+// começar no meio do fade, o "play" bumpa _fadeTok e a pausa pendente é abortada). Sem Web
+// Audio, pausa direto. Rearma o ganho pro próximo play.
+function softPause() {
+  if (!audio) return;
+  if (!(gainNode && audioCtx) || audio.paused) { try { audio.pause(); } catch (e) {} return; }
+  const tok = ++_fadeTok;
+  rampGain(1e-4, FADE_S);
+  setTimeout(() => {
+    if (tok !== _fadeTok) return;   // um play novo assumiu → não pausa
+    try { audio.pause(); } catch (e) {}
+    try { gainNode.gain.setValueAtTime(currentGain, audioCtx.currentTime); } catch (e) {}
+  }, Math.round(FADE_S * 1000) + 10);
+}
 
 function defaultHint(){ return handsfree ? "Toque para iniciar a gravação." : "Segure o botão ou a barra de espaço para falar."; }
 
