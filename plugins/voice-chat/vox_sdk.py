@@ -49,7 +49,7 @@ from typing import Literal
 # ---------------------------------------------------------------------------
 # CONFIG canônica — fonte única (os MESMOS valores no SDK Node irmão).
 # ---------------------------------------------------------------------------
-SDK_VERSION = "1.7.0"
+SDK_VERSION = "1.9.0"
 
 RELEASES_API = ("https://api.github.com/repos/AllanSantos-DV/"
                 "copilot-marketplace/releases")
@@ -164,6 +164,7 @@ __all__ = [
     "AUDIO_FORMATS", "DEFAULT_AUDIO_FORMAT", "Capabilities",
     "ProfileName", "ModelName", "Priority", "AudioFormat",
     "VoxClient", "VoxEngineError", "ProtocolError",
+    "CaptureError", "CaptureHandle",
     "verify_installer", "encode_message", "read_message", "make_recv_exact",
     "parse_version", "is_newer", "latest_release", "installed_version",
     "download_and_run_installer", "check_and_update",
@@ -328,11 +329,39 @@ def make_recv_exact(recv):
     return recv_exact
 
 
-# numpy é OPCIONAL no consumidor (ex.: Python 3.14 sem wheels).
-try:  # pragma: no cover - depende do ambiente
-    import numpy as _np
-except Exception:  # noqa: BLE001
-    _np = None
+# numpy é OPCIONAL e LAZY: NÃO importa no topo (front-load) — só sob demanda, quando um
+# consumidor DECODIFICA PCM. Assim um consumidor que só usa wav/transcrito (ex.: o worker fino do
+# voice-chat) fica NUMPY-FREE no import → economia real de RAM por fork (numpy é o grosso do USS).
+# Cacheado após a 1ª sondagem; devolve o módulo ou None se indisponível (Python sem wheels).
+_np = None
+_np_probed = False
+_np_lock = threading.Lock()
+
+
+def _numpy():
+    """Importa numpy SOB DEMANDA (cacheado, thread-safe). None se indisponível — mantém numpy
+    OPCIONAL. Double-checked locking: um 2º thread que vê ``_np_probed`` True enxerga ``_np`` já
+    setado (a escrita de ``_np`` precede ``_np_probed=True`` sob o lock) — nunca um None espúrio."""
+    global _np, _np_probed
+    if not _np_probed:
+        with _np_lock:
+            if not _np_probed:
+                try:  # pragma: no cover - depende do ambiente
+                    import numpy as _mod
+                except Exception:  # noqa: BLE001
+                    _mod = None
+                _np = _mod
+                _np_probed = True
+    return _np
+
+
+def _pcm_reply(h: dict, audio: bytes):
+    """Decodifica o payload PCM float32 LE em ndarray se numpy houver; senão devolve os bytes
+    crus. numpy é carregado LAZY aqui — quem nunca chama isto nunca importa numpy."""
+    np = _numpy()
+    if np is not None:
+        return h, (np.frombuffer(audio, dtype="<f4") if audio else np.zeros(0, np.float32))
+    return h, audio
 
 
 def _to_pcm_bytes(audio) -> bytes:
@@ -342,9 +371,10 @@ def _to_pcm_bytes(audio) -> bytes:
     ou qualquer iterável de floats (fallback stdlib via ``array``)."""
     if isinstance(audio, (bytes, bytearray)):
         return bytes(audio)
-    if _np is not None:
+    np = _numpy()
+    if np is not None:
         try:
-            return _np.ascontiguousarray(audio, dtype="<f4").tobytes()
+            return np.ascontiguousarray(audio, dtype="<f4").tobytes()
         except Exception:  # noqa: BLE001
             pass
     import array
@@ -368,6 +398,378 @@ class _PartialSend(Exception):
     def __init__(self, sent: int):
         super().__init__(f"envio parcial ({sent} bytes)")
         self.sent = sent
+
+
+# ---------------------------------------------------------------------------
+# Transporte de pipe OVERLAPPED (ctypes/kernel32) — SÓ para a captura (stream).
+# ---------------------------------------------------------------------------
+# Um handle SÍNCRONO (``open(pipe,"r+b")``) serializa TODA a I/O do handle: um
+# ``ReadFile`` bloqueado (thread-leitora) trava um ``WriteFile`` concorrente (o
+# ``close`` do consumidor) no MESMO handle -> deadlock. Por isso o daemon e o
+# ``pipe_client`` interno usam ``FILE_FLAG_OVERLAPPED``. O ``VoxClient`` síncrono
+# deste SDK é seguro só porque é estritamente serial (escreve-então-lê sob lock,
+# sem thread-leitora persistente). A CAPTURA tem thread-leitora + escrita
+# concorrente, então PRECISA de overlapped — aqui em stdlib puro (``ctypes``) para
+# o SDK vendorável não exigir ``pywin32``. Só Windows (o transporte é named pipe).
+_GENERIC_READ = 0x80000000
+_GENERIC_WRITE = 0x40000000
+_OPEN_EXISTING = 3
+_FILE_FLAG_OVERLAPPED = 0x40000000
+_PIPE_READMODE_BYTE = 0x00000000
+_ERROR_IO_PENDING = 997
+_ERROR_PIPE_BUSY = 231
+_INVALID_HANDLE_VALUE = (1 << (8 * struct.calcsize("P"))) - 1  # (void*)-1, largura do ponteiro
+
+_win_api_cache = None
+_win_api_lock = threading.Lock()
+
+
+def _win_api():
+    """Configura (uma vez) os protótipos ``kernel32`` da captura. LAZY: só toca em ``WinDLL``
+    quando uma captura é aberta — o import do SDK segue cross-platform e stdlib-puro. Devolve
+    ``(kernel32, _OVERLAPPED, ctypes, wintypes)`` cacheado."""
+    global _win_api_cache
+    if _win_api_cache is not None:
+        return _win_api_cache
+    with _win_api_lock:
+        if _win_api_cache is not None:
+            return _win_api_cache
+        import ctypes
+        from ctypes import wintypes
+
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+
+        class _OVERLAPPED(ctypes.Structure):
+            _fields_ = [("Internal", ctypes.c_void_p), ("InternalHigh", ctypes.c_void_p),
+                        ("Offset", wintypes.DWORD), ("OffsetHigh", wintypes.DWORD),
+                        ("hEvent", wintypes.HANDLE)]
+
+        _lpovl = ctypes.POINTER(_OVERLAPPED)
+        _lpdw = ctypes.POINTER(wintypes.DWORD)
+        k.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                  ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+        k.CreateFileW.restype = wintypes.HANDLE
+        k.CreateEventW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR]
+        k.CreateEventW.restype = wintypes.HANDLE
+        k.ReadFile.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD, _lpdw, _lpovl]
+        k.ReadFile.restype = wintypes.BOOL
+        k.WriteFile.argtypes = [wintypes.HANDLE, ctypes.c_char_p, wintypes.DWORD, _lpdw, _lpovl]
+        k.WriteFile.restype = wintypes.BOOL
+        k.GetOverlappedResult.argtypes = [wintypes.HANDLE, _lpovl, _lpdw, wintypes.BOOL]
+        k.GetOverlappedResult.restype = wintypes.BOOL
+        k.SetNamedPipeHandleState.argtypes = [wintypes.HANDLE, _lpdw, ctypes.c_void_p,
+                                              ctypes.c_void_p]
+        k.SetNamedPipeHandleState.restype = wintypes.BOOL
+        k.WaitNamedPipeW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD]
+        k.WaitNamedPipeW.restype = wintypes.BOOL
+        k.CancelIoEx.argtypes = [wintypes.HANDLE, _lpovl]
+        k.CancelIoEx.restype = wintypes.BOOL
+        k.ResetEvent.argtypes = [wintypes.HANDLE]
+        k.ResetEvent.restype = wintypes.BOOL
+        k.CloseHandle.argtypes = [wintypes.HANDLE]
+        k.CloseHandle.restype = wintypes.BOOL
+        _win_api_cache = (k, _OVERLAPPED, ctypes, wintypes)
+        return _win_api_cache
+
+
+class _OverlappedPipe:
+    """fh duck-typed (``read``/``write``/``flush``/``close``) sobre um named pipe com I/O
+    OVERLAPPED — leitura (thread-leitora) e escrita (consumidor) CONCORRENTES no MESMO handle
+    sem deadlock. Cada operação tem seu próprio ``OVERLAPPED``; a leitura e a escrita usam
+    EVENTOS separados (um leitor, escritas serializadas pelo handle) — nunca colidem."""
+
+    def __init__(self, pipe_name: str, connect_timeout: float = 5.0):
+        self._k, self._OVL, self._ctypes, self._wintypes = _win_api()
+        self._closed = False
+        self._close_lock = threading.Lock()
+        self._h = self._connect(pipe_name, connect_timeout)
+        self._read_evt = self._k.CreateEventW(None, True, False, None)
+        self._write_evt = self._k.CreateEventW(None, True, False, None)
+        if not self._read_evt or not self._write_evt:
+            # fail-loud: sem os eventos manuais a I/O overlapped concorrente (a razão desta classe)
+            # degradaria em silêncio p/ sinalização no próprio handle. Só sob exaustão de recursos.
+            err = self._ctypes.get_last_error()
+            for evt in (self._read_evt, self._write_evt):
+                if evt:
+                    try:
+                        self._k.CloseHandle(evt)
+                    except Exception:  # noqa: BLE001
+                        pass
+            try:
+                self._k.CloseHandle(self._h)
+            except Exception:  # noqa: BLE001
+                pass
+            raise OSError(f"CreateEvent falhou na captura: Win32 {err}")
+
+    def _connect(self, pipe_name: str, timeout: float):
+        ct = self._ctypes
+        deadline = time.time() + max(0.0, timeout)
+        while True:
+            h = self._k.CreateFileW(pipe_name, _GENERIC_READ | _GENERIC_WRITE, 0, None,
+                                    _OPEN_EXISTING, _FILE_FLAG_OVERLAPPED, None)
+            if h and h != _INVALID_HANDLE_VALUE:
+                mode = self._wintypes.DWORD(_PIPE_READMODE_BYTE)
+                self._k.SetNamedPipeHandleState(h, ct.byref(mode), None, None)
+                return h
+            err = ct.get_last_error()
+            if time.time() >= deadline:
+                raise OSError(f"não abriu o pipe de captura {pipe_name}: erro Win32 {err}")
+            if err == _ERROR_PIPE_BUSY:
+                self._k.WaitNamedPipeW(pipe_name, 500)   # aguarda uma instância livre
+            else:
+                time.sleep(0.05)                          # ainda não existe/transiente: retenta
+
+    def read(self, n: int) -> bytes:
+        h = self._h
+        if n <= 0 or self._closed or h is None:
+            return b""
+        ct = self._ctypes
+        buf = ct.create_string_buffer(n)
+        ov = self._OVL()
+        ov.hEvent = self._read_evt
+        self._k.ResetEvent(self._read_evt)
+        ok = self._k.ReadFile(h, buf, n, None, ct.byref(ov))
+        if not ok and ct.get_last_error() != _ERROR_IO_PENDING:
+            return b""                        # pipe quebrado/abortado -> EOF (a leitora nunca cai)
+        nread = self._wintypes.DWORD(0)
+        if not self._k.GetOverlappedResult(h, ct.byref(ov), ct.byref(nread), True):
+            return b""
+        return buf.raw[:nread.value]
+
+    def write(self, data) -> int:
+        ct = self._ctypes
+        h = self._h
+        if self._closed or h is None:
+            raise OSError("WriteFile da captura: conexão fechada")   # fail-loud
+        data = bytes(data)
+        ov = self._OVL()
+        ov.hEvent = self._write_evt
+        self._k.ResetEvent(self._write_evt)
+        ok = self._k.WriteFile(h, data, len(data), None, ct.byref(ov))
+        if not ok:
+            err = ct.get_last_error()
+            if err != _ERROR_IO_PENDING:
+                raise OSError(f"WriteFile da captura falhou: Win32 {err}")  # fail-loud
+        nwritten = self._wintypes.DWORD(0)
+        if not self._k.GetOverlappedResult(h, ct.byref(ov), ct.byref(nwritten), True):
+            raise OSError(f"WriteFile da captura incompleto: Win32 {ct.get_last_error()}")
+        return nwritten.value
+
+    def flush(self) -> None:
+        pass
+
+    def close(self) -> None:
+        with self._close_lock:
+            if self._closed:
+                return
+            self._closed = True
+            h, revt, wevt = self._h, self._read_evt, self._write_evt
+            self._h = None                      # read/write posteriores desistem (sentinela) —
+            #                                     nunca reusam um valor de handle já fechado
+        try:
+            self._k.CancelIoEx(h, None)         # destrava um ReadFile pendente de OUTRA thread
+        except Exception:  # noqa: BLE001
+            pass
+        for evt in (revt, wevt):
+            try:
+                self._k.CloseHandle(evt)
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            self._k.CloseHandle(h)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+class CaptureError(VoxEngineError):
+    """Falha TIPADA de captura — ``code`` estável para o cliente mapear em UI SEM parsear texto.
+    Códigos do daemon: ``busy`` / ``mic_busy`` / ``already_open`` / ``mic_open_failed`` /
+    ``capture_timeout`` / ``not_open`` / ``not_owner`` / ``capture_internal`` /
+    ``capture_unavailable`` / ``no_session``; e o client-side ``pipe_broken`` (a conexão de
+    captura caiu no meio)."""
+
+    def __init__(self, code: str, message: str = ""):
+        super().__init__(f"{code}: {message}" if message else code)
+        self.code = code
+        self.message = message
+
+
+_cap_rid_lock = threading.Lock()
+_cap_rid_n = 0
+
+
+def _cap_rid() -> str:
+    """req_id monotônico para frames de captura (conexão própria, independente do VoxClient)."""
+    global _cap_rid_n
+    with _cap_rid_lock:
+        _cap_rid_n += 1
+        return f"cap-{_cap_rid_n}"
+
+
+class CaptureHandle:
+    """Handle de UMA captura de sessão (mic → transcrição no daemon) sobre uma conexão de pipe
+    DEDICADA. Ao contrário do :class:`VoxClient` (1 request → 1 resposta), a captura é um STREAM:
+    o daemon empurra N frames assíncronos numa thread-leitora e CADA um é entregue a
+    ``on_event(frame)`` — o único ``emit`` que o consumidor liga na sua ponte (callback→iterador).
+
+    Formas do ``frame`` (discrimine por ``frame['event']``):
+      * ``{event:"capture_segment", session, idx, text}``  — trecho transcrito (pipeline no daemon)
+      * ``{event:"capture_level",   session, rms, peak, silent}`` — VU (~10 Hz); dica de exibição
+      * ``{event:"capture_error",   session, code, message}``     — erro de device (``device_fail``)
+        ou, client-side, ``code="pipe_broken"`` quando a conexão cai.
+
+    ``close()`` (drena a cauda) / ``cancel()`` (aborta, descarta) fecham a captura e devolvem o
+    ``capture_closed`` (texto + métricas). Fail-loud: conexão morta ⇒ ``capture_error`` tipado ao
+    consumidor + desbloqueio de qualquer espera pendente. A instância É o read-loop; o consumidor
+    só liga o ``on_event`` e chama ``close``/``cancel``."""
+
+    def __init__(self, fh, session: str, on_event, *, open_header: dict,
+                 open_timeout: float = 8.0):
+        self._fh = fh
+        self._session = session
+        self._on_event = on_event
+        self._lock = threading.Lock()
+        self._opened = threading.Event()
+        self._closed = threading.Event()
+        self._open_ack: "dict | None" = None
+        self._result: "dict | None" = None
+        self._end_sent = False
+        self._reader = threading.Thread(target=self._read_loop, name="vox-capture-reader",
+                                        daemon=True)
+        self._reader.start()
+        # dispara o capture_open DEPOIS de o leitor estar de pé (segmentos/levels podem chegar
+        # ANTES do ack — o feeder do mic já roda; o leitor os entrega ao on_event, sem perder).
+        try:
+            self._send_frame(open_header)
+        except Exception as exc:  # noqa: BLE001 — pipe já morto no envio do open: fail-loud tipado
+            self._teardown()
+            raise CaptureError("pipe_broken", f"falha ao enviar capture_open: {exc}") from exc
+        if not self._opened.wait(open_timeout):
+            self._teardown()
+            raise CaptureError("capture_timeout",
+                               f"capture_open sem ack em {open_timeout:.1f}s")
+        ack = self._open_ack or {}
+        if ack.get("event") != "capture_open" or not ack.get("ok", False):
+            self._teardown()
+            raise CaptureError(ack.get("code") or "capture_failed",
+                               ack.get("message") or "capture_open falhou")
+
+    @property
+    def session(self) -> str:
+        return self._session
+
+    @property
+    def closed(self) -> bool:
+        return self._closed.is_set()
+
+    def close(self, timeout: float = 8.0) -> dict:
+        """Fecha a captura (drena a cauda transcrita) e devolve o ``capture_closed``
+        (``text``/``peak``/``duration_s``/``chunks``/``errors``/``mic_ok``…)."""
+        return self._end("capture_close", timeout)
+
+    def cancel(self, timeout: float = 8.0) -> dict:
+        """Aborta a captura (DESCARTA a cauda sem transcrever) e devolve o ``capture_closed``
+        (``cancelled=True``)."""
+        return self._end("capture_cancel", timeout)
+
+    def _end(self, cmd: str, timeout: float) -> dict:
+        with self._lock:
+            already = self._end_sent
+            self._end_sent = True
+        if not already:
+            try:
+                self._send_frame({"cmd": cmd, "session": self._session, "req_id": _cap_rid()})
+            except Exception as exc:  # noqa: BLE001 — pipe morto: o leitor já sinaliza pipe_broken
+                self._closed.wait(timeout)
+                self._teardown()
+                if self._result is not None:
+                    return self._result
+                raise CaptureError("pipe_broken", f"falha ao enviar {cmd}: {exc}") from exc
+        if not self._closed.wait(timeout):
+            self._teardown()
+            raise CaptureError("capture_timeout",
+                               f"{cmd} sem capture_closed em {timeout:.1f}s")
+        self._teardown()
+        return self._result or {"event": "capture_closed", "session": self._session, "ok": False}
+
+    # ------------------------------------------------------------ read-loop
+    def _read_loop(self) -> None:
+        recv_exact = make_recv_exact(self._fh.read)
+        while True:
+            try:
+                header, _ = read_message(recv_exact)
+            except (EOFError, ProtocolError, OSError, ValueError):
+                self._fail_closed_local("pipe_broken", "conexão de captura caiu")
+                return
+            ev = header.get("event")
+            if ev == "capture_open":
+                self._open_ack = header
+                self._opened.set()
+                continue
+            if ev == "capture_closed":
+                self._result = header
+                self._opened.set()             # defensivo: destrava um open ainda pendente
+                self._closed.set()
+                return
+            if ev == "error":
+                # erro de CONTROLE (no_session/capture_unavailable/not_open/not_owner/…): termina.
+                if not self._opened.is_set():
+                    self._open_ack = header     # falhou no open → o ctor levanta CaptureError
+                else:
+                    self._result = header       # falhou no close → vira o resultado
+                self._opened.set()
+                self._closed.set()
+                return
+            self._emit(header)                  # stream: capture_segment / capture_level / erro
+
+    def _emit(self, header: dict) -> None:
+        try:
+            self._on_event(header)
+        except Exception:  # noqa: BLE001 — o callback do consumidor NUNCA derruba o leitor
+            pass
+
+    def _fail_closed_local(self, code: str, message: str) -> None:
+        """A conexão morreu (ou nunca respondeu): fabrica um ``capture_error`` TIPADO local,
+        entrega ao consumidor e desbloqueia open/close pendentes com um resultado fail-loud."""
+        self._emit({"event": "capture_error", "session": self._session,
+                    "code": code, "message": message})
+        if self._open_ack is None:
+            self._open_ack = {"event": "error", "session": self._session,
+                              "code": code, "message": message}
+        if self._result is None:
+            self._result = {"event": "capture_closed", "session": self._session,
+                            "ok": False, "code": code, "message": message}
+        self._opened.set()
+        self._closed.set()
+
+    def _send_frame(self, header: dict) -> None:
+        data = encode_message(header)
+        total = len(data)
+        sent = 0
+        while sent < total:
+            n = self._fh.write(data if sent == 0 else data[sent:])
+            if n is None:                       # handle não conta bytes (mocks) → assume tudo
+                break
+            if n <= 0:
+                raise OSError("write da captura não progrediu")
+            sent += n
+        self._fh.flush()
+
+    def _teardown(self) -> None:
+        try:
+            self._fh.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        if not self._closed.is_set():
+            try:
+                self.close()
+            except Exception:  # noqa: BLE001 — o exit nunca mascara a exceção original
+                pass
 
 
 class VoxClient:
@@ -593,6 +995,18 @@ class VoxClient:
         h, _ = self._request({"cmd": "info", "req_id": self._next_rid()}, timeout=timeout)
         return h
 
+    def devices(self, timeout: float = 5.0) -> dict:
+        """Microfones vistos pelo daemon — a MESMA enumeração/seleção do ditado (UMA fonte).
+
+        Devolve ``{"input": [{"index", "name", "is_default"}], "default_input": <nome|None>}``;
+        ``input`` já vem DEDUPLICADO por nome (uma entrada por mic físico, na melhor host API).
+        Passe o ``name`` escolhido em ``capture_open(input_device=<name>)`` — PORTÁVEL (o índice
+        do PortAudio muda ao plugar/desplugar USB; o nome é estável). Reusar isto deixa o
+        consumidor SEM ``sounddevice`` local (casca fina). Fail-safe: sem PortAudio → ``input=[]``
+        (só o 'Automático'). Só ENTRADA — a saída do TTS é playback do consumidor (não do daemon)."""
+        h, _ = self._request({"cmd": "devices", "req_id": self._next_rid()}, timeout=timeout)
+        return {"input": h.get("input") or [], "default_input": h.get("default_input")}
+
     def update_check(self, timeout: float = 8.0) -> dict:
         """Pergunta ao motor se há release ASSINADA mais nova (endpoint READ-ONLY
         ``update_check``) — o consumidor decide quando chamar :meth:`update`. Nunca levanta;
@@ -723,25 +1137,68 @@ class VoxClient:
 
     def tts(self, text: str, fmt: str = "pcm", voice: "str | None" = None,
             speed: float = 1.0, session: str = "default",
-            priority: str = "interactive", timeout: float = 120.0):
+            priority: str = "interactive", normalize: bool = False,
+            timeout: float = 120.0):
         """Sintetiza ``text``.
 
         Com ``fmt="pcm"`` (default) devolve ``(header, samples)`` — ``samples`` é um
         ``numpy.ndarray`` float32 quando numpy existe, senão os ``bytes`` PCM crus
         (numpy é opcional no consumidor). Com um formato comprimido
         (``opus``/``mp3``/``wav``/``vorbis``) devolve ``(header, bytes)`` já
-        codificados. O tipo do retorno depende SÓ do ``fmt`` deste request."""
+        codificados. O tipo do retorno depende SÓ do ``fmt`` deste request.
+
+        ``normalize=True`` pede o peak-normalize na FONTE (pico->0.92 antes do
+        PCM/encode) — nível consistente entre chamadas sem renormalizar no cliente;
+        default OFF = PCM cru byte-idêntico. Fade NÃO é da fonte (é playback)."""
         req = {"cmd": "tts", "req_id": self._next_rid(), "session": session,
                "text": text, "voice": voice, "speed": speed, "priority": priority}
+        if normalize:
+            req["normalize"] = True
         if fmt and fmt != "pcm":
             req["format"] = fmt
         h, audio = self._request(req, timeout=timeout)
         if fmt and fmt != "pcm":
             return h, audio                      # bytes codificados, sem interpretar
-        if _np is not None:
-            samples = _np.frombuffer(audio, dtype="<f4") if audio else _np.zeros(0, _np.float32)
-            return h, samples
-        return h, audio                          # numpy ausente ⇒ bytes PCM crus
+        return _pcm_reply(h, audio)              # PCM→ndarray (numpy lazy) ou bytes crus
+
+    def capture_open(self, session: str, on_event, *, lang: str = "",
+                     model: "str | None" = None, profile: "str | None" = None,
+                     input_device: "str | int | None" = None, min_rms: float = 0.0,
+                     connect_timeout: float = 5.0, open_timeout: float = 8.0) -> "CaptureHandle":
+        """Abre uma captura de sessão (mic → transcrição no daemon) e devolve um
+        :class:`CaptureHandle`. ``on_event(frame)`` recebe CADA evento assíncrono —
+        ``capture_segment`` {idx,text} / ``capture_level`` {rms,peak,silent} / ``capture_error``
+        {code,message} — discrimine por ``frame['event']``. ``handle.close()`` (drena) /
+        ``handle.cancel()`` (aborta) devolvem o ``capture_closed`` com o resultado.
+
+        Levanta :class:`CaptureError` TIPADO se o mic estiver ocupado/indisponível ou o ack não
+        vier (``busy``/``mic_busy``/``mic_open_failed``/``capture_unavailable``/``capture_timeout``…).
+        Fase 0 = single-owner: uma 2ª captura concorrente responde ``busy``.
+
+        Usa uma conexão de pipe DEDICADA (a captura é stream, não request/resposta) — NÃO
+        compartilha o handle serializado deste cliente, então TTS/transcribe seguem em paralelo."""
+        if not session:
+            raise ValueError("capture_open requer session")
+        header: dict = {"cmd": "capture_open", "req_id": _cap_rid(), "session": session}
+        if lang:
+            header["lang"] = lang
+        if model:
+            header["model"] = model
+        if profile:
+            header["profile"] = profile
+        if input_device is not None:
+            header["input_device"] = input_device
+        if min_rms:
+            header["min_rms"] = float(min_rms)
+        fh = self._open_capture_pipe(connect_timeout)
+        return CaptureHandle(fh, session, on_event, open_header=header, open_timeout=open_timeout)
+
+    def _open_capture_pipe(self, connect_timeout: float):
+        """Conexão de pipe NOVA e OVERLAPPED (ctypes) para a captura (stream): a thread-leitora
+        pode ficar bloqueada num ``ReadFile`` enquanto o consumidor escreve o ``close`` no MESMO
+        handle — o que um handle SÍNCRONO serializaria (deadlock). O handle síncrono
+        (``open(pipe,"r+b")``) só é seguro no ``VoxClient`` serial de request/resposta."""
+        return _OverlappedPipe(self.pipe_name, connect_timeout)
 
     def encode_formats(self, timeout: float = 5.0) -> "list[str]":
         """Formatos de saída de TTS servíveis pelo daemon (capability discovery)."""
@@ -786,10 +1243,7 @@ class VoxClient:
             return h                              # compat: só o header (dict)
         if dub_fmt and dub_fmt != "pcm":
             return h, audio_out                   # bytes codificados, sem interpretar
-        if _np is not None:
-            samples = _np.frombuffer(audio_out, dtype="<f4") if audio_out else _np.zeros(0, _np.float32)
-            return h, samples
-        return h, audio_out                       # numpy ausente ⇒ bytes PCM crus
+        return _pcm_reply(h, audio_out)           # PCM→ndarray (numpy lazy) ou bytes crus
 
     def translate_text(self, text: str, from_lang: str, to_lang: str = "pt", *,
                        session: str = "default", priority: str = "interactive",
@@ -821,10 +1275,7 @@ class VoxClient:
             return h                              # compat: só o header (dict)
         if dub_fmt and dub_fmt != "pcm":
             return h, audio_out                   # bytes codificados, sem interpretar
-        if _np is not None:
-            samples = _np.frombuffer(audio_out, dtype="<f4") if audio_out else _np.zeros(0, _np.float32)
-            return h, samples
-        return h, audio_out                       # numpy ausente ⇒ bytes PCM crus
+        return _pcm_reply(h, audio_out)           # PCM→ndarray (numpy lazy) ou bytes crus
 
     def prepare_translation(self, from_lang: str, to_lang: str,
                             whisper_model: "str | None" = None, speak: bool = False,
@@ -1305,13 +1756,21 @@ def start_installed_daemon(pipe: str = DEFAULT_PIPE, *, run=None) -> bool:
         return False
     try:
         os.makedirs(os.path.dirname(DAEMON_LOG), exist_ok=True)
-        flags = 0x00000008 | 0x08000000   # DETACHED_PROCESS | CREATE_NO_WINDOW
+        # DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB: o motor é um SINGLETON de
+        # LONGA VIDA — precisa ROMPER o Job Object do consumidor que o lança (worker/sessão do app),
+        # senão o Windows o MATA junto quando esse consumidor EFÊMERO cai (sem shutdown gracioso).
+        # Era o loop start↔kill que derrubava a voz no multi-sessão. Se o Job PROÍBE breakaway
+        # (ERROR_ACCESS_DENIED — sem JOB_OBJECT_LIMIT_BREAKAWAY_OK), CAI para só destacado.
+        base = 0x00000008 | 0x08000000
+        breakaway = 0x01000000
         bf = open(DAEMON_BOOT_LOG, "ab")   # noqa: SIM115
         try:
-            subprocess.Popen([pyw, "-m", "vox_engine", "--pipe", pipe,
-                              "--log-file", DAEMON_LOG], creationflags=flags,
-                             close_fds=True, stdin=subprocess.DEVNULL,
-                             stdout=bf, stderr=bf)
+            args = [pyw, "-m", "vox_engine", "--pipe", pipe, "--log-file", DAEMON_LOG]
+            common = dict(close_fds=True, stdin=subprocess.DEVNULL, stdout=bf, stderr=bf)
+            try:
+                subprocess.Popen(args, creationflags=base | breakaway, **common)
+            except OSError:
+                subprocess.Popen(args, creationflags=base, **common)  # job proíbe breakaway
         finally:
             bf.close()
         return True

@@ -19,22 +19,12 @@ import sys
 import os
 import json
 import time
-import struct
-import subprocess
-import tarfile
 import threading
 import traceback
 import wave
-import re
-import queue
-import shutil
-import tempfile
-import zipfile
-import urllib.request
-import math
-import unicodedata
-from collections import deque
 import vox_sdk
+from capture_session import CaptureSession
+from vox_capture_adapter import VoxPipeCaptureAdapter
 
 try:
     import truststore
@@ -123,13 +113,10 @@ def _ensure_deps():
 _ensure_deps()
 
 
-import numpy as np
-
-# SDK flats re-vendorizados (vox-engine SDK 1.7.0): segmentação+STT em streaming
-# (StreamingTranscriber/StreamSegmenter) e enumeração/resolução de dispositivos de
-# entrada (vox_audio_devices). vox_stream depende de numpy -> importado APÓS numpy.
-from vox_stream import StreamingTranscriber, StreamSegmenter
-import vox_audio_devices
+# numpy + vox_stream + sounddevice + vox_audio_devices: TODOS fora do import do worker fino.
+# O daemon faz captura/STT/TTS E a enumeração de device (vox.devices()); o worker não toca áudio
+# local. numpy é LAZY só no transcribe_file (WAV offline raro) → fork ocioso = numpy-free E
+# sounddevice-free (o ganho de RAM + fonte ÚNICA de seleção de mic, a mesma do ditado).
 
 MODEL_ROOT = os.environ.get("VOICE_MODEL_ROOT") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "artifacts", "models"
@@ -230,10 +217,17 @@ def _parse_mic_env():
         return None
 
 SELECTED_MIC = _parse_mic_env()
+VOX = None   # cliente do motor (_VoxBridge), publicado pelo main() p/ detect_mic/list_mics reusarem devices()
 
 def set_selected_mic(dev):
     global SELECTED_MIC
-    SELECTED_MIC = (int(dev) if dev is not None else None)
+    if dev in (None, ""):
+        SELECTED_MIC = None
+    else:
+        try:
+            SELECTED_MIC = int(dev)
+        except (TypeError, ValueError):
+            SELECTED_MIC = dev   # nome (str) — capture_open aceita nome portável também
 
 
 # --- Seguir o microfone PADRÃO do Windows -------------------------------------------
@@ -367,9 +361,6 @@ def _open_input_stream(open_fn, selected, on_fallback, log_fn):
         on_fallback()                         # reset SELECTED_MIC=None + reinit PortAudio p/ ver o default
         return open_fn(None), True            # padrão do Windows; se ISTO falhar, propaga (erro honesto)
 
-WAKE_PHRASES = [p.strip() for p in
-                os.environ.get("VOICE_WAKE_PHRASES", "escuta jarvis").split("|")
-                if p.strip()] or ["escuta jarvis"]
 
 _stdout_lock = threading.Lock()
 
@@ -661,104 +652,6 @@ def set_tts_voice(name):
     log(f"tts voice set to {name} (motor)")
 
 
-def _hann_highpass(x, sr, fc=60.0):
-    """Smooth high-pass via Hann-windowed moving-average subtraction (no scipy).
-    Removes DC + the sub-fc rumble that dominates the Piper noise floor without
-    comb-coloring the voice band (Hann sidelobes are ~-31 dB)."""
-    L = int(1.44 * sr / max(20.0, fc))
-    if L < 8 or x.size < 2 * L:
-        return (x - float(np.mean(x))).astype(np.float32)
-    w = np.hanning(L).astype(np.float32)
-    w /= float(w.sum())
-    lp = np.convolve(x, w, mode="same").astype(np.float32)
-    return (x - lp).astype(np.float32)
-
-
-def _gate_gaps(x, sr, min_gap_ms=130, floor_gain=0.0):
-    """Attenuate SUSTAINED silence (inter-sentence/clause pauses) so the normalized
-    noise floor doesn't hiss between phrases ('static at the period'). Short
-    low-energy sounds (fricatives s/ch/x, brief pauses) are left untouched, and the
-    gap edges are guarded + smoothed so word onsets/tails aren't clipped."""
-    fl = max(1, int(0.01 * sr))
-    n = x.size // fl
-    if n < 8:
-        return x
-    env = np.sqrt(np.mean(x[: n * fl].reshape(n, fl) ** 2, axis=1))
-    floor = float(np.percentile(env, 5))
-    thr = max(3.0 * floor, 0.006)
-    quiet = env < thr
-    g = np.ones(n, dtype=np.float32)
-    min_run = max(4, int(min_gap_ms / 10))
-    guard = 3  
-    i = 0
-    while i < n:
-        if quiet[i]:
-            j = i
-            while j < n and quiet[j]:
-                j += 1
-            if j - i >= min_run:
-                a, b = i + guard, j - guard
-                if b > a:
-                    g[a:b] = floor_gain
-            i = j
-        else:
-            i += 1
-    gain = np.repeat(g, fl)
-    if gain.size < x.size:
-        gain = np.concatenate([gain, np.full(x.size - gain.size, g[-1], np.float32)])
-    else:
-        gain = gain[: x.size]
-    k = max(1, int(0.02 * sr))  
-    ker = np.hanning(2 * k + 1).astype(np.float32)
-    ker /= float(ker.sum())
-    gain = np.convolve(gain, ker, mode="same").astype(np.float32)
-    return (x * gain).astype(np.float32)
-
-
-def clean_tts(samples, sr):
-    """Clean + normalize the neural TTS at the SOURCE so the client no longer has
-    to amplify a noisy, quiet signal. Piper's miro voice comes out at ~-17 dBFS
-    with a low-frequency rumble (~55 Hz), noisy edges, and an exposed noise floor in
-    the pauses between sentences. We: remove DC + sub-60 Hz rumble, trim the noisy
-    edges, gate the inter-sentence gaps (kills the 'static at the period'), normalize
-    near full scale, and fade in/out."""
-    x = np.asarray(samples, dtype=np.float32).copy()
-    if x.size < int(0.05 * sr):
-        return x
-    x = _hann_highpass(x, sr, 60.0)
-    fl = max(1, int(0.01 * sr))
-    n = x.size // fl
-    if n >= 4:
-        env = np.sqrt(np.mean(x[: n * fl].reshape(n, fl) ** 2, axis=1))
-        floor = float(np.percentile(env, 10))
-        thr = max(3.0 * floor, 0.01)
-        voiced = np.where(env > thr)[0]
-        if voiced.size:
-            s = max(0, voiced[0] * fl - int(0.03 * sr))
-            e = min(x.size, (voiced[-1] + 1) * fl + int(0.06 * sr))
-            x = x[s:e]
-    x = _gate_gaps(x, sr)
-    peak = float(np.max(np.abs(x))) if x.size else 0.0
-    if peak > 1e-6:
-        x = x * (0.92 / peak)
-    f = max(1, int(0.012 * sr))
-    if x.size > 2 * f:
-        x[:f] *= np.linspace(0.0, 1.0, f, dtype=np.float32)
-        x[-f:] *= np.linspace(1.0, 0.0, f, dtype=np.float32)
-    return x.astype(np.float32)
-
-
-def write_wav(path, samples, sample_rate):
-    pcm = np.clip(np.asarray(samples, dtype=np.float32), -1.0, 1.0)
-    pcm16 = (pcm * 32767.0).astype("<i2")
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with wave.open(path, "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(int(sample_rate))
-        w.writeframes(pcm16.tobytes())
-
-
 def synthesize_tts(msg, synth):
     _id = msg.get("id")
     try:
@@ -773,12 +666,15 @@ def synthesize_tts(msg, synth):
             raise VoxEngineError("motor de voz (vox-engine) indisponível para TTS")
         TTS_IDLE.clear()
         try:
-            samples, sr = synth(text, TTS_MODEL, speed)
+            wav, sr = synth(text, TTS_MODEL, speed)
         finally:
             TTS_IDLE.set()
-        cleaned = clean_tts(samples, sr)
+        # WAV já vem NORMALIZADO da fonte (normalize=True no motor) e codificado — só grava os
+        # bytes. Fade anti-clique fica no iframe (Web Audio ramp). ZERO numpy no worker.
         if out:
-            write_wav(out, cleaned, sr)
+            os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+            with open(out, "wb") as _f:
+                _f.write(wav)
         emit({"event": "tts", "id": _id, "ok": True, "out": out,
               "sample_rate": int(sr), "source": "vox-engine"})
     except Exception as exc:
@@ -826,1008 +722,27 @@ def silence_signal_update(peak, silent_since, sustained_since, warned, now,
     return (silent_since, sustained_since, warned, None)
 
 
-class _DecodeClient:
-    """Adapta o decodificador injetado (``fn(seg) -> texto``, já serializado e com defer
-    de TTS) para a interface ``client.transcribe(seg, **kwargs)`` que o
-    :class:`StreamingTranscriber` do SDK espera. Ignora os kwargs de roteamento (o closure
-    já fixou lang/session/estado) e acumula o tempo de STT para o ``ms`` do envelope. Aplica
-    o piso de 0,1s do decode antigo (segmentos ínfimos não vão ao motor)."""
-
-    def __init__(self, fn):
-        self._fn = fn
-        self.proc_ms = 0
-
-    def transcribe(self, seg, **_kwargs):
-        if seg is None or seg.size < int(0.1 * SAMPLE_RATE):
-            return ""
-        t0 = time.time()
-        try:
-            return self._fn(seg) or ""
-        finally:
-            self.proc_ms += int((time.time() - t0) * 1000)
-
-
-class Recorder:
-    def __init__(self):
-        self._last_rms = 0.0
-        self._last_peak = 0.0
-        self._max_peak = 0.0
-        self._last_feed_at = 0.0     # monotonic do último feed() — idade delata device morto
-        self._cur_run_ms = 0.0       # run de voz atual (tempo contínuo >= limiar)
-        self._max_run_ms = 0.0       # MAIOR run da captura -> veredito no_audio (imune ao bipe)
-        self._rec_gen = 0            # geração da captura — barra thread de meter antiga numa nova
-        self._recording = False
-        self._meter_thread = None
-        self._decode_fn = None
-        self._st = None              # StreamingTranscriber (segmentação+STT do SDK) por captura
-        self._client = None          # adaptador _decode_fn -> client.transcribe do SDK
-        self._partials = []          # textos dos segmentos (p/ chunks); o texto final vem de finish()
-        self._dur_samples = 0
-        self._proc_ms = 0
-        self._quiet = False
-
-    def set_decoder(self, fn):
-        """Inject the decode function (wraps the recognizer)."""
-        self._decode_fn = fn
-
-    def feed(self, block, status=None):  
-        if status:
-            log(f"stream status: {status}")
-        if not self._recording:
-            return
-        # medidor + peak da captura INTEIRA (para o envelope e o mic-health gate): MEU, não do SDK
-        # (peak = max-abs; o on_rms do SDK é RMS por-segmento, escala diferente — não substitui).
-        self._last_feed_at = time.monotonic()
-        self._last_rms = float(np.sqrt(np.mean(block ** 2)) if block.size else 0.0)
-        self._last_peak = float(np.max(np.abs(block)) if block.size else 0.0)
-        if self._last_peak > self._max_peak:
-            self._max_peak = self._last_peak
-        # Contabilidade de RUN DE VOZ (health imune ao bipe): acumula tempo CONTÍNUO acima do
-        # limiar; o MAIOR run — não o pico da captura inteira — decide o veredito no_audio.
-        blk_ms = (1000.0 * int(block.size) / SAMPLE_RATE) if block.size else 0.0
-        if self._last_peak >= MIC_SILENCE_PEAK:
-            self._cur_run_ms += blk_ms
-            if self._cur_run_ms > self._max_run_ms:
-                self._max_run_ms = self._cur_run_ms
-        else:
-            self._cur_run_ms = 0.0
-        self._dur_samples += int(block.size)
-        # segmentação + STT sobreposto: alimenta o StreamingTranscriber vendorizado (SDK).
-        # A segmentação é leve (frame-rms/cut sobre o bloco); o STT pesado roda na thread do SDK.
-        if self._st is not None:
-            self._st.feed(block)
-
-    def _meter_loop(self, gen):
-        last_rms = last_peak = -1.0
-        silent_since = sustained_since = None
-        warned = False
-        last_hb = time.monotonic()
-        while self._recording and gen == self._rec_gen:
-            now = time.monotonic()
-            # STALENESS: um callback de áudio morto (device desconectado no meio) congela
-            # _last_peak -> a idade do último feed transforma isso em silêncio real (senão o
-            # guarda nunca dispararia justo quando o mic morre — a causa da perda de 30 min).
-            fresh = (now - self._last_feed_at) <= FEED_STALE_S
-            eff_peak = self._last_peak if fresh else 0.0
-            rms = round(self._last_rms if fresh else 0.0, 5)
-            peak = round(eff_peak, 4)
-            if _meter_should_emit(rms, peak, last_rms, last_peak):
-                emit({"event": "level", "rms": rms, "peak": peak})
-                last_rms, last_peak = rms, peak
-            silent_since, sustained_since, warned, ev = silence_signal_update(
-                eff_peak, silent_since, sustained_since, warned, now)
-            if ev is not None:
-                emit(ev)
-            # HEARTBEAT: renova a lease do mic (guarda >60s de gravação longa) + re-afirma um
-            # aviso ativo — à prova de reconexão SSE (o one-shot low_signal:true pode se perder).
-            if now - last_hb >= REC_HEARTBEAT_S:
-                last_hb = now
-                emit({"event": "rec_alive"})
-                if warned:
-                    emit({"event": "low_signal", "state": True, "reassert": True})
-            time.sleep(0.12)
-
-    def _on_segment(self, idx, text):
-        # on_segment do SDK dispara "" p/ silêncio/falha de STT (mantém a ordem/índice) — FILTRA
-        # vazio: não conta como chunk. O texto final agregado vem de finish() (em ordem).
-        if text:
-            self._partials.append(text)
-
-    def begin(self, quiet=False):
-        """Start capturing. The mic stream is owned by AudioHub, which pushes blocks
-        in via feed(); here we only reset buffers and spin up the meter + streamer
-        threads. No PortAudio call happens here, so the wake<->record hand-off never
-        opens a second device stream. `quiet` suppresses the recording/level UI
-        events so the hands-free wake-command capture can reuse this exact pipeline
-        without lighting up the push-to-talk mic ring."""
-        if self._recording:
-            return
-        self._quiet = quiet
-        self._max_peak = 0.0
-        self._last_peak = 0.0
-        self._last_rms = 0.0
-        self._last_feed_at = time.monotonic()   # sem isto, um feed velho pré-captura seria "fresco"
-        self._cur_run_ms = 0.0
-        self._max_run_ms = 0.0
-        self._dur_samples = 0
-        self._proc_ms = 0
-        self._partials = []
-        self._rec_gen += 1
-        # StreamingTranscriber do SDK: dono da segmentação (StreamSegmenter) + STT sobreposto
-        # numa thread própria (aposenta Recorder._consume/_stream_loop + _cut_point/_frame_rms).
-        # O _decode_fn injetado (fn(seg)->texto, serializado, defer de TTS) é adaptado à interface
-        # client.transcribe. min_rms=0.0 preserva o comportamento atual (gate anti-silêncio é opt-in).
-        if self._decode_fn is not None:
-            self._client = _DecodeClient(self._decode_fn)
-            self._st = StreamingTranscriber(
-                self._client, on_segment=self._on_segment, min_rms=0.0,
-                sr=SAMPLE_RATE, chunk_target_s=CHUNK_TARGET_S, hard_s=WHISPER_MAX_S)
-        else:
-            self._client = None
-            self._st = None
-        self._recording = True
-        if not quiet:
-            self._meter_thread = threading.Thread(target=self._meter_loop, args=(self._rec_gen,), daemon=True)
-            self._meter_thread.start()
-        if not quiet:
-            emit({"event": "recording", "state": True})
-
-    def _end(self):
-        """Stop capturing. No stream teardown — AudioHub owns the device."""
-        self._recording = False
-        if not self._quiet:
-            emit({"event": "recording", "state": False})
-
-    def _join_streamer(self):
-        # StreamingTranscriber.finish()/cancel() já drena/encerra a thread de STT do SDK;
-        # não há mais thread de streaming própria do Recorder para juntar. Mantido no-op p/
-        # compat com chamadas existentes.
-        return
-
-    def _reset(self):
-        self._st = None
-        self._client = None
-        self._partials = []
-        self._dur_samples = 0
-        self._proc_ms = 0
-
-    def stop(self):
-        """Stop recording and return {text, dur_ms, ms, peak, chunks}. Long dictations
-        were mostly decoded during recording; finish() drains the tail (STT of the last
-        segments) and returns the joined text in order — so 'stop' never loses the last
-        utterance."""
-        if not self._recording and self._st is None and not self._partials:
-            return {"text": "", "dur_ms": 0, "ms": 0, "chunks": 0}
-        self._end()
-        text = ""
-        if self._st is not None:
-            text = self._st.finish()          # drena a cauda + espera o worker do SDK + junta em ordem
-            for _err in self._st.errors:      # observabilidade: STT/fila do SDK caem em .errors (o
-                log(f"decode error: {_err}")  # decode antigo logava direto) — re-superfície no log
-        proc_ms = self._client.proc_ms if self._client is not None else self._proc_ms
-        res = {"text": text,
-               "dur_ms": int(1000 * self._dur_samples / SAMPLE_RATE),
-               "ms": int(proc_ms),
-               "peak": round(self._max_peak, 5),
-               "voiced_run_ms": int(self._max_run_ms),
-               "chunks": len(self._partials)}
-        self._reset()
-        return res
-
-    def cancel(self):
-        self._end()
-        if self._st is not None:
-            self._st.cancel()                 # descarta pendentes SEM transcrever (abort do PTT)
-        self._reset()
-
-
-def _wake_norm(t):
-    t = unicodedata.normalize("NFD", str(t or "").lower())
-    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
-    t = re.sub(r"[^a-z0-9 ]", " ", t)
-    return re.sub(r"\s+", " ", t).strip()
-
-
-def _lev(a, b):
-    """Levenshtein distance (small strings)."""
-    m, n = len(a), len(b)
-    if not m:
-        return n
-    if not n:
-        return m
-    prev = list(range(n + 1))
-    for i in range(1, m + 1):
-        cur = [i] + [0] * n
-        ca = a[i - 1]
-        for j in range(1, n + 1):
-            cost = 0 if ca == b[j - 1] else 1
-            cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
-        prev = cur
-    return prev[n]
-
-
-def _tok_match(tok, tgt, max_d):
-    if tok == tgt:
-        return True
-    if len(tgt) >= 4 and tok.startswith(tgt[: max(4, len(tgt) - 1)]):
-        return True
-    if (tgt in tok or tok in tgt) and abs(len(tok) - len(tgt)) <= max_d:
-        return True
-    return _lev(tok, tgt) <= max_d
-
-
-def match_wake(text, phrases, anchor_window=2, tail_window=4):
-    """If `text` starts with a wake phrase (tolerant of accents and ASR slips),
-    return {'phrase', 'command'} where `command` is whatever was said after the
-    phrase in the same utterance (possibly empty); else None. The anchor token must
-    appear near the utterance start, which keeps stray mid-sentence mentions of the
-    words from triggering."""
-    norm = _wake_norm(text)
-    if not norm:
-        return None
-    toks = norm.split()
-    for phrase in phrases:
-        ptoks = _wake_norm(phrase).split()
-        if not ptoks:
-            continue
-        joined = " ".join(ptoks)
-        if (" " + joined + " ") in (" " + norm + " "):
-            idx = norm.find(joined)
-            return {"phrase": phrase, "command": norm[idx + len(joined):].strip()}
-        anchor, rest = ptoks[0], ptoks[1:]
-        for ai in range(min(anchor_window, len(toks))):
-            if not _tok_match(toks[ai], anchor, 2 if len(anchor) >= 5 else 1):
-                continue
-            ti, last, ok = ai + 1, ai, True
-            for pt in rest:
-                found = -1
-                for k in range(ti, min(ti + tail_window, len(toks))):
-                    if _tok_match(toks[k], pt, 2 if len(pt) >= 5 else 1):
-                        found = k
-                        break
-                if found < 0:
-                    ok = False
-                    break
-                ti, last = found + 1, found
-            if ok:
-                return {"phrase": phrase,
-                        "command": " ".join(toks[last + 1:]).strip()}
-    return None
-
-
-WAKE_BLOCK = 1600              
-
-
-def _env_ms(env_name, default_ms):
-    """A duration in ms from env, falling back to a default. Lets a future settings
-    slider tune the VAD gates without code changes."""
-    try:
-        v = float(os.environ.get(env_name, "").strip())
-        if v > 0:
-            return v
-    except (TypeError, ValueError):
-        pass
-    return float(default_ms)
-
-
-VAD_MODEL_FILE = "silero_vad.onnx"
-VAD_SILENCE_S = _env_ms("VOICE_WAKE_CMD_SILENCE_MS", 2800) / 1000.0
-VAD_MIN_SPEECH_S = _env_ms("VOICE_WAKE_MIN_SPEECH_MS", 250) / 1000.0
-VAD_THRESHOLD = 0.5
-VAD_WINDOW = 512              
-WAKE_PREROLL_BLOCKS = 10      
-WAKE_HEAD_S = 3.0            
-WAKE_GUARD_S = 8.0
-
-
-_vad_lock = threading.Lock()
-
-def ensure_vad_model():
-    """Return the Silero VAD model path, downloading it (GitHub release, ~0.6 MB) if
-    missing. Same proxy/truststore path as the Whisper/TTS model bootstrap. Serialized
-    by _vad_lock so a startup prefetch and a wake-toggle fetch can't download
-    concurrently into the same file."""
-    path = os.path.join(MODEL_ROOT, VAD_MODEL_FILE)
-    if os.path.isfile(path):
-        return path
-    with _vad_lock:
-        if os.path.isfile(path):
-            return path
-        os.makedirs(MODEL_ROOT, exist_ok=True)
-        url = f"{GH_BASE}/{VAD_MODEL_FILE}"
-        log(f"downloading silero vad from {url}")
-        _download_file(url, path, timeout=120)
-    return path
-
-
-def build_vad():
-    """Build the sherpa-onnx Silero VAD used to gate wake/command capture. It owns the
-    onset (min_speech) and end-of-speech (min_silence) decision so the listener no
-    longer hand-rolls an energy floor. Built on the listener thread, never the main."""
-    import sherpa_onnx
-    cfg = sherpa_onnx.VadModelConfig()
-    cfg.silero_vad.model = ensure_vad_model()
-    cfg.silero_vad.threshold = VAD_THRESHOLD
-    cfg.silero_vad.min_silence_duration = VAD_SILENCE_S
-    cfg.silero_vad.min_speech_duration = VAD_MIN_SPEECH_S
-    cfg.silero_vad.window_size = VAD_WINDOW
-    cfg.silero_vad.max_speech_duration = 300.0   
-    cfg.sample_rate = SAMPLE_RATE
-    cfg.num_threads = 1
-    return sherpa_onnx.VoiceActivityDetector(cfg, buffer_size_in_seconds=60)
-
-
-class WakeListener:
-    """Always-on background listener. An energy VAD segments utterances; each is
-    transcribed with the shared Whisper and fuzzy-matched against the wake phrase.
-    On a hit it emits a 'wake' event and the command (spoken in the same breath, or
-    the next utterance) as a 'command' event for the extension to inject as a turn.
-    It releases the mic around push-to-talk so only one input stream is ever open."""
-
-    def __init__(self, decode_fn, phrases):
-        self._decode = decode_fn
-        self._phrases = list(phrases) if phrases else ["escuta jarvis"]
-        self._q = queue.Queue(maxsize=200)
-        self._thread = None
-        self._enabled = False      
-        self._active = False       
-        self._cmd_rec = Recorder()
-        self._cmd_rec.set_decoder(decode_fn)
-        self._converse_arm = 0.0
-
-    def set_phrases(self, phrases):
-        if phrases:
-            self._phrases = list(phrases)
-            log(f"wake phrases set to {self._phrases}")
-
-    def feed(self, block):
-        """Called from the AudioHub mic callback with one block, ONLY when wake is
-        active. We never own a stream, so the wake<->record hand-off is a flag flip
-        and can never make a blocking PortAudio call on the JSON-RPC main thread."""
-        if not self._active:
-            return
-        try:
-            self._q.put_nowait(block)
-        except queue.Full:
-            pass
-
-    def _drain(self):
-        with self._q.mutex:
-            self._q.queue.clear()
-
-    def enable(self):
-        """Turn wake mode on. AudioHub guarantees the shared mic stream is open."""
-        if self._enabled:
-            return
-        self._enabled = True
-        self._active = True
-        self._drain()
-        self._thread = threading.Thread(target=self._loop, daemon=True)
-        self._thread.start()
-        self._emit_listening()
-        log(f"wake listening for {self._phrases}")
-
-    def disable(self):
-        """Turn wake mode off. The loop exits; AudioHub closes the stream if idle."""
-        was = self._enabled
-        self._enabled = False
-        self._active = False
-        if self._thread is not None:
-            self._thread.join(timeout=1.0)
-            self._thread = None
-        if was:
-            emit({"event": "wake", "state": "stopped"})
-
-    def suspend(self):
-        """Push-to-talk is taking the mic: stop consuming + reset VAD state. The
-        shared stream stays open and just stops routing to us — zero PortAudio calls,
-        so this is instant and can never block the main thread (the SIGTERM cause)."""
-        self._active = False
-        self._drain()
-
-    def resume(self):
-        """Push-to-talk finished: resume consuming the shared stream (if still on)."""
-        if self._enabled:
-            self._drain()
-            self._active = True
-            self._emit_listening()
-
-    def arm_converse(self, timeout_s):
-        """Arm a one-shot onset window for continuous conversation: the NEXT
-        utterance is captured directly (no wake phrase), exactly like the bare
-        trigger's 'await' state. Only a float assignment — safe to call from the
-        stdin thread; _loop picks it up while scanning. No-op while push-to-talk
-        owns the mic or wake is off (the loop guards mode == 'scan' too)."""
-        if self._enabled and self._active:
-            self._converse_arm = time.time() + max(0.5, float(timeout_s))
-
-    def _emit_listening(self):
-        emit({"event": "wake", "state": "listening",
-              "phrase": self._phrases[0] if self._phrases else ""})
-
-    def _decode_clip(self, samples):
-        if self._decode is None or samples.size < int(0.2 * SAMPLE_RATE):
-            return ""
-        try:
-            return self._decode(samples) or ""
-        except Exception as exc:
-            log(f"wake decode error: {exc}")
-            return ""
-
-    def _detect_short(self, blocks):
-        """Decode a short complete utterance (one that ended before the head window —
-        only reachable with a very short VAD silence gate) and test the wake phrase.
-        Returns ("command", text) for a same-breath command, ("await", "") for a bare
-        trigger, or ("none", "") otherwise."""
-        try:
-            samples = np.concatenate(blocks).astype(np.float32)
-        except ValueError:
-            return ("none", "")
-        if samples.size < int(0.3 * SAMPLE_RATE):
-            return ("none", "")
-        m = match_wake(self._decode_clip(samples), self._phrases)
-        if not m:
-            return ("none", "")
-        emit({"event": "wake", "state": "triggered", "phrase": m["phrase"]})
-        cmd = (m["command"] or "").strip()
-        return ("command", cmd) if cmd else ("await", "")
-
-    def _start_command_capture(self, prefill):
-        """Hand already-buffered audio to the command Recorder and start streaming.
-        From here on, every mic block is fed to it (see _loop) and decoded
-        progressively — exactly like push-to-talk."""
-        self._cmd_rec.begin(quiet=True)
-        for b in prefill:
-            self._cmd_rec.feed(b)
-
-    def _finish_command(self, expect_wake):
-        """Stop the Recorder-backed capture and return (matched, command). The audio
-        rode the SAME progressive pipeline as push-to-talk — no cap, never cut mid-word.
-        For a scan-origin capture (expect_wake) the transcript must contain the wake
-        phrase and the command is what follows it; for an await/converse capture the
-        whole transcript is the command. Emitting the event is left to the caller."""
-        res = self._cmd_rec.stop()
-        self._drain()                      
-        text = (res.get("text") or "").strip()
-        m = match_wake(text, self._phrases) if text else None
-        if expect_wake:
-            matched = m is not None
-            cmd = (m["command"] or "").strip() if m else ""
-        else:
-            matched = True
-            cmd = ((m["command"] or "").strip() if (m and m["command"]) else text)
-        log(f"wake cmd finish: chunks={res.get('chunks')} dur_ms={res.get('dur_ms')} "
-            f"raw_len={len(text)} cmd_len={len(cmd)} matched={matched}")
-        return matched, cmd
-
-    def _loop(self):
-        """SCAN for the wake phrase, then capture the COMMAND through the shared
-        push-to-talk Recorder pipeline (progressive chunks, pause-deferred cuts, no
-        cap). Onset and end-of-speech are decided by the sherpa-onnx Silero VAD — the
-        SAME production endpointer — instead of a hand-rolled energy floor. Because
-        is_speech_detected() only drops after VAD_SILENCE_S of CONTINUOUS silence, a
-        natural mid-sentence pause never truncates the command the way the old
-        percentile-floor heuristic did. State machine: scan -> (await|record|dead) -> scan."""
-        vad = None
-        last_exc = None
-        for _attempt in range(3):
-            try:
-                vad = build_vad()
-                break
-            except Exception as exc:
-                last_exc = exc
-                log(f"wake vad load failed (attempt {_attempt + 1}/3): {exc}")
-                time.sleep(2.0)
-        if vad is None:
-            emit({"event": "wake", "state": "error",
-                  "msg": f"Não foi possível carregar o detector de voz (VAD): {last_exc}"})
-            log(f"wake disabled: vad unavailable after retries: {last_exc}")
-            return
-
-        preroll = deque(maxlen=WAKE_PREROLL_BLOCKS)   
-        utter = []                                    
-        mode = "scan"                                 
-        speaking = False                              
-        head_tested = False                           
-        expect_wake = True                            
-        converse = False                              
-        deadline = 0.0
-        head_blocks = max(1, int(WAKE_HEAD_S * SAMPLE_RATE / WAKE_BLOCK))
-
-        def go_scan():
-            nonlocal mode, speaking, head_tested, expect_wake, converse, utter
-            mode, speaking, head_tested, expect_wake, converse = "scan", False, False, True, False
-            utter = []
-            preroll.clear()
-            try:
-                vad.reset()
-            except Exception:
-                pass
-
-        def finish(reason):
-            """End a command capture: stop the Recorder, then emit / await / discard."""
-            nonlocal mode, expect_wake, converse, deadline
-            log(f"wake cmd end: {reason}")
-            matched, cmd = self._finish_command(expect_wake)
-            if cmd:
-                emit({"event": "command", "text": cmd})
-                self._emit_listening()
-                go_scan()
-            elif expect_wake and matched:
-                go_scan()
-                mode, expect_wake, deadline = "await", False, time.time() + WAKE_GUARD_S
-                emit({"event": "wake", "state": "awaiting"})
-            else:
-                emit({"event": "wake", "state": "empty"})
-                go_scan()
-
-        while self._enabled:
-            block = self._next_block(0.2)
-            now = time.time()
-
-            if not self._active:
-                if mode == "record":
-                    log("wake cmd cancel: push-to-talk took the mic")
-                    self._cmd_rec.cancel()
-                if mode != "scan" or speaking:
-                    go_scan()
-                continue
-
-            if mode == "scan" and self._converse_arm:
-                deadline = self._converse_arm
-                self._converse_arm = 0.0
-                go_scan()
-                mode, converse, expect_wake = "await", True, False
-                emit({"event": "wake", "state": "awaiting"})
-                log("wake converse: armed onset window")
-
-            if block is None:
-                if mode == "await" and now > deadline:
-                    emit({"event": "wake", "state": "discarded"})
-                    go_scan()
-                elif mode == "record" and now > deadline:
-                    finish("inactivity deadline (stream idle)")
-                continue
-
-            try:
-                vad.accept_waveform(block.astype(np.float32))
-            except Exception:
-                pass
-            speech = vad.is_speech_detected()
-            try:
-                while not vad.empty():
-                    vad.pop()
-            except Exception:
-                pass
-
-            if mode == "record":
-                self._cmd_rec.feed(block)
-                if speech:
-                    deadline = now + WAKE_GUARD_S          
-                else:
-                    finish(f"silence gate (VAD ~{VAD_SILENCE_S:.1f}s"
-                           f"{', converse' if converse else '' if expect_wake else ', await'})")
-                continue
-
-            if mode == "dead":
-                if not speech:
-                    go_scan()
-                continue
-
-            if mode == "await":
-                if now > deadline:
-                    emit({"event": "wake", "state": "discarded"})
-                    go_scan()
-                    continue
-                if speech:
-                    self._start_command_capture(list(preroll) + [block])
-                    log(f"wake cmd capture: start ({'converse' if converse else 'await'} path)")
-                    mode, deadline = "record", now + WAKE_GUARD_S
-                else:
-                    preroll.append(block)
-                continue
-
-            if speech:
-                if not speaking:
-                    speaking, head_tested = True, False
-                    utter = list(preroll)          
-                utter.append(block)
-                if not head_tested and len(utter) >= head_blocks:
-                    head_tested = True
-                    head = np.concatenate(utter[:head_blocks]).astype(np.float32)
-                    if match_wake(self._decode_clip(head), self._phrases):
-                        emit({"event": "wake", "state": "triggered",
-                              "phrase": self._phrases[0] if self._phrases else ""})
-                        self._start_command_capture(utter)   
-                        log("wake cmd capture: start (same-breath path)")
-                        emit({"event": "wake", "state": "awaiting"})
-                        mode, expect_wake, deadline = "record", True, now + WAKE_GUARD_S
-                        utter = []
-                    else:
-                        mode, utter = "dead", []     
-            else:
-                preroll.append(block)
-                if speaking:
-                    kind, cmd = self._detect_short(utter)
-                    if kind == "command":
-                        emit({"event": "command", "text": cmd})
-                        self._emit_listening()
-                        go_scan()
-                    elif kind == "await":
-                        emit({"event": "wake", "state": "awaiting"})
-                        mode, expect_wake, deadline = "await", False, now + WAKE_GUARD_S
-                        speaking, utter = False, []
-                    else:
-                        speaking, utter = False, []
-
-        try:
-            self._cmd_rec.cancel()
-        except Exception:
-            pass
-
-
-    def _next_block(self, timeout):
-        try:
-            return self._q.get(timeout=timeout)
-        except queue.Empty:
-            return None
-
-
-class AudioHub:
-    """Owns the ONE and only microphone InputStream. Every captured block is
-    routed in the audio callback to whoever should hear it right now:
-      - push-to-talk recording in progress  -> recorder.feed(block)
-      - else wake mode on                    -> wake.feed(block)
-    Because the stream is opened/closed only on genuine transitions (and stays
-    open across the wake<->record hand-off), starting push-to-talk while wake is
-    listening is a pure flag flip — no stream OPEN/CLOSE on the hand-off (a cheap
-    non-draining Pa_IsStreamActive state check may run, but never an open/close) —
-    which is what eliminates the two-simultaneous-streams hang that SIGTERM'd the
-    extension. All open/close calls happen under _lock from request handlers
-    only when the device is otherwise idle, never main-thread-blocking mid-decode."""
-
-    def __init__(self, recorder, wake):
-        self._rec_obj = recorder
-        self._wake = wake
-        self._stream = None
-        self._rec = False           
-        self._wake_on = False       
-        self._monitor_on = False
-        self._mon_peak = 0.0
-        self._mon_rms = 0.0
-        self.capture_sid = ""
-        self._mon_thread = None
-        self._lock = threading.Lock()
-        self._last_cb = 0.0   # monotonic do último callback de áudio (detecta stream 'ativo' mas morto)
-        self._last_default_id = _default_capture_id()   # baseline p/ seguir o padrão do sistema
-
-    def _callback(self, indata, frames, time_info, status):  
-        self._last_cb = _now()   # heartbeat: um device vivo entrega blocos continuamente (mesmo em silêncio)
-        block = indata[:, 0].copy()
-        if self._rec:
-            self._rec_obj.feed(block, status)
-        elif self._wake_on:
-            self._wake.feed(block)
-        if self._monitor_on and not self._rec and block.size:
-            p = float(np.max(np.abs(block)))
-            if p > self._mon_peak:
-                self._mon_peak = p
-            self._mon_rms = float(np.sqrt(np.mean(block * block)))
-
-    def _adopt_or_follow_default(self):
-        """(sob lock, stream FECHADO) Se o padrão do Windows mudou, re-scaneia o
-        PortAudio para que device=None capture o NOVO padrão. Adota o baseline sem
-        re-scan quando ainda não há um. No-op fora do modo padrão. Devolve True se
-        re-scaneou."""
-        cur = _default_capture_id()
-        if SELECTED_MIC is None and cur is not None and self._last_default_id is None:
-            self._last_default_id = cur   # primeiro baseline conhecido: adota sem re-scan
-            return False
-        if _default_follow_should_reinit(SELECTED_MIC, cur, self._last_default_id):
-            if _reinit_portaudio():
-                self._last_default_id = cur
-                return True
-        return False
-
-    def _ensure_open(self):
-        if self._stream is not None:
-            # Device removido no MEIO (ex.: bateria do bluetooth acabou). Dois sinais de MORTE:
-            #  (a) o PortAudio aborta o stream -> `.active` vira False; MAS alguns host APIs do
-            #  Windows mantêm `.active`=True e só PARAM de entregar blocos -> (b) sem callback há
-            #  > _MIC_STALL_S. Qualquer um dos dois = morto -> descarta e reabre (fallback ao padrão).
-            try:
-                active = bool(getattr(self._stream, "active", True))
-            except Exception:
-                active = False
-            stalled = (self._last_cb > 0.0 and (_now() - self._last_cb) > _MIC_STALL_S)
-            if active and not stalled:
-                return
-            self._ensure_closed(dead=True)
-        import sounddevice as sd
-        self._adopt_or_follow_default()
-
-        def _open(dev):
-            s = sd.InputStream(
-                samplerate=SAMPLE_RATE, channels=1, dtype="float32",
-                blocksize=WAKE_BLOCK, callback=self._callback, device=dev)
-            try:
-                s.start()
-            except Exception:
-                try:
-                    s.close()   # não vaza o stream nativo se start() falhar (device sumiu na janela open->start; em modo padrão não há reinit p/ varrer)
-                except Exception:
-                    pass
-                raise
-            return s
-
-        self._stream, fell_back = _open_input_stream(
-            _open, SELECTED_MIC, self._reinit_for_default_fallback, log)
-        self._last_cb = _now()   # baseline: um stream recém-aberto não conta como 'stalled' até faltar callback
-        if fell_back:
-            abandoned = SELECTED_MIC   # o pino que MORREU (ainda não resetado) — vai no evento p/ o extension não pisar numa reseleção
-            set_selected_mic(None)     # descarta o pino SÓ DEPOIS que o padrão abriu de fato (numa queda total a escolha é preservada)
-            self._notify_mic_fallback(abandoned)
-
-    def _reinit_for_default_fallback(self):
-        """Pré-abertura do fallback: re-scaneia o PortAudio p/ device=None resolver o padrão
-        ATUAL do Windows (o selecionado sumiu). NÃO descarta o pino — isso só ocorre se o
-        padrão ABRIR de fato (senão, numa queda TOTAL, a escolha do usuário é preservada)."""
-        if _reinit_portaudio():
-            self._last_default_id = _default_capture_id()
-
-    def _notify_mic_fallback(self, from_index=None):
-        """Avisa a UI (não-fatal): o seletor volta p/ 'Padrão do Windows' (mics.current
-        = None) e um evento 'mic-fallback' informa o motivo. `from` = o índice que MORREU,
-        p/ o extension limpar o pino persistido SÓ se ainda for esse (não pisar numa
-        reseleção do usuário sob flapping do device). Best-effort — nunca levanta, e mesmo
-        que 'mic-fallback' não seja repassado, o 'mics' já corrige o seletor."""
-        try:
-            emit({"event": "mic-fallback", "to": "default", "from": from_index})
-        except Exception:
-            pass
-        try:
-            emit({"event": "mics", **list_mics()})
-        except Exception:
-            pass
-
-    def _ensure_closed(self, dead=False):
-        if self._stream is None:
-            return
-        try:
-            if not dead:
-                # AUTO-detecta MORTE p/ QUALQUER caller (reopen/stop_record/set_wake/set_monitor,
-                # não só o _ensure_open): se o device sumiu, stop() DRENA e pode TRAVAR sob o
-                # hub._lock -> BRICA o worker (o loop de stdin fica preso). Só drena com stop()
-                # um stream comprovadamente VIVO; um morto/stalled é ABORTADO (descarta na hora).
-                try:
-                    active = bool(getattr(self._stream, "active", True))
-                except Exception:
-                    active = False
-                stalled = (self._last_cb > 0.0 and (_now() - self._last_cb) > _MIC_STALL_S)
-                dead = (not active) or stalled
-            if dead:
-                try:
-                    self._stream.abort()
-                except Exception:
-                    pass
-            else:
-                self._stream.stop()
-            self._stream.close()
-        except Exception as exc:
-            log(f"hub stream close error: {exc}")
-        self._stream = None
-
-    def reopen(self):
-        """Reabre o stream no dispositivo atual (apos troca de microfone)."""
-        with self._lock:
-            keep = self._rec or self._wake_on or self._monitor_on
-            self._ensure_closed()
-            if keep:
-                self._ensure_open()
-
-    def refresh_and_reopen(self):
-        """Segue uma TROCA do padrão do Windows (só no modo padrão). Re-scaneia o
-        PortAudio e reabre o stream compartilhado para que captura e enumeração
-        passem a usar o NOVO padrão. SEGURO: nunca roda no meio de um push-to-talk
-        (devolve False) e só re-inicia o PortAudio com o stream FECHADO. Devolve
-        True quando de fato seguiu a troca."""
-        with self._lock:
-            if self._rec:
-                return False   # nunca interrompe uma gravação ativa
-            cur = _default_capture_id()
-            if SELECTED_MIC is None and cur is not None and self._last_default_id is None:
-                self._last_default_id = cur   # adota baseline sem re-scan
-                return False
-            if not _default_follow_should_reinit(SELECTED_MIC, cur, self._last_default_id):
-                return False
-            keep = self._wake_on or self._monitor_on
-            self._ensure_closed()
-            did = _reinit_portaudio()
-            if did:
-                self._last_default_id = cur   # avança o baseline no sucesso deste re-scan
-            if keep:
-                # se o re-scan acima falhou, _ensure_open pode re-scanear e avançar o baseline aqui
-                self._ensure_open()
-            # resultado EFETIVO: seguiu o novo padrão por QUALQUER um dos re-scans (p/ o mic_monitor
-            # reemitir 'mics' e a UI trocar o nome). Baseline intocado numa falha total -> reintenta.
-            return self._last_default_id == cur
-
-    def start_record(self):
-        """Begin push-to-talk. If wake was listening the stream is already open,
-        so this only suspends wake + flips the rec flag + starts the recorder's
-        decode threads — no audio device call -> can never hang the main thread."""
-        with self._lock:
-            self._wake.suspend()        
-            self._rec = True
-            try:
-                self._ensure_open()         
-                self._rec_obj.begin()
-            except Exception:
-                # abrir falhou (nem o padrão do Windows abriu): NÃO deixa o hub preso em
-                # _rec=True — senão o refresh_and_reopen (auto-recuperação de 3s) recusa p/
-                # sempre (guard `if self._rec`) e o hub fica mudo até um stop/start manual.
-                self._rec = False
-                if self._wake_on:
-                    try:
-                        self._wake.resume()
-                    except Exception:
-                        pass
-                raise
-
-    def stop_record(self):
-        with self._lock:
-            res = self._rec_obj.stop()  
-            self._rec = False
-            if self._wake_on:
-                self._wake.resume()     
-            elif not self._monitor_on:
-                self._ensure_closed()
-            return res
-
-    def cancel_record(self):
-        with self._lock:
-            self._rec_obj.cancel()
-            self._rec = False
-            if self._wake_on:
-                self._wake.resume()
-            elif not self._monitor_on:
-                self._ensure_closed()
-
-    def set_wake(self, on, phrases=None):
-        with self._lock:
-            if phrases:
-                self._wake.set_phrases(phrases)
-            on = bool(on)
-            if on == self._wake_on:
-                return
-            self._wake_on = on
-            if on:
-                if not self._rec:
-                    self._ensure_open()
-                self._wake.enable()
-            else:
-                self._wake.disable()
-                if not self._rec and not self._monitor_on:
-                    self._ensure_closed()
-
-    def _monitor_loop(self):
-        last_rms = last_peak = -1.0
-        while self._monitor_on:
-            time.sleep(0.15)
-            if not self._monitor_on:
-                break
-            peak = round(self._mon_peak, 5)
-            rms = round(self._mon_rms, 5)
-            self._mon_peak = 0.0   # sempre reseta a janela (o VU decai); emite só se mudou
-            if _meter_should_emit(rms, peak, last_rms, last_peak):
-                emit({"event": "monitor_level", "peak": peak, "rms": rms})
-                last_rms, last_peak = rms, peak
-
-    def set_monitor(self, on):
-        """At-rest VU monitor: opens the shared mic stream (only if idle) to emit
-        throttled monitor_level events so the UI can show input level BEFORE
-        recording. Never decodes/buffers/transcribes. Reuses the stream if wake or
-        recording already owns it. Stops + closes when idle."""
-        with self._lock:
-            on = bool(on)
-            if on == self._monitor_on:
-                return
-            self._monitor_on = on
-            if on:
-                self._mon_peak = 0.0
-                if not self._rec and not self._wake_on:
-                    self._ensure_open()
-                self._mon_thread = threading.Thread(target=self._monitor_loop, daemon=True)
-                self._mon_thread.start()
-            else:
-                if not self._rec and not self._wake_on:
-                    self._ensure_closed()
-
-    def arm_converse(self, timeout_s):
-        """Arm the wake listener's one-shot conversation onset window. No-op while
-        push-to-talk owns the mic or wake is off — only meaningful right after the
-        assistant finished speaking, so the user can reply without the wake phrase."""
-        with self._lock:
-            if self._wake_on and not self._rec:
-                self._wake.arm_converse(timeout_s)
-
-
-# Segmentação por pausa (frame_rms/cut_point/segment_audio) foi APOSENTADA: agora vem do SDK
-# vendorizado — StreamSegmenter/cut_point/frame_rms em vox_stream.py (byte-idêntico ao canônico).
-# O caminho ao vivo usa StreamingTranscriber (segmenta+STT numa thread); o transcribe_file usa
-# StreamSegmenter direto. Removidas as cópias locais para não divergir do canônico.
-
-
 def detect_mic():
-    """(ok, name, reason) do dispositivo de entrada padrão. ok=False quando não há
-    microfone utilizável — a UI então bloqueia a gravação e mostra a causa."""
-    try:
-        import sounddevice as sd
-        with _PA_LOCK:   # exclui um Pa_Terminate concorrente (reinit) durante a enumeração
-            if SELECTED_MIC is not None:
-                d = sd.query_devices(SELECTED_MIC, kind="input")
-            else:
-                d = sd.query_devices(kind="input")
-        if not d or int(d.get("max_input_channels", 0)) < 1:
-            return False, "", "Nenhum microfone de entrada disponível."
-        return True, str(d.get("name", "") or ""), ""
-    except Exception as exc:
-        return False, "", f"Microfone indisponível: {exc}"
+    """(ok, name, reason) do microfone — REUSA o motor (`vox.devices()`), SEM sounddevice
+    local. ok=False quando o motor não vê microfone utilizável (a UI bloqueia a gravação)."""
+    info = VOX.devices() if VOX is not None else {"input": [], "default_input": None}
+    inputs = info.get("input") or []
+    if not inputs:
+        return False, "", "Nenhum microfone de entrada disponível."
+    name = info.get("default_input") or inputs[0].get("name") or ""
+    return True, str(name), ""
 
 
 def list_mics():
-    """Lista os microfones de entrada (deduplicados por nome), marcando o atual
-    e o padrão do sistema, para o usuário escolher na UI."""
-    try:
-        import sounddevice as sd
-    except Exception as exc:
-        return {"devices": [], "current": SELECTED_MIC, "default": None, "error": str(exc)}
-    default_in = None
-    with _PA_LOCK:   # exclui um Pa_Terminate concorrente (reinit) durante a enumeração
-        try:
-            dd = sd.default.device
-            default_in = int(dd[0]) if hasattr(dd, "__getitem__") else int(dd)
-        except Exception:
-            default_in = None
-        try:
-            devs = list(sd.query_devices())
-            hapis = list(sd.query_hostapis())
-        except Exception as exc:
-            return {"devices": [], "current": SELECTED_MIC, "default": default_in, "error": str(exc)}
-    # Dedup/format delegado ao SDK vendorizado (vox_audio_devices): trata truncação MME (31 chars)
-    # e preferência de host API (WASAPI/DirectSound antes de MME/WDM-KS) — melhor que o dedup por
-    # nome-cru local. A ENUMERAÇÃO (sob _PA_LOCK) e o lifecycle continuam meus; enriqueço com
-    # channels (que o modelo puro do SDK não carrega) para preservar o shape da UI.
-    out = []
-    for e in vox_audio_devices.list_input_devices(devices=devs, default_index=default_in, hostapis=hapis):
-        d = devs[e["index"]] if 0 <= e["index"] < len(devs) else {}
-        out.append({"index": e["index"], "name": e["name"],
-                    "channels": int(d.get("max_input_channels", 0)) if isinstance(d, dict) else 0,
-                    "is_default": bool(e["is_default"])})
-    return {"devices": out, "current": SELECTED_MIC, "default": default_in}
-
-
-def mic_monitor():
-    """Vigia o microfone e emite 'mic' só quando o estado muda (conectar/desconectar),
-    para a UI refletir hardware em tempo real sem custo. Também SEGUE o padrão do
-    Windows: se o endpoint de captura padrão mudou (sinal MMDevice ~2ms), re-scaneia
-    o PortAudio (só no modo padrão, com o hub ocioso ou sem gravar) e reemite a lista
-    para a UI trocar o nome/seleção sozinha."""
-    last = None
-    while True:
-        hub = HUB
-        if hub is not None:
-            try:
-                if hub.refresh_and_reopen():
-                    emit({"event": "mics", **list_mics()})
-            except Exception as exc:
-                log(f"default-follow refresh failed: {exc}")
-        ok, name, reason = detect_mic()
-        cur = (ok, name)
-        if cur != last:
-            emit({"event": "mic", "ok": ok, "name": name, "reason": reason})
-            last = cur
-        time.sleep(3.0)
+    """Lista os microfones de entrada — REUSA o motor (`vox.devices()` → `list_input_devices`
+    daemon-side, dedup-by-name, a MESMA fonte do ditado). SEM sounddevice local. `default` é o
+    ÍNDICE do device marcado `is_default` (o iframe casa o default por índice)."""
+    info = VOX.devices() if VOX is not None else {"input": [], "default_input": None}
+    inputs = info.get("input") or []
+    out = [{"index": d.get("index"), "name": d.get("name"),
+            "channels": 1, "is_default": bool(d.get("is_default"))} for d in inputs]
+    default_index = next((d.get("index") for d in inputs if d.get("is_default")), None)
+    return {"devices": out, "current": SELECTED_MIC, "default": default_index}
 
 
 # O motor (via SDK) levanta vox_sdk.VoxEngineError. O worker REEXPORTA essa MESMA classe
@@ -1941,6 +856,30 @@ class _VoxBridge:
                 f"motor de voz (vox-engine) indisponível (ação={action})")
             return False
 
+    def capture_open(self, session, on_event, **opts):
+        """Abre uma captura REMOTA (mic→transcrição no daemon). Conexão de pipe DEDICADA no
+        SDK — NÃO usa o handle serializado do bridge (TTS/transcribe seguem em paralelo).
+        Garante o motor no ar antes; se não subir, levanta ``CaptureError`` TIPADO p/ o
+        adapter surfaçar como evento terminal (o worker trata tudo por ``events()``)."""
+        if not self.ensure(boot_timeout=60.0):
+            raise vox_sdk.CaptureError(
+                "capture_unavailable",
+                str(self._last_error) if self._last_error else "motor de voz indisponível")
+        return self._client.capture_open(session, on_event, **opts)
+
+    def devices(self, timeout=5.0):
+        """Enumeração de dispositivos de ENTRADA REUSANDO o motor (`cmd:devices` →
+        `list_input_devices` daemon-side, dedup-by-name, a MESMA fonte do ditado). O worker
+        NÃO toca sounddevice. Fail-safe: motor fora/erro → `{input:[], default_input:None}`
+        (a UI trata `[]` como 'sem mic'; nunca levanta nem derruba a conexão)."""
+        if not self.ensure(boot_timeout=0.0):
+            return {"input": [], "default_input": None}
+        try:
+            return self._call(lambda c: c.devices(timeout=timeout), boot_timeout=0.0)
+        except VoxEngineError as exc:
+            log(f"vox devices() indisponível: {exc}")
+            return {"input": [], "default_input": None}
+
     @staticmethod
     def _is_send_failure(exc):
         """True se a falha foi de ESCRITA (o request NÃO chegou ao motor — pipe ocioso
@@ -2013,15 +952,18 @@ class _VoxBridge:
             boot_timeout=0.0)
 
     def synthesize(self, text, voice=None, speed=1.0):
-        """(texto) -> (samples float32 numpy, sample_rate:int) via {cmd:"tts"} do motor
-        único. Fast-fail. Voz por NOME quando definida; vazio => voz padrão do motor.
-        LEVANTA :class:`VoxEngineError` em qualquer falha — sem fallback mudo."""
-        h, samples = self._call(
-            lambda c: c.tts(text, voice=voice or "", speed=float(speed or 1.0),
-                            session=self._session, timeout=max(VOX_REQ_TIMEOUT, 120.0)),
+        """(texto) -> (wav_bytes, sample_rate:int) via {cmd:"tts"} do motor único, com a
+        NORMALIZAÇÃO na FONTE (``normalize=True``) e o áudio já em WAV codificado — o cliente
+        NÃO renormaliza nem toca numpy (o SDK só cria ndarray no fmt "pcm"). Fast-fail. Voz por
+        NOME quando definida; vazio => voz padrão. LEVANTA :class:`VoxEngineError` em qualquer
+        falha — sem fallback mudo. (O fade anti-clique fica no iframe, Web Audio ramp.)"""
+        h, wav = self._call(
+            lambda c: c.tts(text, fmt="wav", normalize=True, voice=voice or "",
+                            speed=float(speed or 1.0), session=self._session,
+                            timeout=max(VOX_REQ_TIMEOUT, 120.0)),
             boot_timeout=0.0)
         sr = int(h.get("sample_rate") or 22050)
-        return samples, sr
+        return wav, sr
 
     def close(self):
         c = self._client
@@ -2036,8 +978,6 @@ class _VoxBridge:
 def main():
     state = {"language": (os.environ.get("VOICE_LANG", "pt").strip() or "pt"),
              "model": VOX_PROFILE}
-    recorder = Recorder()
-
     def _vox_status(msg, busy=False):
         """Progresso VISÍVEL do motor (ex.: instalação de 1ª vez, que leva minutos):
         evento 'loading' (NÃO 'error') — a UI mostra estado de carregamento com a
@@ -2050,6 +990,8 @@ def main():
         emit({"event": "loading", "source": "vox-engine", "msg": msg, "busy": bool(busy)})
 
     vox = _VoxBridge(status_cb=_vox_status)
+    global VOX
+    VOX = vox   # publica o cliente p/ detect_mic/list_mics reusarem a enumeração do motor (devices())
 
     _last_vox_err = [0.0]
     _vox_fail = [0]            # falhas consecutivas do motor (reset ao recuperar)
@@ -2143,15 +1085,8 @@ def main():
     _mok, _mname, _mreason = detect_mic()
     emit({"event": "mic", "ok": _mok, "name": _mname, "reason": _mreason})
     emit({"event": "mics", **list_mics()})
-    threading.Thread(target=mic_monitor, daemon=True).start()
     start_focus_poller()   # emite appFocus (foco do app) na mudança; a UI gateia o áudio conforme o setting
 
-    def _prefetch_vad():
-        try:
-            ensure_vad_model()
-        except Exception as exc:
-            log(f"vad prefetch failed (wake will retry when enabled): {exc}")
-    threading.Thread(target=_prefetch_vad, daemon=True).start()
 
     def decode_seg(seg, raise_on_motor_fail=False):
         """Decode one <=28s segment to text. Serialized so the recorder's
@@ -2178,12 +1113,11 @@ def main():
                 raise
             return ""
 
-    recorder.set_decoder(decode_seg)
-
-    wake = WakeListener(decode_seg, WAKE_PHRASES)
-    hub = AudioHub(recorder, wake)
-    global HUB
-    HUB = hub   # publica p/ o mic_monitor seguir o padrão do Windows
+    # Worker FINO: a captura vai pro DAEMON (CapturePort) — sem InputStream/wake/monitor
+    # local. decode_seg fica só p/ transcribe_file (WAV offline). PTT e mãos-livres usam o
+    # MESMO fluxo start/stop/cancel; a diferença hold-vs-tap é só no iframe.
+    capture = CaptureSession(VoxPipeCaptureAdapter(vox, input_device=lambda: SELECTED_MIC), emit)
+    capture_sid = [""]   # sid da captura atual (p/ carimbar build_stop_events no stop)
 
     for raw in sys.stdin:
         raw = raw.strip()
@@ -2197,26 +1131,23 @@ def main():
         cmd = msg.get("cmd")
         try:
             if cmd == "start":
-                hub.capture_sid = msg.get("sid", "") or ""
-                hub.start_record()
+                capture_sid[0] = msg.get("sid", "") or ""
+                capture.begin(capture_sid[0])
             elif cmd == "stop":
                 emit({"event": "status", "state": "transcribing"})
-                res = hub.stop_record()
-                _sid = getattr(hub, "capture_sid", "") or ""
-                for _ev in build_stop_events(res, _sid, MIC_SILENCE_PEAK, detect_mic):
+                res = capture.stop()
+                for _ev in build_stop_events(res, capture_sid[0], MIC_SILENCE_PEAK, detect_mic):
                     emit(_ev)
             elif cmd == "cancel":
-                hub.cancel_record()
+                capture.cancel()
             elif cmd == "ping":
                 emit({"event": "pong"})
             elif cmd == "list_mics":
                 emit({"event": "mics", **list_mics()})
             elif cmd == "set_mic":
+                # o daemon é dono do mic; a seleção é passada ao capture_open (input_device)
+                # na próxima captura. Sem stream local p/ reabrir.
                 set_selected_mic(msg.get("device"))
-                try:
-                    hub.reopen()
-                except Exception as exc:
-                    log(f"reopen after set_mic failed: {exc}")
                 _mok, _mname, _mreason = detect_mic()
                 emit({"event": "mic", "ok": _mok, "name": _mname, "reason": _mreason})
                 emit({"event": "mics", **list_mics()})
@@ -2242,14 +1173,6 @@ def main():
                     ev = {"event": "voices", "voices": [], "default_voice": None,
                           "ok": False, "msg": str(exc)}
                 emit(ev)
-            elif cmd == "wake":
-                phrases = ([str(p) for p in msg["phrases"] if str(p).strip()]
-                           if msg.get("phrases") else None)
-                hub.set_wake(msg.get("on"), phrases)
-            elif cmd == "converse":
-                hub.arm_converse(float(msg.get("timeoutMs", 3000)) / 1000.0)
-            elif cmd == "monitor":
-                hub.set_monitor(msg.get("on"))
             elif cmd == "transcribe_file":
                 # Offline one-shot: transcribe a WAV file (no mic). Reuses the same
                 # recognizer via decode_seg + segment_audio. Additive — does not
@@ -2258,6 +1181,8 @@ def main():
                 rid = msg.get("id")
                 fpath = msg.get("path")
                 try:
+                    import numpy as np                      # LAZY: só o transcribe_file usa numpy
+                    from vox_stream import StreamSegmenter   # LAZY: idem (segmentação do WAV offline)
                     with wave.open(fpath, "rb") as wf:
                         nch = wf.getnchannels()
                         sw = wf.getsampwidth()
@@ -2295,8 +1220,6 @@ def main():
                     log("transcribe_file error:\n" + traceback.format_exc())
                     emit({"event": "transcribed", "id": rid, "ok": False, "msg": str(exc)})
             elif cmd == "shutdown":
-                hub.set_monitor(False)
-                hub.set_wake(False)
                 break
             else:
                 log(f"unknown cmd: {cmd}")
