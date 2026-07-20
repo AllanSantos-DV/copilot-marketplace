@@ -2,7 +2,7 @@
 // NÃO carrega estado compartilhado da extensão. O `log` (que também emite pela sessão) fica no
 // extension.mjs e chama o `dbg` daqui. O data dir vem do contrato único (voice-shared.cjs).
 
-import { existsSync, mkdirSync, statSync, renameSync, createWriteStream, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, renameSync, createWriteStream, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { join, dirname } from "node:path";
 import shared from "./voice-shared.cjs";
 
@@ -40,12 +40,37 @@ export function readJson(path, fallback) {
     try { return JSON.parse(readFileSync(path, "utf8")) || fallback; } catch { return fallback; }
 }
 
+// Erro TRANSITÓRIO de FS no Windows: dois processos fazendo rename/replace no MESMO alvo ao mesmo
+// tempo dão ACCESS_DENIED(5)/SHARING_VIOLATION(32) — que o Node superfície como EPERM/EACCES/EBUSY.
+// (Descoberto na costura do mic.lock com o daemon vox, que hit o mesmo no os.replace.)
+export function isTransientFsError(e) {
+    return !!(e && (e.code === "EPERM" || e.code === "EACCES" || e.code === "EBUSY"));
+}
+
+// Sleep SÍNCRONO curto sem dependência: Atomics.wait num buffer efêmero. Só p/ o backoff do rename.
+function sleepSync(ms) {
+    try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { /* sem SAB: no-op */ }
+}
+
+// rename com RETRY+backoff: o mic.lock agora é escrito CONCORRENTEMENTE pela extensão E pelo daemon
+// vox (mesmo alvo), então o rename atômico pode falhar transitório no Windows. Reintenta poucas vezes.
+function renameWithRetry(tmp, dest, tries = 5) {
+    for (let i = 0; ; i++) {
+        try { renameSync(tmp, dest); return; }
+        catch (e) {
+            if (!isTransientFsError(e) || i >= tries) throw e;
+            sleepSync(2 * (i + 1));   // 2,4,6,8,10ms
+        }
+    }
+}
+
 // Escrita ATÔMICA de JSON (tmp + rename): nunca deixa arquivo meio-escrito se cair no meio.
 export function writeJsonAtomic(path, obj) {
     mkdirp(dirname(path));
     const tmp = `${path}.tmp-${process.pid}-${Date.now()}`;
     writeFileSync(tmp, JSON.stringify(obj));
-    renameSync(tmp, path);
+    try { renameWithRetry(tmp, path); }
+    catch (e) { try { unlinkSync(tmp); } catch { /* limpa o tmp órfão se o rename falhou de vez */ } throw e; }
 }
 
 // Sonda se um PID está VIVO (cross-fork). process.kill(pid,0) NÃO envia sinal — só testa
