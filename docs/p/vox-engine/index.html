@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>vox-engine — copilot-marketplace</title>
+  <meta name="description" content="Um daemon único de fala local carrega o modelo de voz uma vez e serve STT, TTS e tradução a todos os apps por um named pipe — a RAM do modelo não multiplica por app nem por sessão." />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#14121C" />
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content="vox-engine — copilot-marketplace" />
+  <meta property="og:description" content="Um daemon único de fala local carrega o modelo de voz uma vez e serve STT, TTS e tradução a todos os apps por um named pipe — a RAM do modelo não multiplica por app nem por sessão." />
+  <meta property="og:url" content="https://allansantos-dv.github.io/copilot-marketplace/p/vox-engine/" />
+  <link rel="canonical" href="https://allansantos-dv.github.io/copilot-marketplace/p/vox-engine/" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../assets/styles.css" />
+</head>
+<body class="doc">
+  <a class="skip" href="#conteudo">Pular para o conteúdo</a>
+  <header class="topbar">
+    <a class="brand" href="../../"><span class="brand__glyph" aria-hidden="true">⌁</span> copilot-marketplace</a>
+    <nav class="topnav" aria-label="Seções">
+      <a href="../../#registry">registry</a>
+      <a href="../../#publicar">publicar</a>
+      <a href="https://github.com/AllanSantos-DV/copilot-marketplace" rel="noopener">github<span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main id="conteudo">
+    <nav class="crumbs" aria-label="Trilha">
+      <a href="../../#registry">registry</a>
+      <span class="crumbs__sep" aria-hidden="true">/</span>
+      <span aria-current="page">vox-engine</span>
+    </nav>
+
+    <header class="doc-hero">
+      <p class="eyebrow">infrastructure</p>
+      <div class="doc-hero__top">
+        <h1 class="doc-hero__name">vox-engine</h1>
+        <span class="chip" title="versão publicada">v0.22.3</span>
+      </div>
+      <p class="doc-hero__lede">O <strong>vox-engine</strong> é a sala de máquinas da voz no Windows. Um <strong>daemon único</strong> que carrega o modelo de fala <strong>uma vez</strong> e serve <strong>STT</strong>, <strong>TTS</strong> e <strong>tradução</strong> a todos os apps por uma named pipe (<code>\\.\pipe\vox</code>). Sem ele, cada app — o <strong>voice-chat</strong>, o <strong>visual-explainer</strong> — subiria o próprio Whisper na RAM, e cada sessão pagaria essa conta de novo. Com ele, o modelo mora <strong>residente</strong>: carregado uma vez, servindo N sessões. Um motor, N consumidores — a RAM do modelo não multiplica. Dois apps ou dez sessões, é um motor só.</p>
+      <div class="doc-hero__cta">
+        <a class="lnk lnk--page" href="https://github.com/AllanSantos-DV/copilot-marketplace/releases" rel="noopener">ver releases<span aria-hidden="true">→</span></a>
+      </div>
+      <div class="doc-hero__links">
+        <a class="lnk" href="https://github.com/AllanSantos-DV/vox-engine" rel="noopener">código<span aria-hidden="true">↗</span></a>
+      </div>
+      <ul class="hl" aria-label="Destaques">
+        <li class="hl__item">
+          <h3 class="hl__title">Um motor, N consumidores</h3>
+          <p class="hl__body">Um daemon único carrega o modelo de fala uma vez e serve STT, TTS e tradução a todos os apps e sessões por uma named pipe (<code>\\.\pipe\vox</code>).</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Modelo residente, RAM em O(1)</h3>
+          <p class="hl__body">Sem motor, cada app sobe o <strong>próprio</strong> Whisper — <strong>gigabytes</strong> do mesmo modelo, multiplicados por app e por sessão. Com motor, carregado <strong>uma vez</strong> e compartilhado: dois apps ou dez sessões, mesma pegada.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">FAIL-LOUD</h3>
+          <p class="hl__body">Erro do motor sobe <strong>tipado</strong> — <code>mic_busy</code> (com o dono da trava), <code>mic_open_failed</code>, <code>capture_timeout</code> — nunca um resultado falso e calado. Ausência é sinalizada, jamais mascarada.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Dono único do microfone</h3>
+          <p class="hl__body">O daemon é o <strong>dono físico</strong> do mic; o app <strong>nunca</strong> o abre sozinho — <strong>delega</strong>. Um <code>mic.lock</code> coordena entre processos e cede só ao ditado. (Contrato endurecido na <strong>0.22.3</strong>.)</p>
+        </li>
+      </ul>
+    </header>
+
+    <div class="doc-grid">
+      <article class="doc-body" id="doc-body">
+        <section class="doc-section" id="o-que-e">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#o-que-e" aria-label="Link para O que é o motor">#</a>O que é o motor</h2>
+          <p>O <strong>vox-engine</strong> é o <strong>motor único de fala local</strong> do Windows: um <strong>daemon</strong> que faz <strong>STT</strong> (fala→texto), <strong>TTS</strong> (texto→fala) e <strong>tradução</strong>, e conversa com os apps por uma <strong>named pipe</strong> (<code>\\.\pipe\vox</code>). Carrega o modelo <strong>uma vez</strong> e serve <strong>N sessões</strong> — sem admin, sem nuvem.</p>
+          <p>Ele existe para <strong>não repetir o modelo</strong>. Sem um motor único, cada app — o <strong>voice-chat</strong>, o <strong>visual-explainer</strong> — subiria o <strong>próprio</strong> Whisper na RAM, e cada sessão de cada app pagaria essa conta de novo. São <strong>gigabytes</strong> do <strong>mesmo</strong> modelo parados na memória, multiplicados por app e por sessão.</p>
+          <p>O vox-engine quebra essa conta. Carrega o modelo <strong>residente</strong> — uma vez — e todos apontam para ele pelo pipe. A RAM do modelo vira <strong>O(1)</strong>: constante, seja com <strong>dois apps</strong> ou <strong>dez sessões</strong>. O que se multiplicava era a cópia local; o motor é um só.</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Um motor, N consumidores. É o mesmo princípio da <strong>embed-house</strong> (o daemon de embeddings desta vitrine), aplicado à voz: carregar uma vez, servir a todos.</p></aside>
+        </section>
+
+        <section class="doc-section" id="como-funciona">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#como-funciona" aria-label="Link para Como funciona">#</a>Como funciona</h2>
+          <p>O motor é um <strong>daemon único</strong> em segundo plano. Sobe uma vez, carrega o(s) modelo(s) e serve todos os apps pela named pipe <code>\\.\pipe\vox</code>. Tudo por <strong>streaming</strong>: o áudio e o texto correm pelo pipe em tempo real, sem arquivos temporários no caminho.</p>
+          <ul class="doc-list"><li><strong>Multi-modelo residente.</strong> Carrega cada modelo <strong>uma vez</strong> e o mantém quente, servindo <strong>N sessões</strong> ao mesmo tempo. Uma sessão nova não recarrega o mundo — cai no modelo que já está no ar.</li><li><strong>Dono único do microfone.</strong> O daemon é o <strong>dono físico</strong> do mic. O app <strong>nunca</strong> o abre sozinho: ele <strong>delega</strong> ao motor, que abre, captura e devolve os trechos transcritos ao vivo — com nível/VU. A coordenação entre processos (com o ditado) é um <code>mic.lock</code>: o motor <strong>reivindica</strong> qualquer trava de consumidor e cede <strong>só</strong> ao ditado. Contrato de propriedade do mic, endurecido na <strong>0.22.3</strong>.</li><li><strong>GPU automática, CPU transparente.</strong> Detecta uma <strong>NVIDIA</strong> e instala as wheels de <strong>CUDA 12</strong> certas sozinho; sem GPU, cai para <strong>CPU</strong> sem você configurar nada.</li><li><strong>Sem admin.</strong> Roda inteiro no seu usuário — nenhuma permissão de administrador.</li></ul>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Nada sai da sua máquina: captura, transcrição e síntese acontecem <strong>no motor local</strong>. O named pipe é do Windows e restrito à sua sessão — nenhum áudio vai para a rede.</p></aside>
+        </section>
+
+        <section class="doc-section" id="o-que-o-motor-faz">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#o-que-o-motor-faz" aria-label="Link para O que o motor faz">#</a>O que o motor faz</h2>
+          <p>Por baixo, o motor expõe <strong>modos</strong>: cada app pede o que precisa pelo pipe e a resposta volta por <strong>streaming</strong>.</p>
+          <ul class="doc-list"><li><strong><code>transcribe</code></strong> — arquivo de áudio → texto.</li><li><strong><code>tts</code></strong> — texto → fala, com <strong>normalização na fonte</strong> (números, siglas e pontuação viram fala natural antes de sintetizar).</li><li><strong><code>translate</code></strong> — tradução: transcreve já traduzindo.</li><li><strong><code>capture_open</code></strong> — captura do microfone <strong>delegada ao daemon</strong>: o app pede, o motor abre o mic e devolve os trechos transcritos <strong>ao vivo</strong>, com nível/VU. O app nunca toca no microfone.</li><li><strong><code>devices</code></strong> — lista os microfones disponíveis.</li></ul>
+          <p>Dois modelos cobrem os extremos de velocidade e qualidade:</p>
+          <ul class="doc-list"><li><strong>Whisper <code>turbo</code></strong> — para ditado e trechos curtos: <strong>velocidade</strong> e <strong>streaming</strong> com baixa latência.</li><li><strong>Whisper <code>large-v3</code></strong> — para <strong>tradução</strong> e transcrição de <strong>qualidade</strong>.</li><li><strong>Perfis</strong> prontos escolhem o modelo e os ajustes por caso: <code>dictation</code>, <code>transcription</code>, <code>transcription_hq</code> e <code>translator</code>.</li></ul>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Quem consome escolhe o <strong>perfil</strong>, não os parafusos. O motor carrega o modelo do perfil <strong>uma vez</strong> e o reusa entre todas as sessões que pedem o mesmo.</p></aside>
+        </section>
+
+        <section class="doc-section" id="distribuicao">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#distribuicao" aria-label="Link para Como o motor chega até você">#</a>Como o motor chega até você</h2>
+          <p>O vox-engine é o <strong>original</strong> do padrão que a <strong>embed-house</strong> copiou: o <strong>código-fonte e os testes</strong> ficam num repositório <strong>privado</strong> (<code>AllanSantos-DV/vox-engine</code>); o que <strong>roda na sua máquina</strong> vem de um <strong>release público</strong> assinado.</p>
+          <ul class="doc-list"><li><strong>Installer assinado (Ed25519).</strong> Antes de executar qualquer coisa, o app <strong>verifica a assinatura</strong> do installer contra a <strong>chave pública embutida</strong>. Assinatura que não confere → <strong>não roda</strong> (fail-closed). Um installer é código; a prova vem <strong>antes</strong> da execução.</li><li><strong>Auto-update on-use.</strong> O daemon se atualiza sozinho por um <strong>contrato seguro</strong> — <strong>só quando está ocioso</strong>, sem interromper uma captura em voo. Os consumidores disparam a checagem pelo SDK; você nunca roda um update à mão.</li><li><strong>Release público.</strong> <code>AllanSantos-DV/copilot-marketplace</code>, tag <code>vox-engine-v0.22.3</code> — os pacotes assinados moram nas releases.</li></ul>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>A prova é a <strong>assinatura</strong>, não o transporte: mesmo numa rede que reassina o TLS (proxy corporativo com CA própria), nada forjado roda — a checagem Ed25519 acontece <strong>antes</strong> de qualquer byte executar.</p></aside>
+        </section>
+
+        <section class="doc-section" id="para-desenvolvedores">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#para-desenvolvedores" aria-label="Link para Para quem escreve apps">#</a>Para quem escreve apps</h2>
+          <p>Quer voz no seu app? Você <strong>não empacota</strong> o motor. Você <strong>vendoriza</strong> um <strong>SDK Python fino</strong> e fala com o daemon por poucas chamadas — a instalação é <strong>delegada</strong> ao motor.</p>
+          <ul class="doc-list"><li><strong><code>vox_sdk.py</code></strong> — o núcleo: <code>VoxClient</code> + o *framing* do pipe + captura + devices + tts + transcribe/translate. É <strong>numpy-free</strong> e <strong>lifecycle-free no import</strong> — importar não puxa peso nem sobe nada.</li><li><strong><code>vox_lifecycle.py</code></strong> (opcional) — instalar/atualizar: <code>ensure_vox</code>, updater, installer e a <strong>verificação Ed25519</strong>. Só quem provisiona precisa dele.</li></ul>
+          <p>No uso, o app conecta, <strong>delega</strong> a captura e sintetiza — três chamadas, e o resto é do motor:</p>
+          <div class="codeblock"><button class="copy copy--code" type="button" data-copy="from vox_lifecycle import ensure_vox   # opcional: instalar/atualizar o motor
+from vox_sdk import VoxClient
+
+ensure_vox()                    # confere a assinatura Ed25519 antes de rodar
+vox = VoxClient()               # conecta pelo named pipe \\.\pipe\vox
+
+def on_event(frame):            # o daemon transmite os trechos ao vivo
+    if frame[&quot;event&quot;] == &quot;capture_segment&quot;:
+        print(frame[&quot;text&quot;])    # texto transcrito
+
+handle = vox.capture_open(&quot;minha-sessao&quot;, on_event)  # abre o mic e delega
+# handle.close() drena / handle.cancel() aborta
+
+vox.tts(&quot;Transcrição pronta.&quot;)  # texto -&gt; fala, normalizado na fonte" aria-label="Copiar bloco de código">copiar</button><pre><code>from vox_lifecycle import ensure_vox   # opcional: instalar/atualizar o motor
+from vox_sdk import VoxClient
+
+ensure_vox()                    # confere a assinatura Ed25519 antes de rodar
+vox = VoxClient()               # conecta pelo named pipe \\.\pipe\vox
+
+def on_event(frame):            # o daemon transmite os trechos ao vivo
+    if frame[&quot;event&quot;] == &quot;capture_segment&quot;:
+        print(frame[&quot;text&quot;])    # texto transcrito
+
+handle = vox.capture_open(&quot;minha-sessao&quot;, on_event)  # abre o mic e delega
+# handle.close() drena / handle.cancel() aborta
+
+vox.tts(&quot;Transcrição pronta.&quot;)  # texto -&gt; fala, normalizado na fonte</code></pre></div>
+          <p>E o motor <strong>nunca mente</strong>: erros sobem <strong>tipados</strong> — <code>mic_busy</code> (com o <strong>dono</strong> da trava), <code>mic_open_failed</code>, <code>capture_timeout</code> — em vez de um resultado falso e calado. O consumidor trata o erro; jamais recebe silêncio disfarçado de sucesso.</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Você não versiona o motor junto do seu app: ele é <strong>compartilhado</strong> por todos os consumidores da máquina e se <strong>atualiza sozinho</strong>. Seu app carrega só o SDK; o modelo e o runtime moram no motor.</p></aside>
+        </section>
+
+        <section class="doc-section" id="instalar">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#instalar" aria-label="Link para Instalar">#</a>Instalar</h2>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Você <strong>não instala</strong> o vox-engine à mão — não existe <code>copilot plugin install vox-engine</code>. Ele é <strong>instalado e atualizado automaticamente</strong> pelos apps que o usam (o <strong>voice-chat</strong> e o <strong>visual-explainer</strong>): na primeira vez, o app baixa o <strong>installer assinado</strong> do release público, <strong>verifica a assinatura Ed25519</strong> contra a chave embutida (fail-closed) e sobe o daemon sozinho. Release público: <code>AllanSantos-DV/copilot-marketplace</code>, tag <code>vox-engine-v0.22.3</code> — <code>https://github.com/AllanSantos-DV/copilot-marketplace/releases</code>.</p></aside>
+        </section>
+
+        <section class="doc-section" id="faq">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#faq" aria-label="Link para Perguntas frequentes">#</a>Perguntas frequentes</h2>
+          <details class="faq">
+            <summary>Preciso instalar o vox-engine?</summary>
+            <p>Não. Os apps que usam voz — o <strong>voice-chat</strong> e o <strong>visual-explainer</strong> — instalam, atualizam e sobem o motor sozinhos. Na primeira vez, o app baixa o installer assinado do release público, <strong>verifica a assinatura Ed25519</strong> e provisiona o daemon. Você não roda nenhum comando: não existe <code>copilot plugin install vox-engine</code>.</p>
+          </details>
+          <details class="faq">
+            <summary>Por que um motor único em vez de cada app carregar o seu?</summary>
+            <p>Porque seria o <strong>mesmo</strong> modelo N vezes na RAM. O motor carrega o modelo <strong>residente</strong> — uma vez — e serve todas as sessões pelo named pipe, então a RAM do modelo é <strong>O(1)</strong>: constante, com dois apps ou dez sessões. O que se multiplicava era a cópia local.</p>
+          </details>
+          <details class="faq">
+            <summary>O motor atualiza no meio de uma gravação?</summary>
+            <p>Não. O auto-update on-use só troca a versão quando o daemon está <strong>ocioso</strong> — uma captura em voo <strong>nunca</strong> é interrompida. O contrato de update espera o motor ficar livre antes de se reciclar.</p>
+          </details>
+          <details class="faq">
+            <summary>Quem é o dono do microfone?</summary>
+            <p>O daemon. Ele é o <strong>dono físico</strong> do mic; os apps <strong>delegam</strong> a captura (<code>capture_open</code>) e recebem os trechos transcritos ao vivo — nunca abrem o microfone sozinhos. Um <code>mic.lock</code> coordena entre processos: o motor reivindica qualquer trava de consumidor e cede <strong>só</strong> ao ditado. Esse contrato foi endurecido na <strong>0.22.3</strong>.</p>
+          </details>
+          <details class="faq">
+            <summary>Precisa de GPU?</summary>
+            <p>Não. O motor detecta uma <strong>NVIDIA</strong> com <strong>CUDA 12</strong> e instala as wheels certas sozinho para acelerar; sem GPU, ele cai para <strong>CPU</strong> de forma transparente. Você não configura nada.</p>
+          </details>
+          <details class="faq">
+            <summary>Minha voz vai para a nuvem?</summary>
+            <p>Não. <strong>STT, TTS e tradução rodam no motor local</strong>, na sua máquina. O canal é uma <strong>named pipe</strong> do Windows, restrita à sua sessão — nenhum áudio sai do computador.</p>
+          </details>
+        </section>
+      </article>
+
+      <aside class="doc-rail" aria-label="Nesta página">
+        <nav class="toc" aria-label="Índice">
+          <p class="toc__label">nesta página</p>
+          <ul class="toc__list">
+            <li><a href="#o-que-e">O que é o motor</a></li>
+            <li><a href="#como-funciona">Como funciona</a></li>
+            <li><a href="#o-que-o-motor-faz">O que o motor faz</a></li>
+            <li><a href="#distribuicao">Como o motor chega até você</a></li>
+            <li><a href="#para-desenvolvedores">Para quem escreve apps</a></li>
+            <li><a href="#instalar">Instalar</a></li>
+            <li><a href="#faq">Perguntas frequentes</a></li>
+          </ul>
+        </nav>
+          <dl class="meta">
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.22.3</span></dd></div>
+            <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
+            <div class="meta__row"><dt>categoria</dt><dd>infrastructure</dd></div>
+            <div class="meta__row"><dt>origem</dt><dd>github · AllanSantos-DV/vox-engine</dd></div>
+            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>Windows 10/11 — o motor usa <strong>named pipe</strong> e installer do Windows</li><li>NVIDIA + <strong>CUDA 12</strong> (opcional) — sem GPU, o motor cai para <strong>CPU</strong> sozinho</li><li>~1–3 GB em disco para os <strong>modelos residentes</strong> (uma vez, no motor)</li><li>Nenhuma permissão de <strong>admin</strong> — roda no seu usuário</li></ul></dd></div>
+            <div class="meta__row"><dt>tags</dt><dd><ul class="tags tags--meta"><li>stt</li><li>tts</li><li>traducao</li><li>whisper</li><li>daemon</li><li>pt-BR</li></ul></dd></div>
+          </dl>
+      </aside>
+    </div>
+
+    <nav class="pager" aria-label="Outros plugins">
+      <span></span>
+      <a class="pager__all" href="../../#registry">todos os plugins</a>
+      <span></span>
+    </nav>
+  </main>
+
+  <footer class="foot">
+    <p class="foot__made">Feito por <a href="https://github.com/AllanSantos-DV" rel="noopener">Allan Santos</a> · MIT · página gerada de <code>marketplace.json</code> + <code>docs/content/vox-engine.json</code></p>
+    <p class="foot__cmd"><span aria-hidden="true">⌁</span> <a href="https://github.com/AllanSantos-DV/copilot-marketplace/releases" rel="noopener"><code>releases ↗</code></a></p>
+  </footer>
+
+  <script src="../../assets/app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "name": "vox-engine",
+  "version": "0.22.3",
+  "kind": "daemon",
+  "description": "Motor único de fala local para Windows (STT + TTS + tradução): um daemon via named pipe serve modelos residentes a vários apps e sessões. Instalado e atualizado automaticamente pelos apps que o usam — não é um plugin instalável.",
+  "extensions": false,
+  "hooks": false
+}

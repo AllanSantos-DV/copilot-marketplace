@@ -1,0 +1,120 @@
+{
+  "tagline": "Um daemon único de fala local carrega o modelo de voz uma vez e serve STT, TTS e tradução a todos os apps por um named pipe — a RAM do modelo não multiplica por app nem por sessão.",
+  "lede": "O **vox-engine** é a sala de máquinas da voz no Windows. Um **daemon único** que carrega o modelo de fala **uma vez** e serve **STT**, **TTS** e **tradução** a todos os apps por uma named pipe (`\\\\.\\pipe\\vox`). Sem ele, cada app — o **voice-chat**, o **visual-explainer** — subiria o próprio Whisper na RAM, e cada sessão pagaria essa conta de novo. Com ele, o modelo mora **residente**: carregado uma vez, servindo N sessões. Um motor, N consumidores — a RAM do modelo não multiplica. Dois apps ou dez sessões, é um motor só.",
+  "install_note": "Você **não instala** o vox-engine à mão — não existe `copilot plugin install vox-engine`. Ele é **instalado e atualizado automaticamente** pelos apps que o usam (o **voice-chat** e o **visual-explainer**): na primeira vez, o app baixa o **installer assinado** do release público, **verifica a assinatura Ed25519** contra a chave embutida (fail-closed) e sobe o daemon sozinho. Release público: `AllanSantos-DV/copilot-marketplace`, tag `vox-engine-v0.22.3` — `https://github.com/AllanSantos-DV/copilot-marketplace/releases`.",
+  "highlights": [
+    { "title": "Um motor, N consumidores", "body": "Um daemon único carrega o modelo de fala uma vez e serve STT, TTS e tradução a todos os apps e sessões por uma named pipe (`\\\\.\\pipe\\vox`)." },
+    { "title": "Modelo residente, RAM em O(1)", "body": "Sem motor, cada app sobe o **próprio** Whisper — **gigabytes** do mesmo modelo, multiplicados por app e por sessão. Com motor, carregado **uma vez** e compartilhado: dois apps ou dez sessões, mesma pegada." },
+    { "title": "FAIL-LOUD", "body": "Erro do motor sobe **tipado** — `mic_busy` (com o dono da trava), `mic_open_failed`, `capture_timeout` — nunca um resultado falso e calado. Ausência é sinalizada, jamais mascarada." },
+    { "title": "Dono único do microfone", "body": "O daemon é o **dono físico** do mic; o app **nunca** o abre sozinho — **delega**. Um `mic.lock` coordena entre processos e cede só ao ditado. (Contrato endurecido na **0.22.3**.)" }
+  ],
+  "sections": [
+    {
+      "id": "o-que-e",
+      "title": "O que é o motor",
+      "blocks": [
+        { "type": "p", "text": "O **vox-engine** é o **motor único de fala local** do Windows: um **daemon** que faz **STT** (fala→texto), **TTS** (texto→fala) e **tradução**, e conversa com os apps por uma **named pipe** (`\\\\.\\pipe\\vox`). Carrega o modelo **uma vez** e serve **N sessões** — sem admin, sem nuvem." },
+        { "type": "p", "text": "Ele existe para **não repetir o modelo**. Sem um motor único, cada app — o **voice-chat**, o **visual-explainer** — subiria o **próprio** Whisper na RAM, e cada sessão de cada app pagaria essa conta de novo. São **gigabytes** do **mesmo** modelo parados na memória, multiplicados por app e por sessão." },
+        { "type": "p", "text": "O vox-engine quebra essa conta. Carrega o modelo **residente** — uma vez — e todos apontam para ele pelo pipe. A RAM do modelo vira **O(1)**: constante, seja com **dois apps** ou **dez sessões**. O que se multiplicava era a cópia local; o motor é um só." },
+        { "type": "note", "tone": "info", "text": "Um motor, N consumidores. É o mesmo princípio da **embed-house** (o daemon de embeddings desta vitrine), aplicado à voz: carregar uma vez, servir a todos." }
+      ]
+    },
+    {
+      "id": "como-funciona",
+      "title": "Como funciona",
+      "blocks": [
+        { "type": "p", "text": "O motor é um **daemon único** em segundo plano. Sobe uma vez, carrega o(s) modelo(s) e serve todos os apps pela named pipe `\\\\.\\pipe\\vox`. Tudo por **streaming**: o áudio e o texto correm pelo pipe em tempo real, sem arquivos temporários no caminho." },
+        {
+          "type": "list",
+          "items": [
+            "**Multi-modelo residente.** Carrega cada modelo **uma vez** e o mantém quente, servindo **N sessões** ao mesmo tempo. Uma sessão nova não recarrega o mundo — cai no modelo que já está no ar.",
+            "**Dono único do microfone.** O daemon é o **dono físico** do mic. O app **nunca** o abre sozinho: ele **delega** ao motor, que abre, captura e devolve os trechos transcritos ao vivo — com nível/VU. A coordenação entre processos (com o ditado) é um `mic.lock`: o motor **reivindica** qualquer trava de consumidor e cede **só** ao ditado. Contrato de propriedade do mic, endurecido na **0.22.3**.",
+            "**GPU automática, CPU transparente.** Detecta uma **NVIDIA** e instala as wheels de **CUDA 12** certas sozinho; sem GPU, cai para **CPU** sem você configurar nada.",
+            "**Sem admin.** Roda inteiro no seu usuário — nenhuma permissão de administrador."
+          ]
+        },
+        { "type": "note", "tone": "info", "text": "Nada sai da sua máquina: captura, transcrição e síntese acontecem **no motor local**. O named pipe é do Windows e restrito à sua sessão — nenhum áudio vai para a rede." }
+      ]
+    },
+    {
+      "id": "o-que-o-motor-faz",
+      "title": "O que o motor faz",
+      "blocks": [
+        { "type": "p", "text": "Por baixo, o motor expõe **modos**: cada app pede o que precisa pelo pipe e a resposta volta por **streaming**." },
+        {
+          "type": "list",
+          "items": [
+            "**`transcribe`** — arquivo de áudio → texto.",
+            "**`tts`** — texto → fala, com **normalização na fonte** (números, siglas e pontuação viram fala natural antes de sintetizar).",
+            "**`translate`** — tradução: transcreve já traduzindo.",
+            "**`capture_open`** — captura do microfone **delegada ao daemon**: o app pede, o motor abre o mic e devolve os trechos transcritos **ao vivo**, com nível/VU. O app nunca toca no microfone.",
+            "**`devices`** — lista os microfones disponíveis."
+          ]
+        },
+        { "type": "p", "text": "Dois modelos cobrem os extremos de velocidade e qualidade:" },
+        {
+          "type": "list",
+          "items": [
+            "**Whisper `turbo`** — para ditado e trechos curtos: **velocidade** e **streaming** com baixa latência.",
+            "**Whisper `large-v3`** — para **tradução** e transcrição de **qualidade**.",
+            "**Perfis** prontos escolhem o modelo e os ajustes por caso: `dictation`, `transcription`, `transcription_hq` e `translator`."
+          ]
+        },
+        { "type": "note", "tone": "info", "text": "Quem consome escolhe o **perfil**, não os parafusos. O motor carrega o modelo do perfil **uma vez** e o reusa entre todas as sessões que pedem o mesmo." }
+      ]
+    },
+    {
+      "id": "distribuicao",
+      "title": "Como o motor chega até você",
+      "blocks": [
+        { "type": "p", "text": "O vox-engine é o **original** do padrão que a **embed-house** copiou: o **código-fonte e os testes** ficam num repositório **privado** (`AllanSantos-DV/vox-engine`); o que **roda na sua máquina** vem de um **release público** assinado." },
+        {
+          "type": "list",
+          "items": [
+            "**Installer assinado (Ed25519).** Antes de executar qualquer coisa, o app **verifica a assinatura** do installer contra a **chave pública embutida**. Assinatura que não confere → **não roda** (fail-closed). Um installer é código; a prova vem **antes** da execução.",
+            "**Auto-update on-use.** O daemon se atualiza sozinho por um **contrato seguro** — **só quando está ocioso**, sem interromper uma captura em voo. Os consumidores disparam a checagem pelo SDK; você nunca roda um update à mão.",
+            "**Release público.** `AllanSantos-DV/copilot-marketplace`, tag `vox-engine-v0.22.3` — os pacotes assinados moram nas releases."
+          ]
+        },
+        { "type": "note", "tone": "info", "text": "A prova é a **assinatura**, não o transporte: mesmo numa rede que reassina o TLS (proxy corporativo com CA própria), nada forjado roda — a checagem Ed25519 acontece **antes** de qualquer byte executar." }
+      ]
+    },
+    {
+      "id": "para-desenvolvedores",
+      "title": "Para quem escreve apps",
+      "blocks": [
+        { "type": "p", "text": "Quer voz no seu app? Você **não empacota** o motor. Você **vendoriza** um **SDK Python fino** e fala com o daemon por poucas chamadas — a instalação é **delegada** ao motor." },
+        {
+          "type": "list",
+          "items": [
+            "**`vox_sdk.py`** — o núcleo: `VoxClient` + o *framing* do pipe + captura + devices + tts + transcribe/translate. É **numpy-free** e **lifecycle-free no import** — importar não puxa peso nem sobe nada.",
+            "**`vox_lifecycle.py`** (opcional) — instalar/atualizar: `ensure_vox`, updater, installer e a **verificação Ed25519**. Só quem provisiona precisa dele."
+          ]
+        },
+        { "type": "p", "text": "No uso, o app conecta, **delega** a captura e sintetiza — três chamadas, e o resto é do motor:" },
+        {
+          "type": "code",
+          "lang": "py",
+          "copy": true,
+          "code": "from vox_lifecycle import ensure_vox   # opcional: instalar/atualizar o motor\nfrom vox_sdk import VoxClient\n\nensure_vox()                    # confere a assinatura Ed25519 antes de rodar\nvox = VoxClient()               # conecta pelo named pipe \\\\.\\pipe\\vox\n\ndef on_event(frame):            # o daemon transmite os trechos ao vivo\n    if frame[\"event\"] == \"capture_segment\":\n        print(frame[\"text\"])    # texto transcrito\n\nhandle = vox.capture_open(\"minha-sessao\", on_event)  # abre o mic e delega\n# handle.close() drena / handle.cancel() aborta\n\nvox.tts(\"Transcrição pronta.\")  # texto -> fala, normalizado na fonte"
+        },
+        { "type": "p", "text": "E o motor **nunca mente**: erros sobem **tipados** — `mic_busy` (com o **dono** da trava), `mic_open_failed`, `capture_timeout` — em vez de um resultado falso e calado. O consumidor trata o erro; jamais recebe silêncio disfarçado de sucesso." },
+        { "type": "note", "tone": "info", "text": "Você não versiona o motor junto do seu app: ele é **compartilhado** por todos os consumidores da máquina e se **atualiza sozinho**. Seu app carrega só o SDK; o modelo e o runtime moram no motor." }
+      ]
+    }
+  ],
+  "requirements": [
+    "Windows 10/11 — o motor usa **named pipe** e installer do Windows",
+    "NVIDIA + **CUDA 12** (opcional) — sem GPU, o motor cai para **CPU** sozinho",
+    "~1–3 GB em disco para os **modelos residentes** (uma vez, no motor)",
+    "Nenhuma permissão de **admin** — roda no seu usuário"
+  ],
+  "faq": [
+    { "q": "Preciso instalar o vox-engine?", "a": "Não. Os apps que usam voz — o **voice-chat** e o **visual-explainer** — instalam, atualizam e sobem o motor sozinhos. Na primeira vez, o app baixa o installer assinado do release público, **verifica a assinatura Ed25519** e provisiona o daemon. Você não roda nenhum comando: não existe `copilot plugin install vox-engine`." },
+    { "q": "Por que um motor único em vez de cada app carregar o seu?", "a": "Porque seria o **mesmo** modelo N vezes na RAM. O motor carrega o modelo **residente** — uma vez — e serve todas as sessões pelo named pipe, então a RAM do modelo é **O(1)**: constante, com dois apps ou dez sessões. O que se multiplicava era a cópia local." },
+    { "q": "O motor atualiza no meio de uma gravação?", "a": "Não. O auto-update on-use só troca a versão quando o daemon está **ocioso** — uma captura em voo **nunca** é interrompida. O contrato de update espera o motor ficar livre antes de se reciclar." },
+    { "q": "Quem é o dono do microfone?", "a": "O daemon. Ele é o **dono físico** do mic; os apps **delegam** a captura (`capture_open`) e recebem os trechos transcritos ao vivo — nunca abrem o microfone sozinhos. Um `mic.lock` coordena entre processos: o motor reivindica qualquer trava de consumidor e cede **só** ao ditado. Esse contrato foi endurecido na **0.22.3**." },
+    { "q": "Precisa de GPU?", "a": "Não. O motor detecta uma **NVIDIA** com **CUDA 12** e instala as wheels certas sozinho para acelerar; sem GPU, ele cai para **CPU** de forma transparente. Você não configura nada." },
+    { "q": "Minha voz vai para a nuvem?", "a": "Não. **STT, TTS e tradução rodam no motor local**, na sua máquina. O canal é uma **named pipe** do Windows, restrita à sua sessão — nenhum áudio sai do computador." }
+  ]
+}
