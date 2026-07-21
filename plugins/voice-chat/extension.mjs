@@ -50,7 +50,7 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 
-export const CURRENT_VERSION = "2.1.0";
+export const CURRENT_VERSION = "2.1.1";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -701,10 +701,14 @@ const FORKS_DIR = shared.forksDir(ARTIFACTS);
 function forkHeartbeatFile(sid) {
     return shared.forkHeartbeatFile(ARTIFACTS, sid);
 }
-function writeForkHeartbeat() {
+function writeForkHeartbeat(status = "ready") {
     const sid = ownSid || mySid();
     if (!sid) return;
-    try { mkdirSync(FORKS_DIR, { recursive: true }); writeFileSync(forkHeartbeatFile(sid), JSON.stringify({ pid: process.pid, ts: Date.now() })); } catch { /* best-effort */ }
+    // status: "joining" (gravado ANTES do joinSession) | "ready" (canvas registrado) | "failed"
+    // (joinSession falhou 2x). O Stop hook lê isto: "failed" (ou PID morto/ts velho) => aconselha
+    // extensions_reload. É o rastro em disco, cross-process, do REGISTRO do canvas — tira o sistema
+    // do buraco negro "host vivo sem canvas" (a causa do erro recorrente "Canvas ... not registered").
+    try { mkdirSync(FORKS_DIR, { recursive: true }); writeFileSync(forkHeartbeatFile(sid), JSON.stringify({ pid: process.pid, ts: Date.now(), status })); } catch { /* best-effort */ }
 }
 function pruneForkHeartbeats() {
     // higiene: remove heartbeats de sids antigos cujo PID está morto E o ts é velho (>1 dia).
@@ -931,8 +935,13 @@ const canvas = createCanvas({
                 if (!text) throw new CanvasError("invalid_input", "O campo 'text' está vazio.");
                 const { spoken, full } = makeSpoken(text);
                 const speakText = settings.fullRead ? full : spoken || text;
+                const sid = String((ctx && ctx.sessionId) || ownSid || mySid());
+                // Motor ainda não pronto -> ENFILEIRA (mesmo padrão do falarTool) em vez de estourar no
+                // routeSpeak sem worker; o drain toca quando o motor liga. Sem isto, um speak precoce
+                // (ex.: logo após o registro do canvas, motor subindo) virava exceção na ação do canvas.
+                if (!workerReady) { writePendingSpeak(sid, speakText); ensureWorker(); return { ok: true, queued: true, spoken: speakText }; }
                 const fullForUi = full && full !== speakText ? full : undefined;
-                await routeSpeak({ spoken: speakText, full: fullForUi });
+                await routeSpeak({ spoken: speakText, full: fullForUi, sid });
                 return { ok: true, spoken: speakText };
             },
         },
@@ -996,8 +1005,6 @@ const canvas = createCanvas({
     },
 });
 
-await loadSettings();
-
 // Tool `falar` (v1.5.16): o agente produz áudio QUANDO quiser (não só no fim). Handler recebe o
 // texto + invocation.sessionId (sid CONFIÁVEL). Motor ON -> speakToCanvas (toca/enfileira durável);
 // motor OFF -> writePendingSpeak (fila de texto, drenada quando o motor ligar). Retorna tool_result.
@@ -1033,7 +1040,12 @@ const falarTool = {
     },
 };
 
-session = await joinSession({
+// REGISTER-FIRST (register-first, configure-later — igual ao activate() do VS Code): o canvas é o
+// CONTRATO com o host e PRECISA registrar ANTES de qualquer I/O interno. A causa-raiz do erro
+// recorrente «Canvas "voice-chat" is not registered» era um await BLOQUEANTE antes daqui (o
+// loadSettings lendo disco durante um update in-place, p.ex.): o host ficava VIVO sem o canvas e só
+// um extensions_reload manual curava. Registrando primeiro, settings/worker viram detalhe pós-contrato.
+const _joinCfg = {
     canvases: [canvas],
     tools: [falarTool],
     hooks: {
@@ -1046,7 +1058,28 @@ session = await joinSession({
             return ctx ? { additionalContext: ctx } : undefined;
         },
     },
-});
+};
+// Rastro ANTES do join: se ele TRAVAR (heartbeat "joining" envelhece) ou FALHAR ("failed"), o Stop
+// hook deixa de ver o VÁCUO de antes e passa a aconselhar o reload — fim do buraco negro silencioso.
+writeForkHeartbeat("joining");
+try {
+    session = await joinSession(_joinCfg);
+} catch (e1) {
+    // Registrar o canvas é INVARIANTE: em vez de silenciar, 1 retry (disconnect+rejoin — mesmo padrão
+    // do reflect(); o SDK faz canvases.clear()+set(), então o re-join é idempotente). SEM process.exit:
+    // o SDK trata a saída do host como fatal SEM respawn, e host morto é pior que host recuperável.
+    log("joinSession FALHOU (1/2): " + (e1 && e1.message) + " — retry via disconnect+rejoin");
+    try { await session?.disconnect?.(); } catch { /* pode nem haver sessão criada */ }
+    try {
+        session = await joinSession(_joinCfg);
+    } catch (e2) {
+        writeForkHeartbeat("failed");   // PID vivo + status "failed" -> o Stop hook aconselha extensions_reload
+        log("CRITICAL: joinSession FALHOU 2x — canvas 'voice-chat' NÃO registrado nesta sessão (" + (e2 && e2.message) + "). Rode extensions_reload.");
+        throw e2;   // fail-loud: nada de sucesso fake; o rastro "failed" + o CRITICAL ficam visíveis
+    }
+}
+writeForkHeartbeat("ready");   // canvas registrado
+await loadSettings();          // AGORA sim o I/O interno (settings), DEPOIS do contrato com o host
 session.on("assistant.message", onAssistantMessage);
 session.on("session.idle", onIdle);
 // --- STOP-DIAG (gated: `stop-diag.flag` no dataDir OU env VOICE_STOP_DIAG=1) --------------------
@@ -1120,8 +1153,8 @@ restoreAudioHistory();
 // Prova de sucesso do self-reload: o processo NOVO boota com CURRENT_VERSION novo -> aqui reconcilia.
 try { const _us = readUpdateState(); if (_us && _us.pendingVersion && !verGt(String(_us.pendingVersion), CURRENT_VERSION)) { delete _us.pendingVersion; writeUpdateState(_us); dbg("boot: pendingVersion <= CURRENT_VERSION -> limpo (self-reload/restart concluído)"); } } catch { }
 startHeartbeat();
-writeForkHeartbeat();   // canvas registrado (joinSession OK) -> marca esta fork viva p/ o Stop hook
-const _forkHb = setInterval(writeForkHeartbeat, 5000);
+writeForkHeartbeat("ready");   // canvas registrado (joinSession OK) -> marca esta fork viva p/ o Stop hook
+const _forkHb = setInterval(() => writeForkHeartbeat("ready"), 5000);
 if (_forkHb.unref) _forkHb.unref();
 // Sweep que drena a fila-em-arquivo do Stop hook (pending/<sid>.jsonl) a cada 2s: sem ele o resumo 🔊
 // escrito no disco pelo hook ficaria sem tocar quando nenhum outro gatilho (hello/foco) dispara no turno.
