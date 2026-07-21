@@ -116,7 +116,7 @@
     {
       "name": "voice-chat",
       "description": "Converse por voz com o Copilot (pt-BR): fale e ouça um resumo falado. STT e TTS pelo motor único vox-engine, que a extensão instala, atualiza e usa sozinha no Windows — agora verificando a assinatura Ed25519 do instalador antes de executá-lo.",
-      "version": "2.2.0",
+      "version": "2.2.1",
       "source": "./plugins/voice-chat",
       "author": {
         "name": "Allan Santos"
@@ -184,10 +184,7 @@
       "description": "Casa de embeddings compartilhada: um daemon único (MiniLM-L6-v2, 384-dim) que carrega o modelo UMA vez e serve vetores a N plugins via 127.0.0.1 — em vez de cada sessão carregar ~147 MB do mesmo modelo. Singleton por port-lock, distribuída por release público (SHA256 fail-closed) e provisionada automaticamente pelos plugins que a consomem. Não é um plugin instalável.",
       "version": "1.0.4",
       "kind": "daemon",
-      "source": {
-        "source": "github",
-        "repo": "AllanSantos-DV/embed-house"
-      },
+      "source": "./plugins/voice-chat",
       "author": {
         "name": "Allan Santos"
       },
@@ -209,10 +206,7 @@
       "description": "Motor único de fala local para Windows (STT + TTS + tradução): um daemon via named pipe serve modelos residentes (Whisper) a vários apps e sessões, com GPU CUDA automática e sem admin. Distribuído por release público assinado (Ed25519, fail-closed) e instalado/atualizado automaticamente pelos apps que o usam (voice-chat, visual-explainer). Não é um plugin instalável.",
       "version": "0.22.3",
       "kind": "daemon",
-      "source": {
-        "source": "github",
-        "repo": "AllanSantos-DV/vox-engine"
-      },
+      "source": "./plugins/voice-chat",
       "author": {
         "name": "Allan Santos"
       },

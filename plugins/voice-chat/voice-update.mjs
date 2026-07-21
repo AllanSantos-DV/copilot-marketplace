@@ -66,6 +66,16 @@ export function manifestFileValid(f) {
         && typeof f.path === "string" && MANIFEST_PATH_RE.test(f.path)
         && typeof f.sha256 === "string" && MANIFEST_SHA256_RE.test(f.sha256);
 }
+// Nome de arquivo de update SEGURO = basename puro, sem separador nem traversal. A AUTORIZAÇÃO do
+// que pode ser escrito vem da ASSINATURA Ed25519 do manifesto (verifyManifestSig + manifestFileValid
+// + sha256 por arquivo), NUNCA de uma allowlist LOCAL: senão um install ANTIGO jamais receberia um
+// arquivo NOVO do release (ex.: vox_lifecycle.py no 2.2.0) — o updater velho o PULAVA e aplicava um
+// update PARCIAL (voice_worker.py novo importando um módulo que não foi entregue) -> ModuleNotFound
+// -> "motor de voz falhou" em loop. Só a segurança do NOME é decidida aqui.
+export function updateNameSafe(rel) {
+    return typeof rel === "string" && rel.length > 0
+        && !rel.includes("/") && !rel.includes("\\") && !rel.includes("..");
+}
 // Mensagem canônica assinada — IDÊNTICA à de gen-manifest.mjs: rótulo + versão +
 // "path:sha256" de cada arquivo, ordenado por path (determinístico nos dois lados).
 // Só produz bytes sem ambiguidade quando os campos passaram a validação estrita.
