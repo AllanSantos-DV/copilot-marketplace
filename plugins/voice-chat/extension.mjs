@@ -50,7 +50,7 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 
-export const CURRENT_VERSION = "2.1.2";
+export const CURRENT_VERSION = "2.1.3";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -64,9 +64,6 @@ const UPDATE_STATE_FILE = join(ARTIFACTS, "update-state.json");
 const UPDATABLE_FILES = new Set(["extension.mjs", "voice-shared.cjs", "voice-core.mjs", "voice-python.mjs", "voice-update.mjs", "voice-text.mjs", "voice-state.mjs", "voice-audio.mjs", "voice-worker.mjs", "voice-net.mjs", "voice_worker.py", "vox_sdk.py", "vox_stream.py", "vox_audio_devices.py", "vox_capture.py", "capture_port.py", "capture_session.py", "vox_capture_adapter.py", "_ed25519_ref.py", "iframe.html", "requirements.txt", "hooks.json", "voice-summary-stop.cjs", "voice-canvas-guard.cjs"]);
 
 // Python interpreters are discovered dynamically (see buildPythonCandidates).
-
-export const CONVERSE_ONSET_MS = Number(process.env.VOICE_CONVERSE_ONSET_MS) || 20000;
-
 export let session; 
 
 export let lastTtsPreviewSid = null;
@@ -104,8 +101,6 @@ const DEFAULT_SETTINGS = {
     confirmTranscript: false,
     cueStart: true,
     cueCheckpoints: true,
-    wakeWord: false,
-    wakePhrase: "escuta jarvis",
     handsfree: false,
     interruptMode: false,
     focusGate: false,
@@ -327,9 +322,6 @@ export function sanitizeSettings(b) {
     if (typeof b.confirmTranscript === "boolean") out.confirmTranscript = b.confirmTranscript;
     if (typeof b.cueStart === "boolean") out.cueStart = b.cueStart;
     if (typeof b.cueCheckpoints === "boolean") out.cueCheckpoints = b.cueCheckpoints;
-    if (typeof b.wakeWord === "boolean") out.wakeWord = b.wakeWord;
-    if (typeof b.wakePhrase === "string" && b.wakePhrase.trim())
-        out.wakePhrase = b.wakePhrase.trim().slice(0, 60);
     if (typeof b.handsfree === "boolean") out.handsfree = b.handsfree;
     if (typeof b.interruptMode === "boolean") out.interruptMode = b.interruptMode;
     if (typeof b.focusGate === "boolean") out.focusGate = b.focusGate;
@@ -863,13 +855,6 @@ export function clearRecordingActive() {
     try { const l = readJson(MIC_LOCK_FILE, null); if (l && Number(l.pid) === process.pid) unlinkSync(MIC_LOCK_FILE); } catch { /* best-effort: só libero se o lock for MEU */ }
 }
 
-function hasVisibleVoiceClients(exceptSid = "") {
-    for (const sid of sseClients.values()) {
-        if (!exceptSid || sid !== exceptSid) return true;
-    }
-    return false;
-}
-
 export function startMonitor(sid) {
     if (!sid) return;
     setMonitorSid(sid);
@@ -891,9 +876,6 @@ export function quiesceClosedPanelCapture(sid, opts = {}) {
     }
     if (turnOwnerSid === sid) setTurnOwnerSid(null);
     if (monitorSid === sid) stopMonitor(sid);
-    if (settings.wakeWord && !hasVisibleVoiceClients(sid)) {
-        try { workerSend({ cmd: "wake", on: false }); } catch { }
-    }
 }
 
 

@@ -207,7 +207,6 @@
   <span class="title">🎙️ Voz</span>
   <span class="spacer"></span>
   <span id="pill" class="pill"><span class="dot"></span><span id="pillText">Iniciando…</span></span>
-  <span id="wakeBadge" title="Ativação por voz" style="display:none;align-items:center;justify-content:center;width:24px;height:24px;margin:0 2px;border-radius:6px;font-size:14px;line-height:1;background:var(--background-color-emphasis,#2d333b);transition:transform .15s ease,opacity .15s ease">👂</span>
   <button id="gear" class="iconbtn" title="Configurações" aria-label="Configurações">
     <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492M5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0"/><path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.433 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.433-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52z"/></svg>
   </button>
@@ -218,10 +217,6 @@
   <button id="hfBtn" class="toggle-chip" type="button" aria-pressed="false"
           title="Mãos-livres: toque o microfone para iniciar/parar (sem precisar segurar)">
     <span class="ic">✋</span><span>Mãos livres</span>
-  </button>
-  <button id="wakeBtn" class="toggle-chip" type="button" aria-pressed="false"
-          title="Escuta: ativação por voz — diga a frase-gatilho, sem as mãos">
-    <span class="ic">👂</span><span>Escuta</span>
   </button>
   <button id="interruptBtn" class="toggle-chip" type="button" aria-pressed="false"
           title="Interromper: a fala CORTA o turno em andamento do agente e entra na hora. Desligado (padrão): a fala espera o turno atual terminar. Com uma pergunta aberta, a fala sempre responde a pergunta.">
@@ -359,20 +354,12 @@
       <label class="switch"><input id="setHandsfree" type="checkbox" /><span></span></label>
     </div>
     <div class="row">
-      <div><label>Ativação por voz</label><div class="sub">diga a frase-gatilho, sem as mãos (mic sempre ligado)</div></div>
-      <label class="switch"><input id="setWake" type="checkbox" /><span></span></label>
-    </div>
-    <div class="row">
       <div><label>Interromper</label><div class="sub">a fala corta o turno atual do agente (padrão: espera terminar)</div></div>
       <label class="switch"><input id="setInterrupt" type="checkbox" /><span></span></label>
     </div>
     <div class="row">
       <div><label>Só falar com o app em foco</label><div class="sub">fora de foco, o áudio espera e toca quando você volta (atalho: Alt+F)</div></div>
       <label class="switch"><input id="setFocusGate" type="checkbox" /><span></span></label>
-    </div>
-    <div class="row">
-      <div><label>Frase-gatilho</label><div class="sub">a IA escuta por esta frase</div></div>
-      <input id="setWakePhrase" type="text" value="escuta jarvis" spellcheck="false" autocomplete="off" style="width:140px;padding:4px 8px;border-radius:6px;border:1px solid var(--border-color-default,#444c56);background:var(--background-color-default,#22272e);color:var(--text-color-default,#e6edf3);font-size:13px" />
     </div>
     <div class="row" id="updateRow">
       <div><label>Atualizações</label><div class="sub" id="updateSub">Versão atual: …</div></div>
@@ -408,7 +395,6 @@ const replyCard = $("replyCard"), progress = $("progress"), progressBar = progre
 const confirmWrap = $("confirmWrap"), confirmText = $("confirmText"), sendBtn = $("sendBtn"), cancelBtn = $("cancelBtn");
 const cancelRecBtn = $("cancelRecBtn");
 const cueLine = $("cueLine");
-const wakeBadge = $("wakeBadge");
 const micMeter = $("micMeter"), micMeterBar = $("micMeterBar");
 const micWarn = $("micWarn");
 // --- Guarda de silêncio (UI): aviso NÃO-interruptivo + bipe discreto quando o mic não capta.
@@ -474,7 +460,6 @@ function cancelMeter() {   // drop any pending frame so a stale level can't land
 }
 let _recStart = 0;
 let _monLastSig = 0;
-let wakeState = "off";
 
 let workerReady = false;
 let recording = false;
@@ -715,7 +700,6 @@ function onPlaybackEnded() {
   phase = "ready"; reflectPhase(); hint.textContent = defaultHint();
   setPauseBtn(true);
   updateHistUi();
-  maybeConverse();
 }
 // Um áudio novo (ao vivo) chegou do servidor.
 function onAudioItem(item) {
@@ -943,62 +927,6 @@ function beep() {
     o.start(t); o.stop(t + 0.2);
   } catch (e) {  }
 }
-function pipYourTurn() {
-  try {
-    if (!audioCtx) return;
-    if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
-    const t = audioCtx.currentTime;
-    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-    o.type = "sine";
-    o.frequency.setValueAtTime(880, t);
-    o.frequency.setValueAtTime(1175, t + 0.09);   
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.18 * Math.max(0.6, currentGain), t + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
-    o.connect(g); g.connect(audioCtx.destination);
-    o.start(t); o.stop(t + 0.22);
-  } catch (e) {  }
-}
-function maybeConverse() {
-  if (!$("setWake").checked) return;
-  if (recording || phase === "transcribing") return;
-  hint.textContent = "Sua vez — pode falar (o microfone está aberto).";
-  pipYourTurn();
-  setTimeout(() => {
-    if ($("setWake").checked && !recording && phase !== "transcribing") post("/converse");
-  }, 320);
-}
-function updateWakeBadge() {
-  const on = $("setWake").checked;
-  if (!on || wakeState === "off") { wakeBadge.style.display = "none"; return; }
-  wakeBadge.style.display = "inline-flex";
-  if (wakeState === "awaiting") { wakeBadge.textContent = "🎙️"; wakeBadge.title = "Ouvindo seu comando…"; }
-  else if (wakeState === "triggered") { wakeBadge.textContent = "✨"; wakeBadge.title = "Detectei a frase!"; }
-  else { wakeBadge.textContent = "👂"; wakeBadge.title = "Ouvindo a frase-gatilho"; }
-}
-function flashWake() {
-  wakeBadge.style.transform = "scale(1.35)";
-  wakeBadge.style.opacity = "1";
-  setTimeout(() => { wakeBadge.style.transform = "scale(1)"; }, 180);
-}
-function handleWake(m) {
-  switch (m.state) {
-    case "listening": wakeState = "listening"; break;
-    case "awaiting":
-      wakeState = "awaiting";
-      if (phase === "ready" || phase === "init") hint.textContent = "Estou ouvindo — pode falar seu pedido.";
-      break;
-    case "triggered": wakeState = "triggered"; beep(); flashWake(); break;
-    case "discarded": case "empty":
-      wakeState = "listening";
-      if (phase === "ready" || phase === "init") hint.textContent = defaultHint();
-      break;
-    case "stopped": wakeState = "off"; break;
-    case "error": wakeState = "off"; showBanner("Ativação por voz indisponível: " + (m.msg || "erro no microfone")); break;
-  }
-  updateWakeBadge();
-}
-
 $("gear").addEventListener("click", () => { $("settings").classList.toggle("open"); });
 
 let appVersion = "";
@@ -1033,11 +961,9 @@ $("updateBtn").addEventListener("click", async () => {
 });
 
 function reflectToggles() {
-  const hf = $("setHandsfree").checked, wk = $("setWake").checked, it = $("setInterrupt").checked;
+  const hf = $("setHandsfree").checked, it = $("setInterrupt").checked;
   $("hfBtn").classList.toggle("active", hf);
   $("hfBtn").setAttribute("aria-pressed", String(hf));
-  $("wakeBtn").classList.toggle("active", wk);
-  $("wakeBtn").setAttribute("aria-pressed", String(wk));
   $("interruptBtn").classList.toggle("active", it);
   $("interruptBtn").setAttribute("aria-pressed", String(it));
   const fg = $("setFocusGate").checked;
@@ -1045,7 +971,6 @@ function reflectToggles() {
   $("focusBtn").setAttribute("aria-pressed", String(fg));
 }
 $("hfBtn").addEventListener("click", () => { $("setHandsfree").checked = !$("setHandsfree").checked; pushSettings(); });
-$("wakeBtn").addEventListener("click", () => { $("setWake").checked = !$("setWake").checked; pushSettings(); });
 $("interruptBtn").addEventListener("click", () => { $("setInterrupt").checked = !$("setInterrupt").checked; pushSettings(); });
 $("focusBtn").addEventListener("click", () => { $("setFocusGate").checked = !$("setFocusGate").checked; pushSettings(); });
 
@@ -1059,8 +984,6 @@ function pushSettings() {
     authorSummary: $("setAuthor").checked,
     cueStart: $("setCueStart").checked,
     cueCheckpoints: $("setCueCheckpoints").checked,
-    wakeWord: $("setWake").checked,
-    wakePhrase: ($("setWakePhrase").value || "").trim() || "escuta jarvis",
     handsfree: $("setHandsfree").checked,
     interruptMode: $("setInterrupt").checked,
     focusGate: $("setFocusGate").checked,
@@ -1074,14 +997,11 @@ function pushSettings() {
     pumpAudio();
   }
   try { localStorage.setItem("voiceHandsfree", handsfree ? "1" : "0"); } catch (e) {}
-  if (s.wakeWord && wakeState === "off") wakeState = "listening";
-  else if (!s.wakeWord) wakeState = "off";
   hint.textContent = defaultHint();
-  updateWakeBadge();
   reflectToggles();
   post("/settings", s);
 }
-["setVoice","setRate","setLang","setFull","setConfirm","setAuthor","setCueStart","setCueCheckpoints","setHandsfree","setWake","setWakePhrase","setInterrupt","setFocusGate"]
+["setVoice","setRate","setLang","setFull","setConfirm","setAuthor","setCueStart","setCueCheckpoints","setHandsfree","setInterrupt","setFocusGate"]
   .forEach((id) => $(id).addEventListener("change", pushSettings));
 
 (function initVolume() {
@@ -1115,12 +1035,9 @@ function applySettings(s) {
   $("setAuthor").checked = s.authorSummary !== false;
   $("setCueStart").checked = s.cueStart !== false;
   $("setCueCheckpoints").checked = s.cueCheckpoints !== false;
-  $("setWake").checked = !!s.wakeWord;
   if (typeof s.handsfree === "boolean") { $("setHandsfree").checked = s.handsfree; handsfree = s.handsfree; }
   if (typeof s.interruptMode === "boolean") { $("setInterrupt").checked = s.interruptMode; }
   if (typeof s.focusGate === "boolean") { $("setFocusGate").checked = s.focusGate; focusGateOn = s.focusGate; }
-  if (s.wakePhrase) $("setWakePhrase").value = s.wakePhrase;
-  updateWakeBadge();
   reflectToggles();
 }
 
@@ -1545,9 +1462,6 @@ function handle(m) {
       break;
     case "cue":
       setProgress(m.kind, m.spoken);   // linha de progresso; o áudio vem via "audio"
-      break;
-    case "wake":
-      handleWake(m);
       break;
     case "status":
       if (m.state === "thinking") { phase = "thinking"; reflectPhase(); cueLine.style.display = "none"; }

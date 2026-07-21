@@ -75,7 +75,6 @@ function startWorker() {
         VOICE_MODEL_ROOT: MODELS_DIR,
         VOICE_LANG: settings.language,
         VOICE_TTS_MODEL: settings.ttsVoice || "",
-        VOICE_WAKE_PHRASES: settings.wakePhrase || "escuta jarvis",
         VOICE_MIC_DEVICE: settings.micDevice == null ? "" : String(settings.micDevice),
         PYTHONIOENCODING: "utf-8",
         PYTHONUNBUFFERED: "1",
@@ -311,9 +310,6 @@ function onWorkerEvent(ev) {
             stabilityTimer = setTimeout(() => { crashCount = 0; stabilityTimer = null; }, WORKER_STABLE_MS);
             broadcast({ type: "worker", state: "ready", device: lastDevice });
             warmTts();
-            if (settings.wakeWord) {
-                workerSend({ cmd: "wake", on: true, phrases: [settings.wakePhrase] });
-            }
             break;
         case "loading":
             lastLoadingMsg = ev.msg || lastLoadingMsg;
@@ -403,9 +399,6 @@ function onWorkerEvent(ev) {
             if (ev.ok) previewVoice();
             else if (ev.msg) broadcast({ type: "error", msg: ev.msg });
             break;
-        case "wake":
-            broadcast({ type: "wake", state: ev.state, phrase: ev.phrase, msg: ev.msg ?? ev.message });
-            break;
         case "mics":
             lastMics = { devices: ev.devices || [], current: ev.current ?? null, default: ev.default ?? null };
             broadcast({ type: "mics", ...lastMics });
@@ -434,19 +427,6 @@ function onWorkerEvent(ev) {
             lastAppFocused = ev.focused !== false;
             broadcast({ type: "appFocus", focused: lastAppFocused });
             break;
-        case "command": {
-            const c = (ev.text || "").trim();
-            dbg(`wake command: ${c.slice(0, 120)}`);
-            if (c) {
-                const owner = turnOwnerSid || mySid();
-                setTurnOwnerSid(null);
-                broadcastTo(owner, { type: "transcript", text: c, confirm: false });
-                if (timingEnabled()) dbg(`[timing] transcript-ready(cmd) sid=${owner} decode=${ev.ms}ms audio=${ev.dur_ms}ms chars=${c.length}`);
-                tmark("recv", { ms: ev.ms, dur_ms: ev.dur_ms });
-                handleVoiceTranscript(c);
-            }
-            break;
-        }
         case "status":
         case "pong":
         default:
