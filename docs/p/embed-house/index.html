@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>embed-house — copilot-marketplace</title>
+  <meta name="description" content="Um daemon local carrega o MiniLM uma vez e serve vetores a todos os seus plugins — RAM do modelo em O(1), não N × 147 MB." />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#14121C" />
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content="embed-house — copilot-marketplace" />
+  <meta property="og:description" content="Um daemon local carrega o MiniLM uma vez e serve vetores a todos os seus plugins — RAM do modelo em O(1), não N × 147 MB." />
+  <meta property="og:url" content="https://allansantos-dv.github.io/copilot-marketplace/p/embed-house/" />
+  <link rel="canonical" href="https://allansantos-dv.github.io/copilot-marketplace/p/embed-house/" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../assets/styles.css" />
+</head>
+<body class="doc">
+  <a class="skip" href="#conteudo">Pular para o conteúdo</a>
+  <header class="topbar">
+    <a class="brand" href="../../"><span class="brand__glyph" aria-hidden="true">⌁</span> copilot-marketplace</a>
+    <nav class="topnav" aria-label="Seções">
+      <a href="../../#registry">registry</a>
+      <a href="../../#publicar">publicar</a>
+      <a href="https://github.com/AllanSantos-DV/copilot-marketplace" rel="noopener">github<span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main id="conteudo">
+    <nav class="crumbs" aria-label="Trilha">
+      <a href="../../#registry">registry</a>
+      <span class="crumbs__sep" aria-hidden="true">/</span>
+      <span aria-current="page">embed-house</span>
+    </nav>
+
+    <header class="doc-hero">
+      <p class="eyebrow">infrastructure</p>
+      <div class="doc-hero__top">
+        <h1 class="doc-hero__name">embed-house</h1>
+        <span class="chip" title="versão publicada">v1.0.4</span>
+      </div>
+      <p class="doc-hero__lede">A <strong>embed-house</strong> é a casa onde o modelo de embeddings mora. Um daemon local, em <strong>Node puro</strong>, carrega o <code>MiniLM-L6-v2</code> (384 dimensões) <strong>uma única vez</strong> e serve vetores a todos os plugins que precisam deles, por <code>127.0.0.1</code>. Sem ela, cada sessão de cada plugin abria a própria cópia de ~147 MB do <strong>mesmo</strong> modelo. Com ela, a RAM do modelo é constante — dois consumidores ou vinte, é uma casa só.</p>
+      <div class="doc-hero__cta">
+        <a class="lnk lnk--page" href="https://github.com/AllanSantos-DV/copilot-marketplace/releases" rel="noopener">ver releases<span aria-hidden="true">→</span></a>
+      </div>
+      <div class="doc-hero__links">
+        <a class="lnk" href="https://github.com/AllanSantos-DV/embed-house" rel="noopener">código<span aria-hidden="true">↗</span></a>
+      </div>
+      <ul class="hl" aria-label="Destaques">
+        <li class="hl__item">
+          <h3 class="hl__title">Uma casa, N consumidores</h3>
+          <p class="hl__body">Um daemon HTTP local carrega o MiniLM uma vez e serve os mesmos vetores a todos os plugins e sessões por <code>127.0.0.1</code>.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">RAM do modelo em O(1)</h3>
+          <p class="hl__body">Sem casa, N sessões = N × ~147 MB do <strong>mesmo</strong> modelo. Com casa, ~147 MB constante — não importa se são 2 ou 20 consumidores.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">FAIL-LOUD</h3>
+          <p class="hl__body">Se a casa não sobe, <code>embed()</code> devolve <code>null</code> <strong>sinalizado</strong> e o consumidor degrada para um heurístico. Nunca um vetor falso calado.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Cliente fino, plugin leve</h3>
+          <p class="hl__body">O plugin carrega só 3 arquivos; o modelo e o ONNX ficam fora. O <code>node_modules</code> do modo-auto caiu de <strong>375 MB para 23,5 MB</strong>.</p>
+        </li>
+      </ul>
+    </header>
+
+    <div class="doc-grid">
+      <article class="doc-body" id="doc-body">
+        <section class="doc-section" id="por-que-existe">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#por-que-existe" aria-label="Link para Por que a casa existe">#</a>Por que a casa existe</h2>
+          <p>Vários plugins falam a mesma língua de vetores — <strong>drift semântico</strong>, <strong>similaridade</strong>, <strong>convergência de debate</strong> — e todos usam o <strong>mesmo</strong> modelo: o <code>MiniLM-L6-v2</code>, de 384 dimensões.</p>
+          <p>Sem uma casa única, <strong>cada sessão de cada plugin</strong> carrega a própria cópia. São ~<strong>147 MB de RAM</strong> só do modelo, mais um runtime <strong>ONNX</strong> duplicado ao lado. E isso escala <strong>linear</strong>: N sessões, N × ~150 MB do <strong>mesmo</strong> modelo parado na memória, repetido.</p>
+          <p>A embed-house quebra essa conta. Ela carrega o modelo <strong>uma vez</strong> e todos apontam para ela. A RAM do modelo vira <strong>O(1)</strong> — constante, seja com 2 ou com 20 consumidores. É o mesmo modelo, carregado uma vez; o que se multiplicava era a cópia local, nunca a casa.</p>
+          <p>A prova veio ao vivo: quando o <strong>modo-auto</strong> virou consumidor <strong>puro</strong> da casa, o <code>node_modules</code> do plugin caiu de <strong>375 MB para 23,5 MB</strong> — o <code>transformers</code> e o <code>onnxruntime</code> saíram inteiros de dentro do plugin.</p>
+        </section>
+
+        <section class="doc-section" id="como-funciona">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#como-funciona" aria-label="Link para Como funciona">#</a>Como funciona</h2>
+          <p>A casa é um <strong>daemon HTTP local</strong> em Node puro (zero Java). Sobe uma vez, carrega o modelo e serve vetores a N plugins e sessões pela loopback.</p>
+          <ul class="doc-list"><li><strong>Uma casa só, garantida.</strong> A porta é derivada por <strong>hash</strong> (faixa <code>30000–44999</code>) e travada de forma atômica no loopback — existe <strong>sempre</strong> uma casa única. Um segundo consumidor cai na <strong>mesma</strong> porta, no <strong>mesmo PID</strong>.</li><li><strong>Anúncio com heartbeat.</strong> A casa se registra em <code>~/.embed-house/run/runtime.json</code> e bate o coração ali; quem quer embeddings lê esse arquivo e se conecta.</li><li><strong>Re-sobe sozinha.</strong> Derrubou o daemon no meio da sessão? O consumidor recebe <code>null</code> <strong>sinalizado</strong> e a casa se re-provisiona no próximo uso, sem reiniciar o plugin.</li><li><strong>Zero servidor no plugin.</strong> O modelo e o runtime ONNX moram na casa, fora do processo do plugin.</li></ul>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Provado ao vivo (11/11): dois consumidores independentes caem na <strong>mesma</strong> casa (mesma porta, mesmo PID); matar o daemon devolve <code>null</code> sinalizado e a casa volta sozinha; e nada de servidor roda dentro do plugin.</p></aside>
+        </section>
+
+        <section class="doc-section" id="distribuicao">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#distribuicao" aria-label="Link para Como a casa chega até você">#</a>Como a casa chega até você</h2>
+          <p>A embed-house segue o padrão do <strong>vox-engine</strong>: <strong>código-fonte e testes</strong> ficam num repositório <strong>privado</strong> (<code>AllanSantos-DV/embed-house</code>); o que roda na sua máquina vem de um <strong>release público</strong>, verificado.</p>
+          <ul class="doc-list"><li><strong>Release por plataforma.</strong> Pacotes <code>.tgz</code> self-contained para <code>win32-x64</code>, <code>linux-x64</code> e <code>darwin-arm64</code> — cada um traz o próprio <code>node_modules</code> já enxugado para o sistema alvo.</li><li><strong>SHA256 obrigatório.</strong> Todo pacote vem com um sidecar de hash. Sem hash válido, o provisionamento <strong>aborta</strong> — fail-closed, nunca sobe algo que não confere.</li><li><strong>Auto-update on-use.</strong> O consumidor compara a versão instalada com a do release e se atualiza sozinho no uso. Você nunca roda um update à mão.</li></ul>
+        </section>
+
+        <section class="doc-section" id="para-desenvolvedores">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#para-desenvolvedores" aria-label="Link para Para quem escreve plugins">#</a>Para quem escreve plugins</h2>
+          <p>Quer embeddings no seu plugin? Você <strong>não</strong> empacota o modelo nem um servidor. Carrega só o <strong>cliente fino</strong> — <strong>3 arquivos</strong>: <code>ensureDaemon</code> (garante a casa no ar), <code>provision</code> (baixa e verifica o release) e <code>resolveNode</code> (acha o Node certo para rodar).</p>
+          <p>No primeiro <code>embed()</code>, o cliente garante a casa (provisiona se preciso), conecta e devolve o vetor. Se a casa <strong>não</strong> sobe, <code>embed()</code> devolve <code>null</code> <strong>sinalizado</strong> e o seu plugin degrada para um heurístico — <strong>nunca</strong> um vetor falso calado. Ausência é sinalizada, jamais mascarada.</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Você <strong>não instala</strong> a casa e não a versiona junto do seu plugin. Ela <strong>aparece sozinha</strong> no primeiro <code>embed()</code> e é compartilhada com todos os outros consumidores da máquina.</p></aside>
+          <p>O que roda vem do release público: <code>AllanSantos-DV/copilot-marketplace</code>, tag <code>embed-house-v1.0.4</code> — <code>https://github.com/AllanSantos-DV/copilot-marketplace/releases</code>.</p>
+        </section>
+
+        <section class="doc-section" id="instalar">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#instalar" aria-label="Link para Instalar">#</a>Instalar</h2>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Você <strong>não instala</strong> a embed-house — não existe <code>copilot plugin install embed-house</code>. Ela é <strong>provisionada automaticamente</strong> na primeira vez que um plugin que usa embeddings roda: o cliente fino baixa o pacote do <strong>release público</strong>, confere o <strong>SHA256</strong> e sobe o daemon sozinho. Sem hash válido, aborta (fail-closed). Release público: <code>AllanSantos-DV/copilot-marketplace</code>, tag <code>embed-house-v1.0.4</code> — <code>https://github.com/AllanSantos-DV/copilot-marketplace/releases</code>.</p></aside>
+        </section>
+
+        <section class="doc-section" id="faq">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#faq" aria-label="Link para Perguntas frequentes">#</a>Perguntas frequentes</h2>
+          <details class="faq">
+            <summary>Preciso instalar a casa?</summary>
+            <p>Não. Ela é provisionada sozinha na primeira vez que um plugin que usa embeddings roda: baixa do release público, confere o <code>SHA256</code> e sobe. Você não roda nenhum comando.</p>
+          </details>
+          <details class="faq">
+            <summary>E se a casa cair no meio de uma sessão?</summary>
+            <p>O consumidor recebe <code>null</code> <strong>sinalizado</strong> — não um vetor falso — e degrada para um heurístico. A casa se re-sobe sozinha no próximo uso, sem reiniciar o plugin.</p>
+          </details>
+          <details class="faq">
+            <summary>Dois plugins sobem duas casas?</summary>
+            <p>Não. Um port-lock atômico no loopback garante uma casa só: a porta é derivada por hash (faixa <code>30000–44999</code>) e o segundo consumidor cai na <strong>mesma</strong> casa — mesma porta, mesmo PID.</p>
+          </details>
+          <details class="faq">
+            <summary>Por que não empacotar o modelo dentro de cada plugin?</summary>
+            <p>Porque seria o mesmo modelo N vezes na RAM e no disco. Com a casa, o plugin carrega só um cliente fino de 3 arquivos; o modo-auto encolheu de <strong>375 MB para 23,5 MB</strong> ao virar consumidor puro.</p>
+          </details>
+          <details class="faq">
+            <summary>Meus vetores vão para a nuvem?</summary>
+            <p>Não. É tudo local, em <code>127.0.0.1</code>. A casa nunca sai da sua máquina.</p>
+          </details>
+        </section>
+      </article>
+
+      <aside class="doc-rail" aria-label="Nesta página">
+        <nav class="toc" aria-label="Índice">
+          <p class="toc__label">nesta página</p>
+          <ul class="toc__list">
+            <li><a href="#por-que-existe">Por que a casa existe</a></li>
+            <li><a href="#como-funciona">Como funciona</a></li>
+            <li><a href="#distribuicao">Como a casa chega até você</a></li>
+            <li><a href="#para-desenvolvedores">Para quem escreve plugins</a></li>
+            <li><a href="#instalar">Instalar</a></li>
+            <li><a href="#faq">Perguntas frequentes</a></li>
+          </ul>
+        </nav>
+          <dl class="meta">
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.0.4</span></dd></div>
+            <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
+            <div class="meta__row"><dt>categoria</dt><dd>infrastructure</dd></div>
+            <div class="meta__row"><dt>origem</dt><dd>github · AllanSantos-DV/embed-house</dd></div>
+            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>Node 18+ — o daemon é Node puro, sem Java</li><li><code>win32-x64</code>, <code>linux-x64</code> ou <code>darwin-arm64</code> (release por plataforma)</li><li>~150 MB em disco para o modelo + runtime ONNX (uma vez, na casa)</li><li>Uma porta livre no loopback (faixa <code>30000–44999</code>)</li></ul></dd></div>
+            <div class="meta__row"><dt>tags</dt><dd><ul class="tags tags--meta"><li>embeddings</li><li>daemon</li><li>minilm</li><li>infra</li><li>singleton</li><li>pt-BR</li></ul></dd></div>
+          </dl>
+      </aside>
+    </div>
+
+    <nav class="pager" aria-label="Outros plugins">
+      <span></span>
+      <a class="pager__all" href="../../#registry">todos os plugins</a>
+      <span></span>
+    </nav>
+  </main>
+
+  <footer class="foot">
+    <p class="foot__made">Feito por <a href="https://github.com/AllanSantos-DV" rel="noopener">Allan Santos</a> · MIT · página gerada de <code>marketplace.json</code> + <code>docs/content/embed-house.json</code></p>
+    <p class="foot__cmd"><span aria-hidden="true">⌁</span> <a href="https://github.com/AllanSantos-DV/copilot-marketplace/releases" rel="noopener"><code>releases ↗</code></a></p>
+  </footer>
+
+  <script src="../../assets/app.js" defer></script>
+</body>
+</html>

@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">voice-chat</h1>
-        <span class="chip" title="versão publicada">v2.0.1</span>
+        <span class="chip" title="versão publicada">v2.2.0</span>
       </div>
       <p class="doc-hero__lede">O <strong>voice-chat</strong> transforma o terminal numa conversa: você segura para falar, o motor único local <strong><code>vox-engine</code></strong> transcreve na sua máquina, o texto vira um turno normal do Copilot e uma voz neural em pt-BR lê o resumo de volta. Fala e voz — <strong>STT e TTS</strong> — passam pelo <strong>mesmo</strong> motor, e <strong>nenhum áudio sai do computador</strong>. A <strong>2.0.0</strong> deixou a extensão <strong>fina</strong>: cada sessão do Copilot agora grava, transcreve, injeta a fala e toca o áudio <strong>na própria sessão</strong>, direto com o motor — sem a antiga camada de roteamento entre sessões que fazia a fala se perder ou duplicar depois de um <strong>Stop</strong>. A <strong>2.0.1</strong> fecha a última corrida entre sessões: como o microfone é <strong>um só</strong> na máquina, agora <strong>só uma sessão grava por vez</strong> — as outras são avisadas na hora, e uma sessão inativa <strong>libera o microfone sozinha</strong>.</p>
       <div class="doc-hero__cta">
@@ -161,9 +161,19 @@
               <span class="tree__size">7.3 KB</span>
             </li>
             <li class="tree__row">
+              <code class="tree__name">capture_port.py</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">8.4 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">capture_session.py</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">9.3 KB</span>
+            </li>
+            <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
               <span class="tree__role">Coração da extensão in-app: painel Voz, a tool <code>falar</code> e a orquestração STT → agente → TTS, tudo na própria sessão — e o <strong>lock de gravação</strong> compartilhado que mantém <strong>uma sessão por microfone</strong>.</span>
-              <span class="tree__size">59 KB</span>
+              <span class="tree__size">61 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">hooks.json</code>
@@ -173,7 +183,7 @@
             <li class="tree__row">
               <code class="tree__name">iframe.html</code>
               <span class="tree__role">O painel <strong>Voz</strong> em si — a interface do canvas: microfone, barra de intensidade, histórico (anterior/repetir/pausar/próximo) e os modos mãos-livres e interromper.</span>
-              <span class="tree__size">73 KB</span>
+              <span class="tree__size">72 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
@@ -188,7 +198,7 @@
             <li class="tree__row">
               <code class="tree__name">voice_worker.py</code>
               <span class="tree__role">Worker de voz em Python: captura o microfone e faz a ponte STT + TTS com o <code>vox-engine</code> pelo named pipe (VAD local com sherpa-onnx).</span>
-              <span class="tree__size">103 KB</span>
+              <span class="tree__size">59 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice-audio.mjs</code>
@@ -203,12 +213,12 @@
             <li class="tree__row">
               <code class="tree__name">voice-core.mjs</code>
               <span class="tree__role">Utilitários base: log em arquivo e I/O em disco.</span>
-              <span class="tree__size">2.6 KB</span>
+              <span class="tree__size">3.9 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice-net.mjs</code>
               <span class="tree__role">Servidor HTTP + SSE <strong>local da própria sessão</strong> (porta efêmera que serve só o próprio painel) — sem porta canônica nem roteamento entre sessões. O <code>/rec/start</code> recusa a gravação quando o microfone já está em uso por outra sessão.</span>
-              <span class="tree__size">21 KB</span>
+              <span class="tree__size">20 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice-python.mjs</code>
@@ -256,14 +266,24 @@
               <span class="tree__size">7.5 KB</span>
             </li>
             <li class="tree__row">
+              <code class="tree__name">vox_capture_adapter.py</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">9.6 KB</span>
+            </li>
+            <li class="tree__row">
               <code class="tree__name">vox_capture.py</code>
               <span class="tree__role">Captura de microfone reutilizável (16 kHz mono), segmentando fora da thread de áudio.</span>
               <span class="tree__size">13 KB</span>
             </li>
             <li class="tree__row">
+              <code class="tree__name">vox_lifecycle.py</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">51 KB</span>
+            </li>
+            <li class="tree__row">
               <code class="tree__name">vox_sdk.py</code>
               <span class="tree__role">O <strong>vox-SDK</strong>: instala/atualiza/usa o <code>vox-engine</code>, conferindo a <strong>assinatura Ed25519</strong> do instalador antes de rodar (fail-closed).</span>
-              <span class="tree__size">82 KB</span>
+              <span class="tree__size">59 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">vox_stream.py</code>
@@ -332,7 +352,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v2.0.1</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v2.2.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>

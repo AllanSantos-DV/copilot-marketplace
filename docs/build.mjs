@@ -37,6 +37,18 @@ const REGISTER_CMD = "copilot plugin marketplace add AllanSantos-DV/copilot-mark
 const installCmd = (name) => `copilot plugin install ${name}@copilot-marketplace`;
 const updateCmd = (name) => `copilot plugin update ${name}`;
 
+// Distribuição pública dos daemons (kind=daemon): releases, não `copilot plugin install`.
+const RELEASE_URL = "https://github.com/AllanSantos-DV/copilot-marketplace/releases";
+// kind do item do manifesto. FAIL-LOUD: kind desconhecido (typo) LANÇA — nada de comportamento silencioso.
+const VALID_KINDS = new Set(["plugin", "daemon"]);
+function kindOf(p) {
+  const k = p.kind ?? "plugin";
+  if (!VALID_KINDS.has(k)) throw new Error(`marketplace.json: '${p.name}' tem kind desconhecido '${k}' (esperado: ${[...VALID_KINDS].join(" | ")})`);
+  return k;
+}
+// Daemon = infraestrutura provisionada (ex.: embed-house), NÃO um plugin instalável via CLI.
+const isDaemon = (p) => kindOf(p) === "daemon";
+
 // Papel curto de cada arquivo de runtime, para a seção "Estrutura" contar uma história em vez
 // de só listar nomes. O content file pode sobrescrever via `files: { "arquivo": "papel" }`.
 const FILE_ROLES = {
@@ -208,6 +220,11 @@ function contentSection(sec) {
 }
 
 function installSection(p) {
+  // Daemon: não se instala via CLI — mostra a nota HONESTA de provisionamento (do content.install_note).
+  if (isDaemon(p)) {
+    const note = p.content.install_note ?? "Provisionada automaticamente pelos plugins que usam embeddings — você não instala nada à mão.";
+    return sectionShell("instalar", "Instalar", `          ${block({ type: "note", tone: "info", text: note })}`);
+  }
   const canvas = p.markers.extensions
     ? block({
         type: "note",
@@ -230,7 +247,7 @@ function installSection(p) {
 }
 
 function structureSection(p) {
-  if (!p.files.length) return "";
+  if (isDaemon(p) || !p.files.length) return ""; // daemon não é runtime vendado → sem árvore de arquivos
   const rows = p.files
     .map(
       (f) => `            <li class="tree__row">
@@ -371,7 +388,9 @@ ${c.highlights
       </div>
       <p class="doc-hero__lede">${inline(lede)}</p>
       <div class="doc-hero__cta">
-        ${promptLine(installCmd(p.name), `Copiar comando de instalação do ${p.name}`)}
+        ${isDaemon(p)
+          ? `<a class="lnk lnk--page" href="${RELEASE_URL}" rel="noopener">ver releases<span aria-hidden="true">→</span></a>`
+          : promptLine(installCmd(p.name), `Copiar comando de instalação do ${p.name}`)}
       </div>
       <div class="doc-hero__links">
         ${links(p)}
@@ -404,7 +423,7 @@ ${metaAside(p)}
 
   <footer class="foot">
     <p class="foot__made">Feito por <a href="https://github.com/AllanSantos-DV" rel="noopener">Allan Santos</a> · MIT · página gerada de <code>marketplace.json</code> + <code>docs/content/${esc(p.name)}.json</code></p>
-    <p class="foot__cmd"><span aria-hidden="true">⌁</span> <code>${esc(installCmd(p.name))}</code></p>
+    <p class="foot__cmd"><span aria-hidden="true">⌁</span> ${isDaemon(p) ? `<a href="${RELEASE_URL}" rel="noopener"><code>releases ↗</code></a>` : `<code>${esc(installCmd(p.name))}</code>`}</p>
   </footer>
 
   <script src="../../assets/app.js" defer></script>
@@ -417,6 +436,13 @@ ${metaAside(p)}
 function card(p) {
   const cmd = installCmd(p.name);
   const href = `p/${esc(p.name)}/`;
+  const cta = isDaemon(p)
+    ? `<p class="card__infra">infraestrutura · provisionada automaticamente</p>`
+    : `<div class="prompt prompt--sm" data-cmd="${esc(cmd)}">
+          <span class="prompt__glyph" aria-hidden="true">⌁</span>
+          <code class="prompt__cmd">${esc(cmd)}</code>
+          <button class="copy" type="button" data-copy="${esc(cmd)}" aria-label="Copiar comando de instalação do ${esc(p.name)}">copiar</button>
+        </div>`;
   return `      <article class="card" id="p-${esc(p.name)}">
         <header class="card__head">
           <h3 class="card__name"><a href="${href}">${esc(p.name)}</a></h3>
@@ -425,11 +451,7 @@ function card(p) {
         <p class="card__cat">${esc(p.category ?? "plugin")}</p>
         <p class="card__desc">${esc(p.content.tagline ?? p.description)}</p>
         <ul class="tags" aria-label="palavras-chave">${tags(p)}</ul>
-        <div class="prompt prompt--sm" data-cmd="${esc(cmd)}">
-          <span class="prompt__glyph" aria-hidden="true">⌁</span>
-          <code class="prompt__cmd">${esc(cmd)}</code>
-          <button class="copy" type="button" data-copy="${esc(cmd)}" aria-label="Copiar comando de instalação do ${esc(p.name)}">copiar</button>
-        </div>
+        ${cta}
         <footer class="card__links">
           <a class="lnk lnk--page" href="${href}">página dedicada<span aria-hidden="true">→</span></a>
           ${links(p)}
@@ -459,7 +481,7 @@ function pipeline() {
 }
 
 function renderIndex({ plugins }) {
-  const count = plugins.length;
+  const count = plugins.filter((p) => !isDaemon(p)).length; // conta só plugins instaláveis (daemon não infla o número)
   const cards = plugins.map(card).join("\n");
   const desc = `Vitrine dos ${count} plugins do Allan para o GitHub Copilot CLI: voz, controle remoto, memória de reuniões, ponte mobile e infra de canvas. 100% local, pt-BR. Cada plugin tem sua página dedicada.`;
   return `<!doctype html>
@@ -572,11 +594,19 @@ const data = load();
 writeFileSync(OUT_INDEX, renderIndex(data), "utf8");
 
 const list = data.plugins;
+// prev/next navega só entre plugins INSTALÁVEIS — daemons (infra) ficam fora da paginação dos outros e da própria.
+const navigable = list.filter((p) => !isDaemon(p));
 let pages = 0;
-list.forEach((p, i) => {
+list.forEach((p) => {
   const dir = join(PAGES_DIR, p.name);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "index.html"), pluginPage(p, list[i - 1], list[i + 1]), "utf8");
+  let prev, next;
+  if (!isDaemon(p)) {
+    const ni = navigable.indexOf(p);
+    prev = navigable[ni - 1];
+    next = navigable[ni + 1];
+  }
+  writeFileSync(join(dir, "index.html"), pluginPage(p, prev, next), "utf8");
   pages += 1;
 });
 
