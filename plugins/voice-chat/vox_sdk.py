@@ -49,7 +49,7 @@ from typing import Literal
 # ---------------------------------------------------------------------------
 # CONFIG canônica — fonte única (os MESMOS valores no SDK Node irmão).
 # ---------------------------------------------------------------------------
-SDK_VERSION = "1.9.0"
+SDK_VERSION = "1.10.0"
 
 RELEASES_API = ("https://api.github.com/repos/AllanSantos-DV/"
                 "copilot-marketplace/releases")
@@ -1469,6 +1469,26 @@ def _run_installer(args, *, timeout: float, log_path: str):
     return types.SimpleNamespace(returncode=rc, timed_out=False)
 
 
+def _zip_assert_safe(z: "zipfile.ZipFile", dest: str) -> None:
+    """GUARD de Zip Slip (defense-in-depth, CWE-22) para a extração do instalador — self
+    contido no SDK (vendorável, stdlib-pura). Levanta ``ValueError`` ANTES de escrever se
+    QUALQUER membro tentar escapar ``dest``: componente ``..``/caminho absoluto, alvo
+    resolvido fora do destino, ou SYMLINK (o ``zipfile`` do Python não protege symlink;
+    detectado nos 16 bits altos do ``external_attr`` = modo Unix, máscara S_IFLNK 0o120000).
+    O blob já é verificado por Ed25519 antes daqui — isto é cinto-e-suspensório."""
+    dest_abs = os.path.realpath(dest)
+    prefix = dest_abs + os.sep
+    for info in z.infolist():
+        name = info.filename
+        if (info.external_attr >> 16) & 0o170000 == 0o120000:
+            raise ValueError(f"symlink recusado no zip: {name!r}")
+        if os.path.isabs(name) or name.startswith(("/", "\\")):
+            raise ValueError(f"caminho absoluto recusado no zip: {name!r}")
+        target = os.path.realpath(os.path.join(dest_abs, name))
+        if target != dest_abs and not target.startswith(prefix):
+            raise ValueError(f"caminho fora do destino recusado no zip: {name!r}")
+
+
 def download_and_run_installer(asset_url: str, sig_url: "str | None" = None, *,
                                http_get=None, run=None, extra_args=None,
                                pipe: "str | None" = None,
@@ -1554,8 +1574,9 @@ def download_and_run_installer(asset_url: str, sig_url: "str | None" = None, *,
         out_path = os.path.join(tmp, "install-output.log")
         try:
             with zipfile.ZipFile(io.BytesIO(bytes(blob))) as z:
+                _zip_assert_safe(z, tmp)   # GUARD Zip Slip (fail-loud) antes de escrever
                 z.extractall(tmp)
-        except Exception:  # noqa: BLE001 — zip corrompido / download parcial
+        except Exception:  # noqa: BLE001 — zip corrompido / download parcial / traversal
             return False
         install_ps1 = os.path.join(tmp, "install.ps1")
         if not os.path.exists(install_ps1):
