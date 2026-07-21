@@ -65,6 +65,31 @@ Toda leitura/escrita carrega `project_id`. A memória de um projeto **nunca** va
 a composição do recall e o reforço/poda (telemetria, Sweeper, Dreaming) são do **servidor** — o
 plugin não recria nada disso.
 
+### Como o `project_id` é resolvido (escada ESTRITA)
+
+O `project_id` é a **fronteira de isolamento**. O plugin resolve com uma escada curta e determinística
+(`lib/projectId.mjs`), o **1º não-vazio vence**:
+
+1. **Marcador `.memory/project.json`** na raiz do projeto (`metadata.defaults.project_id`). A raiz é
+   achada **subindo** a partir do cwd (`findProjectRoot`: cwd → `git rev-parse --show-toplevel` →
+   repo-base via `git-common-dir`). Assim **worktrees e subpastas do mesmo projeto convergem no MESMO
+   id** — mata o drift de nomenclatura. Portável entre máquinas/pessoas.
+2. **`git remote origin`** normalizado para `host/owner/repo` minúsculo (único por repositório,
+   portável entre máquinas).
+3. **Nada disso → erro cravado (fail-loud).** Sem identificador estável, a memória **não é gravada nem
+   injetada**: as tools retornam uma mensagem acionável e o recall não dispara. É **intencional** —
+   evita espalhar "escopo-lixo" indexado por caminho de pasta (`C:\…`, `Temp`, `AppData`), que poluía
+   o corpus compartilhado. O nudge de `onboarding` sugere criar o marcador OU usar um repo com remote.
+
+**Não há** fallback de caminho absoluto nem de nome-de-pasta (eram a origem do lixo). O `git-common-dir`
+só **localiza** o marcador na raiz (worktrees) — nunca vira id. Um **piso de segurança**
+(`assertSafeProjectId`) recusa, por via das dúvidas, qualquer id com forma de caminho de filesystem
+(drive `C:\`, UNC, abs unix, backslash). Um id normal `owner/repo` (mesmo com um segmento chamado
+`appdata`) passa.
+
+> Sem git remote **e** sem marcador, crie o `.memory/project.json` (via `memory_init_project`) — é a
+> forma recomendada e portável de dar um escopo estável a projetos sem remote.
+
 ## Tools
 
 | Tool | O que faz |
