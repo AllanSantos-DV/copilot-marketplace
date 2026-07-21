@@ -1,0 +1,8 @@
+{
+  "name": "embed-house",
+  "version": "1.0.4",
+  "kind": "daemon",
+  "description": "Casa de embeddings compartilhada (daemon MiniLM-L6-v2, 384-dim). Provisionada automaticamente pelos plugins que usam embeddings — não é um plugin instalável.",
+  "extensions": false,
+  "hooks": false
+}

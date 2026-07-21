@@ -1,0 +1,78 @@
+{
+  "tagline": "Um daemon local carrega o MiniLM uma vez e serve vetores a todos os seus plugins — RAM do modelo em O(1), não N × 147 MB.",
+  "lede": "A **embed-house** é a casa onde o modelo de embeddings mora. Um daemon local, em **Node puro**, carrega o `MiniLM-L6-v2` (384 dimensões) **uma única vez** e serve vetores a todos os plugins que precisam deles, por `127.0.0.1`. Sem ela, cada sessão de cada plugin abria a própria cópia de ~147 MB do **mesmo** modelo. Com ela, a RAM do modelo é constante — dois consumidores ou vinte, é uma casa só.",
+  "install_note": "Você **não instala** a embed-house — não existe `copilot plugin install embed-house`. Ela é **provisionada automaticamente** na primeira vez que um plugin que usa embeddings roda: o cliente fino baixa o pacote do **release público**, confere o **SHA256** e sobe o daemon sozinho. Sem hash válido, aborta (fail-closed). Release público: `AllanSantos-DV/copilot-marketplace`, tag `embed-house-v1.0.4` — `https://github.com/AllanSantos-DV/copilot-marketplace/releases`.",
+  "highlights": [
+    { "title": "Uma casa, N consumidores", "body": "Um daemon HTTP local carrega o MiniLM uma vez e serve os mesmos vetores a todos os plugins e sessões por `127.0.0.1`." },
+    { "title": "RAM do modelo em O(1)", "body": "Sem casa, N sessões = N × ~147 MB do **mesmo** modelo. Com casa, ~147 MB constante — não importa se são 2 ou 20 consumidores." },
+    { "title": "FAIL-LOUD", "body": "Se a casa não sobe, `embed()` devolve `null` **sinalizado** e o consumidor degrada para um heurístico. Nunca um vetor falso calado." },
+    { "title": "Cliente fino, plugin leve", "body": "O plugin carrega só 3 arquivos; o modelo e o ONNX ficam fora. O `node_modules` do modo-auto caiu de **375 MB para 23,5 MB**." }
+  ],
+  "sections": [
+    {
+      "id": "por-que-existe",
+      "title": "Por que a casa existe",
+      "blocks": [
+        { "type": "p", "text": "Vários plugins falam a mesma língua de vetores — **drift semântico**, **similaridade**, **convergência de debate** — e todos usam o **mesmo** modelo: o `MiniLM-L6-v2`, de 384 dimensões." },
+        { "type": "p", "text": "Sem uma casa única, **cada sessão de cada plugin** carrega a própria cópia. São ~**147 MB de RAM** só do modelo, mais um runtime **ONNX** duplicado ao lado. E isso escala **linear**: N sessões, N × ~150 MB do **mesmo** modelo parado na memória, repetido." },
+        { "type": "p", "text": "A embed-house quebra essa conta. Ela carrega o modelo **uma vez** e todos apontam para ela. A RAM do modelo vira **O(1)** — constante, seja com 2 ou com 20 consumidores. É o mesmo modelo, carregado uma vez; o que se multiplicava era a cópia local, nunca a casa." },
+        { "type": "p", "text": "A prova veio ao vivo: quando o **modo-auto** virou consumidor **puro** da casa, o `node_modules` do plugin caiu de **375 MB para 23,5 MB** — o `transformers` e o `onnxruntime` saíram inteiros de dentro do plugin." }
+      ]
+    },
+    {
+      "id": "como-funciona",
+      "title": "Como funciona",
+      "blocks": [
+        { "type": "p", "text": "A casa é um **daemon HTTP local** em Node puro (zero Java). Sobe uma vez, carrega o modelo e serve vetores a N plugins e sessões pela loopback." },
+        {
+          "type": "list",
+          "items": [
+            "**Uma casa só, garantida.** A porta é derivada por **hash** (faixa `30000–44999`) e travada de forma atômica no loopback — existe **sempre** uma casa única. Um segundo consumidor cai na **mesma** porta, no **mesmo PID**.",
+            "**Anúncio com heartbeat.** A casa se registra em `~/.embed-house/run/runtime.json` e bate o coração ali; quem quer embeddings lê esse arquivo e se conecta.",
+            "**Re-sobe sozinha.** Derrubou o daemon no meio da sessão? O consumidor recebe `null` **sinalizado** e a casa se re-provisiona no próximo uso, sem reiniciar o plugin.",
+            "**Zero servidor no plugin.** O modelo e o runtime ONNX moram na casa, fora do processo do plugin."
+          ]
+        },
+        { "type": "note", "tone": "info", "text": "Provado ao vivo (11/11): dois consumidores independentes caem na **mesma** casa (mesma porta, mesmo PID); matar o daemon devolve `null` sinalizado e a casa volta sozinha; e nada de servidor roda dentro do plugin." }
+      ]
+    },
+    {
+      "id": "distribuicao",
+      "title": "Como a casa chega até você",
+      "blocks": [
+        { "type": "p", "text": "A embed-house segue o padrão do **vox-engine**: **código-fonte e testes** ficam num repositório **privado** (`AllanSantos-DV/embed-house`); o que roda na sua máquina vem de um **release público**, verificado." },
+        {
+          "type": "list",
+          "items": [
+            "**Release por plataforma.** Pacotes `.tgz` self-contained para `win32-x64`, `linux-x64` e `darwin-arm64` — cada um traz o próprio `node_modules` já enxugado para o sistema alvo.",
+            "**SHA256 obrigatório.** Todo pacote vem com um sidecar de hash. Sem hash válido, o provisionamento **aborta** — fail-closed, nunca sobe algo que não confere.",
+            "**Auto-update on-use.** O consumidor compara a versão instalada com a do release e se atualiza sozinho no uso. Você nunca roda um update à mão."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "para-desenvolvedores",
+      "title": "Para quem escreve plugins",
+      "blocks": [
+        { "type": "p", "text": "Quer embeddings no seu plugin? Você **não** empacota o modelo nem um servidor. Carrega só o **cliente fino** — **3 arquivos**: `ensureDaemon` (garante a casa no ar), `provision` (baixa e verifica o release) e `resolveNode` (acha o Node certo para rodar)." },
+        { "type": "p", "text": "No primeiro `embed()`, o cliente garante a casa (provisiona se preciso), conecta e devolve o vetor. Se a casa **não** sobe, `embed()` devolve `null` **sinalizado** e o seu plugin degrada para um heurístico — **nunca** um vetor falso calado. Ausência é sinalizada, jamais mascarada." },
+        { "type": "note", "tone": "info", "text": "Você **não instala** a casa e não a versiona junto do seu plugin. Ela **aparece sozinha** no primeiro `embed()` e é compartilhada com todos os outros consumidores da máquina." },
+        { "type": "p", "text": "O que roda vem do release público: `AllanSantos-DV/copilot-marketplace`, tag `embed-house-v1.0.4` — `https://github.com/AllanSantos-DV/copilot-marketplace/releases`." }
+      ]
+    }
+  ],
+  "requirements": [
+    "Node 18+ — o daemon é Node puro, sem Java",
+    "`win32-x64`, `linux-x64` ou `darwin-arm64` (release por plataforma)",
+    "~150 MB em disco para o modelo + runtime ONNX (uma vez, na casa)",
+    "Uma porta livre no loopback (faixa `30000–44999`)"
+  ],
+  "faq": [
+    { "q": "Preciso instalar a casa?", "a": "Não. Ela é provisionada sozinha na primeira vez que um plugin que usa embeddings roda: baixa do release público, confere o `SHA256` e sobe. Você não roda nenhum comando." },
+    { "q": "E se a casa cair no meio de uma sessão?", "a": "O consumidor recebe `null` **sinalizado** — não um vetor falso — e degrada para um heurístico. A casa se re-sobe sozinha no próximo uso, sem reiniciar o plugin." },
+    { "q": "Dois plugins sobem duas casas?", "a": "Não. Um port-lock atômico no loopback garante uma casa só: a porta é derivada por hash (faixa `30000–44999`) e o segundo consumidor cai na **mesma** casa — mesma porta, mesmo PID." },
+    { "q": "Por que não empacotar o modelo dentro de cada plugin?", "a": "Porque seria o mesmo modelo N vezes na RAM e no disco. Com a casa, o plugin carrega só um cliente fino de 3 arquivos; o modo-auto encolheu de **375 MB para 23,5 MB** ao virar consumidor puro." },
+    { "q": "Meus vetores vão para a nuvem?", "a": "Não. É tudo local, em `127.0.0.1`. A casa nunca sai da sua máquina." }
+  ]
+}
