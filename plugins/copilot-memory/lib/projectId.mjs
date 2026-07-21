@@ -1,15 +1,23 @@
-// Réplica FIEL do ProjectIdResolver.java (native-java) + o passo do .memory/project.json: a escada
-// determinística (o primeiro não-vazio vence) que gera o project_id lógico de um workspace.
-//   0. .memory/project.json → metadata.defaults.project_id (INTENÇÃO DECLARADA — vence tudo)
-//   1. git remote get-url origin  → normalizado para host/owner/repo minúsculo
-//   2. repo base via git-common-dir (estável entre worktrees quando não há origin)
-//   3. caminho absoluto do workspace (normalizado)
-//   4. nome da pasta
-// Se nada produzir valor: FALHA ALTO (nunca cai para home). Isto é o que faz o plugin
-// carimbar/consultar com o MESMO escopo que o servidor entende — sem isso, o recall não casa.
+// Escada ESTRITA e determinística que gera o project_id lógico de um workspace — a FRONTEIRA DE
+// ISOLAMENTO da memória. Curta de propósito (o 1º não-vazio vence):
+//   1. MARCADOR .memory/project.json → metadata.defaults.project_id. Achado SUBINDO até a raiz do
+//      projeto (findProjectRoot): worktrees E subpastas do mesmo projeto convergem no MESMO id.
+//   2. git remote origin normalizado → host/owner/repo minúsculo (único por repo, portável entre PCs).
+//   3. Nada disso → FALHA ALTO (fail-loud). Sem identificador estável NÃO se grava nem se injeta —
+//      é intencional: caminho de pasta vira escopo-lixo (C:\, Temp, AppData) que polui a memória.
+// REMOVIDOS de propósito: os antigos fallbacks de caminho absoluto / nome-de-pasta / git-common-dir
+// como ID (eram a origem do lixo). O git-common-dir agora só LOCALIZA o marcador (não vira id).
+// Piso de segurança (assertSafeProjectId): mesmo que um id derive de path, é recusado.
 import { execFileSync } from "node:child_process";
-import { resolve as pathResolve, basename, dirname } from "node:path";
-import { loadProjectConfig, declaredProjectId } from "./projectConfig.mjs";
+import { existsSync } from "node:fs";
+import { resolve as pathResolve, dirname } from "node:path";
+import { loadProjectConfig, declaredProjectId, projectConfigPath } from "./projectConfig.mjs";
+
+// Mensagem ACIONÁVEL única (reusada pelo throw do resolver e pelos guards das tools/hooks).
+export const SCOPE_HELP =
+    "Crie um .memory/project.json na raiz do projeto (metadata.defaults.project_id, ex.: \"owner/projeto\") " +
+    "OU trabalhe num repositório com git remote origin. Sem um identificador estável, a memória NÃO é " +
+    "gravada nem injetada — isso evita espalhar escopo-lixo pelo caminho da pasta.";
 
 // Normaliza uma URL de remote git para host/owner/repo, colapsando esquema, credenciais,
 // sufixo .git e caixa. https://github.com/Acme/Widgets.git e git@github.com:Acme/Widgets.git
@@ -82,49 +90,73 @@ export function gitRepoBase(workspacePath) {
     }
 }
 
-// Resolve o project_id lógico para o caminho de workspace dado. Lança se impossível (fail-loud).
-// Escada (o 1º não-vazio vence) — aprimora o ProjectIdResolver do servidor com o passo 2:
-//   1. git remote normalizado         → estável entre worktrees E máquinas (== servidor)
-//   2. repo base via git-common-dir    → estável entre worktrees quando NÃO há origin (fecha o furo)
-//   3. caminho absoluto → nome da pasta → folder puro sem git (estável: não há worktree)
+// Existe um marcador .memory/project.json neste diretório? (nunca lança)
+function hasMarker(dir) {
+    try { return existsSync(projectConfigPath(dir)); } catch { return false; }
+}
+function safeResolve(p) {
+    try { const abs = pathResolve(p); return abs && abs.trim() ? abs : null; } catch { return null; }
+}
+
+// Localiza a RAIZ do projeto que contém o marcador .memory/project.json, sem walk-up ilimitado de
+// filesystem (era o que "escalava até o CWD" e criava lixo). Ordem:
+//   1. o próprio dir tem marcador → dir (não-git com marcador na raiz, OU git rodando da raiz).
+//   2. git toplevel tem marcador → toplevel (subpasta/worktree com marcador RASTREADO).
+//   3. repo-base (git-common-dir) tem marcador → base (worktree com marcador UNTRACKED só no base).
+// Assim worktrees E subpastas do mesmo projeto convergem na MESMA raiz → MESMO project_id. null se
+// não achar marcador em nenhuma dessas âncoras (fora de git NÃO sobe o filesystem: retorna null).
+export function findProjectRoot(workspacePath) {
+    const dir = workspacePath && String(workspacePath).trim() ? String(workspacePath).trim() : null;
+    if (!dir) return null;
+    if (hasMarker(dir)) return safeResolve(dir);
+    const top = safeResolve(git(["rev-parse", "--show-toplevel"], dir));
+    if (top && hasMarker(top)) return top;
+    const base = gitRepoBase(dir);
+    if (base && hasMarker(base)) return safeResolve(base);
+    return null;
+}
+
+// PISO DE SEGURANÇA (defesa em profundidade): recusa um project_id que PAREÇA caminho de filesystem
+// (raiz de disco, UNC, abs unix, ou qualquer backslash — que cobre caminhos Windows como AppData/Temp).
+// Nenhum id legítimo — declarado (owner/repo) ou git-remote (host/owner/repo) — tem essa forma; um
+// segmento chamado "appdata" num id owner/repo é legítimo e passa. Lança com mensagem acionável.
+export function assertSafeProjectId(projectId) {
+    const s = projectId == null ? "" : String(projectId).trim();
+    if (!s) throw new Error("project_id vazio. " + SCOPE_HELP);
+    const looksLikePath =
+        /^[A-Za-z]:[\\/]/.test(s) ||         // C:\ ou C:/ (drive Windows)
+        s.startsWith("\\\\") ||               // UNC \\server\share
+        s.startsWith("/") ||                  // caminho absoluto unix
+        s.includes("\\");                     // qualquer backslash — cobre AppData/Temp/... do Windows (que sempre têm \)
+    if (looksLikePath) {
+        throw new Error(
+            "project_id parece um caminho de sistema de arquivos (\"" + s + "\") — recusado para não " +
+            "criar escopo-lixo. " + SCOPE_HELP);
+    }
+    return s;
+}
+
+// Resolve o project_id lógico do workspace. Lança (fail-loud) se impossível. Escada ESTRITA:
+//   1. marcador declarado (achado subindo à raiz via findProjectRoot) → vence
+//   2. git remote origin normalizado
+//   3. nada → THROW com mensagem acionável (sem escopo-lixo)
 export function resolveProjectId(workspacePath) {
     const dir = workspacePath && String(workspacePath).trim() ? String(workspacePath).trim() : null;
-    if (!dir) {
-        throw new Error("Não foi possível resolver project_id: workspace vazio.");
+    if (!dir) throw new Error("Não foi possível resolver project_id: workspace vazio. " + SCOPE_HELP);
+
+    // Passo 1 — INTENÇÃO DECLARADA: marcador na raiz do projeto (worktree/subpasta convergem).
+    const root = findProjectRoot(dir);
+    if (root) {
+        const declared = declaredProjectId(loadProjectConfig(root));
+        if (declared) return assertSafeProjectId(declared);
     }
 
-    // Passo 0 — INTENÇÃO DECLARADA: .memory/project.json → metadata.defaults.project_id. Vence tudo,
-    // porque é a escolha explícita do usuário (portável entre máquinas/pessoas, independe de git/path).
-    const declared = declaredProjectId(loadProjectConfig(dir));
-    if (declared) return declared;
-
-    // Passo 1 — git remote normalizado.
+    // Passo 2 — git remote origin normalizado (único por repo, portável entre máquinas).
     const norm = normalizeGitRemote(gitRemoteOriginUrl(dir));
-    if (norm) return norm;
+    if (norm) return assertSafeProjectId(norm);
 
-    // Passo 2 — repo base (git-common-dir), estável entre worktrees sem origin.
-    const base = gitRepoBase(dir);
-    if (base) {
-        try {
-            const abs = pathResolve(base);
-            if (abs && abs.trim()) return abs;
-        } catch { /* cai para o passo 3 */ }
-    }
-
-    // Passo 3 — caminho absoluto normalizado.
-    try {
-        const abs = pathResolve(dir);
-        if (abs && abs.trim()) return abs;
-    } catch { /* cai para o nome */ }
-
-    // Passo 3b — nome da pasta.
-    const name = basename(dir);
-    if (name && name.trim()) return name;
-
-    throw new Error(
-        "Não foi possível resolver project_id para o workspace: " + workspacePath +
-        ". Nenhum remote git, repo base, caminho absoluto ou nome de pasta válido."
-    );
+    // Passo 3 — sem identificador estável: FALHA ALTO.
+    throw new Error("Não foi possível resolver project_id para: " + workspacePath + ". " + SCOPE_HELP);
 }
 
 // Tenta resolver; devolve null em vez de lançar (útil em hooks best-effort).
@@ -136,57 +168,39 @@ export function tryResolveProjectId(workspacePath) {
     }
 }
 
-// De ONDE veio o project_id — a "força" do escopo. Usado pelo nudge de scaffold (parte B): só um
-// escopo FRÁGIL (path/name, sem declaração nem git remote/base) merece sugerir criar o project.json.
-//   "declared" → .memory/project.json (forte, portável)
+// De ONDE viria o project_id — a "força" do escopo. Usado pelo nudge de scaffold: escopo "none"
+// (sem marcador declarado E sem git remote) é o que dispara a sugestão de criar o project.json.
+//   "declared"   → marcador .memory/project.json (forte, portável; achado subindo à raiz)
 //   "git-remote" → origin normalizado (forte, portável entre máquinas)
-//   "git-base" → repo base sem origin (estável entre worktrees, mas local)
-//   "path" | "name" → FRÁGIL (não portável; recall não casa entre máquinas/pessoas)
-//   "none" → não resolveu
+//   "none"       → não resolve → o resolver LANÇA (fail-loud); nada é gravado/injetado
 export function projectIdStrength(workspacePath) {
     const dir = workspacePath && String(workspacePath).trim() ? String(workspacePath).trim() : null;
     if (!dir) return "none";
-    if (declaredProjectId(loadProjectConfig(dir))) return "declared";
+    const root = findProjectRoot(dir);
+    if (root && declaredProjectId(loadProjectConfig(root))) return "declared";
     if (normalizeGitRemote(gitRemoteOriginUrl(dir))) return "git-remote";
-    if (gitRepoBase(dir)) return "git-base";
-    try { if (pathResolve(dir)) return "path"; } catch { /* ignore */ }
-    if (basename(dir)) return "name";
     return "none";
 }
 
 export function isFragileScope(workspacePath) {
-    const s = projectIdStrength(workspacePath);
-    return s === "path" || s === "name" || s === "none";
+    return projectIdStrength(workspacePath) === "none";
 }
 
-// Resolve o project_id de FALLBACK: a mesma escada, mas IGNORANDO o passo 0 (o .memory/project.json
-// declarado). É o escopo que o projeto teria SEM a declaração — usado para localizar memórias
-// carimbadas com o id ANTERIOR (antes de o usuário declarar um id estável), para poder migrá-las.
-// Não lança: retorna null se nada resolver.
+// Resolve o project_id de FALLBACK: a escada IGNORANDO o marcador declarado. É o escopo que o projeto
+// teria SEM a declaração — usado para detectar memória carimbada com o id ANTERIOR (o git-remote,
+// quando o usuário depois declarou um id canônico diferente) e propor a migração. Uma-rung-abaixo =
+// só git-remote; sem remote → null (nunca deriva de path/name: isso era a fonte do escopo-lixo).
 export function resolveFallbackProjectId(workspacePath) {
     const dir = workspacePath && String(workspacePath).trim() ? String(workspacePath).trim() : null;
     if (!dir) return null;
-    const norm = normalizeGitRemote(gitRemoteOriginUrl(dir));
-    if (norm) return norm;
-    const base = gitRepoBase(dir);
-    if (base) {
-        try { const abs = pathResolve(base); if (abs && abs.trim()) return abs; } catch { /* cai adiante */ }
-    }
-    try { const abs = pathResolve(dir); if (abs && abs.trim()) return abs; } catch { /* cai adiante */ }
-    const name = basename(dir);
-    if (name && name.trim()) return name;
-    return null;
+    return normalizeGitRemote(gitRemoteOriginUrl(dir)) || null;
 }
 
-// Força do escopo de FALLBACK (nunca "declared"): git-remote | git-base | path | name | none.
-// Distingue um escopo antigo COMPARTILHADO (git-*) — cuja migração pode deixar a memória órfã para
-// quem não tem o .memory/project.json — de um FRÁGIL (path/name), local à máquina e seguro de migrar.
+// Força do escopo de FALLBACK (nunca "declared"): git-remote | none. O git-remote é COMPARTILHADO
+// (portável) — migrar dele pode deixar órfã a memória de quem ainda não tem o marcador; o consumidor
+// (dashboard/migrate) usa isso para alertar antes de mover.
 export function fallbackStrength(workspacePath) {
     const dir = workspacePath && String(workspacePath).trim() ? String(workspacePath).trim() : null;
     if (!dir) return "none";
-    if (normalizeGitRemote(gitRemoteOriginUrl(dir))) return "git-remote";
-    if (gitRepoBase(dir)) return "git-base";
-    try { if (pathResolve(dir)) return "path"; } catch { /* ignore */ }
-    if (basename(dir)) return "name";
-    return "none";
+    return normalizeGitRemote(gitRemoteOriginUrl(dir)) ? "git-remote" : "none";
 }

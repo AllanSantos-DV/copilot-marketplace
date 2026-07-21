@@ -1,25 +1,62 @@
 {
   "tagline": "Memória por projeto para o agente do Copilot: lembra decisões e convenções entre sessões, destila o que deu certo em skills, barra o git push até uma revisão externa aprovar — e agora navega um grafo semântico do código em vez de garimpar arquivo por arquivo.",
-  "lede": "O **copilot-memory** dá ao agente uma memória que dura além da sessão, **escopada por projeto**. Ele injeta o contexto certo no começo de cada conversa (decisões, convenções, pendências), deixa você buscar e salvar conhecimento, e **destila** o que deu certo em skills reusáveis. É um **cliente puro** do servidor de memória `native-java`: descobre o daemon, reusa se estiver no ar e, se não estiver, **baixa e sobe o servidor** — verificando a assinatura antes de rodar. Toda a memória fica na sua máquina. Ele também **impõe** os passos que dá pra esquecer: desde a **v1.8**, um **gate** barra o `git push` até um **revisor externo independente** aprovar exatamente aquele commit. Desde a **v1.9.0**, um **grafo semântico** do código deixa o agente **navegar** um repositório — o aberto ou um externo gigante — em vez de garimpar arquivo por arquivo com grep. **Novo na v1.10.0:** esse grafo começa a **aprender com a intenção** — quando uma busca por comportamento falha e o agente confirma o nó certo pelo **nome exato**, ele **taggeia** aquele símbolo, de forma governada, para ensinar o grafo a reconhecer aquela intenção.",
+  "lede": "O **copilot-memory** dá ao agente uma memória que dura além da sessão, **escopada por projeto**. Ele injeta o contexto certo no começo de cada conversa (decisões, convenções, pendências), deixa você buscar e salvar conhecimento, e **destila** o que deu certo em skills reusáveis. É um **cliente puro** do servidor de memória `native-java`: descobre o daemon, reusa se estiver no ar e, se não estiver, **baixa e sobe o servidor** — verificando a assinatura antes de rodar. Toda a memória fica na sua máquina. Ele também **impõe** os passos que dá pra esquecer: desde a **v1.8**, um **gate** barra o `git push` até um **revisor externo independente** aprovar exatamente aquele commit. Desde a **v1.9.0**, um **grafo semântico** do código deixa o agente **navegar** um repositório — o aberto ou um externo gigante — em vez de garimpar arquivo por arquivo com grep. **Novo na v1.10.0:** esse grafo começa a **aprender com a intenção** — quando uma busca por comportamento falha e o agente confirma o nó certo pelo **nome exato**, ele **taggeia** aquele símbolo, de forma governada, para ensinar o grafo a reconhecer aquela intenção. **Novo na v1.11.0:** o **escopo** virou uma **escada estrita** — o `project_id` sai só do marcador `.memory/project.json` (achado subindo até a raiz, então **worktree e subpasta do mesmo projeto convergem**) ou do **git remote**; sem um identificador estável ele **falha alto** em vez de gravar em \"escopo-lixo\" pelo caminho da pasta.",
   "highlights": [
-    { "title": "Navega o código, não garimpa", "body": "**Desde a v1.9.0.** Sete tools `graph_*` montam um **grafo semântico** do repo — símbolos viram nós; chamadas, imports e contêm viram arestas; ranqueado por **PageRank**. O agente vai direto aos pontos-chave, sem varrer arquivo por arquivo. Vale pro projeto aberto ou pra um repo externo gigante." },
-    { "title": "Acha por intenção, não só por nome", "body": "**Novo na v1.10.0.** A busca no grafo acha por **nome e estrutura** — \"onde tratamos rate limit\" pode não trazer `Throttler.guard()`. A **oitava** tool, `graph_tag_node`, fecha o vão: quando a busca por intenção falha e o agente confirma o nó certo pelo **nome exato** (via `graph_symbols`, nunca por palpite), ela **taggeia** o símbolo com os termos que falharam, num canal governado. O corpus de intenção começa a acumular já; a **leitura** colhe quando o servidor liga a fusão." },
-    { "title": "Barra o `git push` sem revisão", "body": "**Desde a v1.8.0.** Um **gate opt-in por projeto** torna passos críticos obrigatórios e à prova de esquecimento. O primeiro exige que um **revisor externo independente** aprove exatamente aquele commit antes de publicar — com **recibo amarrado ao SHA**. Determinístico onde importa, semântico onde agrega." },
-    { "title": "Lembra por projeto, não vaza entre eles", "body": "Cada leitura e escrita é carimbada com o `project_id` do projeto aberto. A memória de um projeto nunca aparece em outro." },
-    { "title": "Recall em dois níveis", "body": "Skills voltam como **ponteiro** (nome + descrição + id) e o agente abre o corpo só quando precisa; fatos voltam **inline**, prontos para usar. Menos ruído, mais contexto." },
-    { "title": "Aprende com a sessão, sozinho", "body": "Um **agente curador** lê a conversa (checkpoints + turnos) em background e destila lições **técnicas e comportamentais** — semanticamente, entendendo ironia e crítica, não por palavra-chave. Skills de projeto entram no recall automaticamente." },
-    { "title": "Sobe o servidor sozinho", "body": "Sem daemon e sem servidor instalado, o plugin baixa a release pública, **confere o sha256** e sobe o servidor. Se já existe, apenas reusa. Requer Java 21." },
-    { "title": "Um painel pra ver tudo", "body": "Um canvas lateral mostra, ao vivo, a saúde do daemon, o escopo do projeto (com a **escada** que resolveu o `project_id`), os documentos e skills recentes e a telemetria de recall." },
-    { "title": "Muda o escopo sem perder a memória", "body": "Ao declarar um `project_id` novo, o plugin detecta a memória do escopo antigo e **migra com a sua aprovação** — reatribui sem re-processar, e avisa quando há risco de deixar memória órfã." }
+    {
+      "title": "Navega o código, não garimpa",
+      "body": "**Desde a v1.9.0.** Sete tools `graph_*` montam um **grafo semântico** do repo — símbolos viram nós; chamadas, imports e contêm viram arestas; ranqueado por **PageRank**. O agente vai direto aos pontos-chave, sem varrer arquivo por arquivo. Vale pro projeto aberto ou pra um repo externo gigante."
+    },
+    {
+      "title": "Acha por intenção, não só por nome",
+      "body": "**Novo na v1.10.0.** A busca no grafo acha por **nome e estrutura** — \"onde tratamos rate limit\" pode não trazer `Throttler.guard()`. A **oitava** tool, `graph_tag_node`, fecha o vão: quando a busca por intenção falha e o agente confirma o nó certo pelo **nome exato** (via `graph_symbols`, nunca por palpite), ela **taggeia** o símbolo com os termos que falharam, num canal governado. O corpus de intenção começa a acumular já; a **leitura** colhe quando o servidor liga a fusão."
+    },
+    {
+      "title": "Barra o `git push` sem revisão",
+      "body": "**Desde a v1.8.0.** Um **gate opt-in por projeto** torna passos críticos obrigatórios e à prova de esquecimento. O primeiro exige que um **revisor externo independente** aprove exatamente aquele commit antes de publicar — com **recibo amarrado ao SHA**. Determinístico onde importa, semântico onde agrega."
+    },
+    {
+      "title": "Lembra por projeto, não vaza entre eles",
+      "body": "**Reforçado na v1.11.0.** Cada leitura e escrita é carimbada com o `project_id` do projeto aberto, resolvido por uma **escada estrita**: marcador `.memory/project.json` (achado **subindo à raiz** — worktree e subpasta convergem no mesmo id) ou **git remote**. Sem identificador estável, a memória **falha alto** — nunca grava indexada por caminho de pasta (`C:\\…`, `Temp`, `AppData`), o que antes poluía o acervo entre projetos. Um **piso de segurança** recusa qualquer id com forma de caminho."
+    },
+    {
+      "title": "Recall em dois níveis",
+      "body": "Skills voltam como **ponteiro** (nome + descrição + id) e o agente abre o corpo só quando precisa; fatos voltam **inline**, prontos para usar. Menos ruído, mais contexto."
+    },
+    {
+      "title": "Aprende com a sessão, sozinho",
+      "body": "Um **agente curador** lê a conversa (checkpoints + turnos) em background e destila lições **técnicas e comportamentais** — semanticamente, entendendo ironia e crítica, não por palavra-chave. Skills de projeto entram no recall automaticamente."
+    },
+    {
+      "title": "Sobe o servidor sozinho",
+      "body": "Sem daemon e sem servidor instalado, o plugin baixa a release pública, **confere o sha256** e sobe o servidor. Se já existe, apenas reusa. Requer Java 21."
+    },
+    {
+      "title": "Um painel pra ver tudo",
+      "body": "Um canvas lateral mostra, ao vivo, a saúde do daemon, o escopo do projeto (com a **escada** que resolveu o `project_id`), os documentos e skills recentes e a telemetria de recall."
+    },
+    {
+      "title": "Muda o escopo sem perder a memória",
+      "body": "Ao declarar um `project_id` novo, o plugin detecta a memória do escopo antigo e **migra com a sua aprovação** — reatribui sem re-processar, e avisa quando há risco de deixar memória órfã."
+    }
   ],
   "sections": [
     {
       "id": "o-que-e",
       "title": "O que é",
       "blocks": [
-        { "type": "p", "text": "O copilot-memory é uma extensão do GitHub Copilot que liga o agente ao seu **servidor de memória** local (o `native-java`). No começo da sessão e a cada pergunta, ela busca na memória o que é relevante para o projeto aberto e injeta isso no contexto — então o agente já chega sabendo as decisões de arquitetura, as convenções e as pendências que ficaram de antes." },
-        { "type": "p", "text": "O plugin **não é o servidor**: é um cliente. Toda a inteligência — como a memória é composta, escopada e reforçada — vive no servidor. O plugin descobre o daemon, consome o recall e escreve de volta, sempre carimbando o escopo do projeto." },
-        { "type": "note", "tone": "info", "text": "A memória é **local**: fica na sua máquina, no servidor `native-java`. O plugin só conversa com o daemon local por HTTP." }
+        {
+          "type": "p",
+          "text": "O copilot-memory é uma extensão do GitHub Copilot que liga o agente ao seu **servidor de memória** local (o `native-java`). No começo da sessão e a cada pergunta, ela busca na memória o que é relevante para o projeto aberto e injeta isso no contexto — então o agente já chega sabendo as decisões de arquitetura, as convenções e as pendências que ficaram de antes."
+        },
+        {
+          "type": "p",
+          "text": "O plugin **não é o servidor**: é um cliente. Toda a inteligência — como a memória é composta, escopada e reforçada — vive no servidor. O plugin descobre o daemon, consome o recall e escreve de volta, sempre carimbando o escopo do projeto."
+        },
+        {
+          "type": "note",
+          "tone": "info",
+          "text": "A memória é **local**: fica na sua máquina, no servidor `native-java`. O plugin só conversa com o daemon local por HTTP."
+        }
       ]
     },
     {
@@ -29,12 +66,30 @@
         {
           "type": "steps",
           "items": [
-            { "title": "Instale o plugin", "text": "Pelo marketplace, com o comando da seção Instalar abaixo." },
-            { "title": "Deixe o servidor subir", "text": "Se não houver um servidor de memória rodando, o plugin baixa e sobe na primeira sessão. Requer Java 21 no PATH. Ou rode `memory_setup` para provisionar na hora." },
-            { "title": "Trabalhe normalmente", "text": "O contexto do projeto entra sozinho no início da sessão e a cada pergunta. Use `memory_search` para buscar e `memory_save` para guardar uma decisão ou nota." },
-            { "title": "Dê um escopo estável ao projeto", "text": "Se o projeto não tem `.memory/project.json` nem remote git, o plugin sugere criar um — uma vez. Aceite (ou use `memory_init_project`) para a memória casar entre máquinas." },
-            { "title": "Destile o que aprendeu", "text": "Depois de um marco confirmado, chame `memory_distill`: o agente extrai o que é reusável e verificado como skill candidata, que você promove com `memory_promote_skill`." },
-            { "title": "Blinde o que não pode esquecer (opcional)", "text": "Nos repos que quiser, ligue um **gate** com `memory_gate enable`: a partir daí, o `git push` sem revisão externa fica **bloqueado**. Rode `memory_gate_review` para liberar o commit. É opt-in — vale só naquele repositório." }
+            {
+              "title": "Instale o plugin",
+              "text": "Pelo marketplace, com o comando da seção Instalar abaixo."
+            },
+            {
+              "title": "Deixe o servidor subir",
+              "text": "Se não houver um servidor de memória rodando, o plugin baixa e sobe na primeira sessão. Requer Java 21 no PATH. Ou rode `memory_setup` para provisionar na hora."
+            },
+            {
+              "title": "Trabalhe normalmente",
+              "text": "O contexto do projeto entra sozinho no início da sessão e a cada pergunta. Use `memory_search` para buscar e `memory_save` para guardar uma decisão ou nota."
+            },
+            {
+              "title": "Dê um escopo estável ao projeto",
+              "text": "Se o projeto não tem `.memory/project.json` nem remote git, o plugin sugere criar um — uma vez. Aceite (ou use `memory_init_project`) para a memória casar entre máquinas."
+            },
+            {
+              "title": "Destile o que aprendeu",
+              "text": "Depois de um marco confirmado, chame `memory_distill`: o agente extrai o que é reusável e verificado como skill candidata, que você promove com `memory_promote_skill`."
+            },
+            {
+              "title": "Blinde o que não pode esquecer (opcional)",
+              "text": "Nos repos que quiser, ligue um **gate** com `memory_gate enable`: a partir daí, o `git push` sem revisão externa fica **bloqueado**. Rode `memory_gate_review` para liberar o commit. É opt-in — vale só naquele repositório."
+            }
           ]
         }
       ]
@@ -43,38 +98,87 @@
       "id": "gates",
       "title": "Gates obrigatórios",
       "blocks": [
-        { "type": "p", "text": "Revisar o código antes de publicar é fácil de **esquecer** — e \"lembrar\" não é garantia de nada. Os **gates** tiram os passos críticos da disciplina humana e os tornam **obrigatórios**: o plugin **bloqueia a ação** até a condição ser cumprida. O primeiro gate pronto é **revisor externo antes do `git push`** — tenta publicar sem revisão? O push para na hora, com uma mensagem que diz o que fazer:" },
-        { "type": "code", "lang": "sh", "code": "$ git push origin main\n\n  ⛔  Gate obrigatório — revisão externa antes do push\n      commit d4f9c1a ainda não foi revisado; nada foi enviado.\n\n      → rode  memory_gate_review  para revisar o diff do push\n        e liberar exatamente este commit." },
+        {
+          "type": "p",
+          "text": "Revisar o código antes de publicar é fácil de **esquecer** — e \"lembrar\" não é garantia de nada. Os **gates** tiram os passos críticos da disciplina humana e os tornam **obrigatórios**: o plugin **bloqueia a ação** até a condição ser cumprida. O primeiro gate pronto é **revisor externo antes do `git push`** — tenta publicar sem revisão? O push para na hora, com uma mensagem que diz o que fazer:"
+        },
+        {
+          "type": "code",
+          "lang": "sh",
+          "code": "$ git push origin main\n\n  ⛔  Gate obrigatório — revisão externa antes do push\n      commit d4f9c1a ainda não foi revisado; nada foi enviado.\n\n      → rode  memory_gate_review  para revisar o diff do push\n        e liberar exatamente este commit."
+        },
         {
           "type": "steps",
           "items": [
-            { "title": "Ligue por repositório", "text": "`memory_gate enable` escreve um hook no `.github/hooks/hooks.json` **daquele** repo. É opt-in: suas outras sessões, projetos e máquinas não mudam em nada." },
-            { "title": "O hook barra o push", "text": "Um **hook determinístico** intercepta a chamada de `git push` do agente. Sem um recibo válido para aquele commit, ele **nega** e nada é enviado. Nada de regex frágil: ele reconhece a **forma** da ação (que aquilo é um push), não o significado." },
-            { "title": "Rode a revisão externa", "text": "`memory_gate_review` dispara um **revisor externo independente** — outro modelo, num **subprocesso separado**, sem o contexto do agente barrado (anti \"echo chamber\"). Ele lê o **diff do que seria publicado** e caça bugs reais, falhas de segurança e segredos vazados." },
-            { "title": "Limpo? Ganha um recibo preso ao commit", "text": "Se o parecer sai limpo, a tool grava um **recibo amarrado ao SHA** do commit. Só então o `git push` daquele commit passa. Quem publica não assina o próprio recibo — quem assina é a revisão independente." },
-            { "title": "Commitou de novo? Revisa de novo", "text": "Emendou ou fez um commit novo? O SHA muda, o recibo **perde a validade** e o gate pede nova revisão. Não dá para passar com um parecer velho." }
+            {
+              "title": "Ligue por repositório",
+              "text": "`memory_gate enable` escreve um hook no `.github/hooks/hooks.json` **daquele** repo. É opt-in: suas outras sessões, projetos e máquinas não mudam em nada."
+            },
+            {
+              "title": "O hook barra o push",
+              "text": "Um **hook determinístico** intercepta a chamada de `git push` do agente. Sem um recibo válido para aquele commit, ele **nega** e nada é enviado. Nada de regex frágil: ele reconhece a **forma** da ação (que aquilo é um push), não o significado."
+            },
+            {
+              "title": "Rode a revisão externa",
+              "text": "`memory_gate_review` dispara um **revisor externo independente** — outro modelo, num **subprocesso separado**, sem o contexto do agente barrado (anti \"echo chamber\"). Ele lê o **diff do que seria publicado** e caça bugs reais, falhas de segurança e segredos vazados."
+            },
+            {
+              "title": "Limpo? Ganha um recibo preso ao commit",
+              "text": "Se o parecer sai limpo, a tool grava um **recibo amarrado ao SHA** do commit. Só então o `git push` daquele commit passa. Quem publica não assina o próprio recibo — quem assina é a revisão independente."
+            },
+            {
+              "title": "Commitou de novo? Revisa de novo",
+              "text": "Emendou ou fez um commit novo? O SHA muda, o recibo **perde a validade** e o gate pede nova revisão. Não dá para passar com um parecer velho."
+            }
           ]
         },
-        { "type": "note", "tone": "info", "text": "**Provado ao vivo.** O gate já barrou um `git push` de verdade numa sessão real, e o revisor externo pegou problemas concretos — uma **credencial exposta** e uma **lógica quebrada** — e **recusou o recibo**. Não é teoria." },
-        { "type": "note", "tone": "warn", "text": "Emergência? Existe um **break-glass auditado**: um override que libera o push na hora e registra **quem** liberou, **por quê** e **quando expira**. Ele só entra com a sua ordem explícita — o agente nunca o aciona sozinho." },
-        { "type": "p", "text": "**Por que isto é sólido:** o bloqueio é **determinístico** onde precisa (um hook, não um palpite) e a análise é **semântica** onde agrega (a revisão por IA) — nada de regex frágil decidindo o que barrar. As regras vivem como **dado** (políticas + recibos locais), não num hook cravado que vira manutenção infinita: o hook é um despachante fino e estável, então novos gates entram sem reescrever nada. E o bloqueio roda num **hot-path local** — lê políticas e recibos do disco, **sem depender do daemon**." },
-        { "type": "p", "text": "**Isso é só o começo.** Os próximos gates já estão no mapa — aprovação antes de um release, um agente de design antes de publicar onde há GitHub Pages — e o próprio autoaprendizado pode **propor** um gate novo a partir do que você corrige, para você **promover**." }
+        {
+          "type": "note",
+          "tone": "info",
+          "text": "**Provado ao vivo.** O gate já barrou um `git push` de verdade numa sessão real, e o revisor externo pegou problemas concretos — uma **credencial exposta** e uma **lógica quebrada** — e **recusou o recibo**. Não é teoria."
+        },
+        {
+          "type": "note",
+          "tone": "warn",
+          "text": "Emergência? Existe um **break-glass auditado**: um override que libera o push na hora e registra **quem** liberou, **por quê** e **quando expira**. Ele só entra com a sua ordem explícita — o agente nunca o aciona sozinho."
+        },
+        {
+          "type": "p",
+          "text": "**Por que isto é sólido:** o bloqueio é **determinístico** onde precisa (um hook, não um palpite) e a análise é **semântica** onde agrega (a revisão por IA) — nada de regex frágil decidindo o que barrar. As regras vivem como **dado** (políticas + recibos locais), não num hook cravado que vira manutenção infinita: o hook é um despachante fino e estável, então novos gates entram sem reescrever nada. E o bloqueio roda num **hot-path local** — lê políticas e recibos do disco, **sem depender do daemon**."
+        },
+        {
+          "type": "p",
+          "text": "**Isso é só o começo.** Os próximos gates já estão no mapa — aprovação antes de um release, um agente de design antes de publicar onde há GitHub Pages — e o próprio autoaprendizado pode **propor** um gate novo a partir do que você corrige, para você **promover**."
+        }
       ]
     },
     {
       "id": "escopo",
       "title": "O escopo do projeto (.memory/project.json)",
       "blocks": [
-        { "type": "p", "text": "A memória só serve se o **escopo** for estável. O plugin resolve o `project_id` nesta ordem: o `.memory/project.json` do projeto (a intenção declarada), depois o remote git, depois o repositório base (que mantém o escopo estável entre worktrees), e só então o caminho da pasta." },
-        { "type": "p", "text": "Quando o escopo é **frágil** — uma pasta sem git nem `.memory/project.json` — o `project_id` vira o caminho da pasta, que muda de máquina para máquina e faz o recall não casar. Nesse caso o plugin sugere, **uma única vez** por projeto, que o agente analise a estrutura e crie o `.memory/project.json` com um id canônico (por exemplo `owner/projeto`)." },
-        { "type": "note", "tone": "info", "text": "A sugestão nunca insiste: se você recusar, ou se o `.memory/project.json` já existir, ela não aparece de novo. A decisão fica guardada por projeto, fora da pasta." }
+        {
+          "type": "p",
+          "text": "A memória só serve se o **escopo** for estável. O plugin resolve o `project_id` nesta ordem: o `.memory/project.json` do projeto (a intenção declarada), depois o remote git, depois o repositório base (que mantém o escopo estável entre worktrees), e só então o caminho da pasta."
+        },
+        {
+          "type": "p",
+          "text": "Quando o escopo é **frágil** — uma pasta sem git nem `.memory/project.json` — o `project_id` vira o caminho da pasta, que muda de máquina para máquina e faz o recall não casar. Nesse caso o plugin sugere, **uma única vez** por projeto, que o agente analise a estrutura e crie o `.memory/project.json` com um id canônico (por exemplo `owner/projeto`)."
+        },
+        {
+          "type": "note",
+          "tone": "info",
+          "text": "A sugestão nunca insiste: se você recusar, ou se o `.memory/project.json` já existir, ela não aparece de novo. A decisão fica guardada por projeto, fora da pasta."
+        }
       ]
     },
     {
       "id": "recall",
       "title": "Recall em dois níveis",
       "blocks": [
-        { "type": "p", "text": "Nem todo conhecimento entra no contexto do mesmo jeito. O plugin injeta em **dois níveis**, para dar contexto sem inchar o prompt:" },
+        {
+          "type": "p",
+          "text": "Nem todo conhecimento entra no contexto do mesmo jeito. O plugin injeta em **dois níveis**, para dar contexto sem inchar o prompt:"
+        },
         {
           "type": "list",
           "items": [
@@ -82,24 +186,45 @@
             "**Fatos = inline.** Uma decisão ou nota volta com o texto direto no contexto, pronto para o agente usar sem um passo a mais."
           ]
         },
-        { "type": "p", "text": "Se a composição do recall demora ou falha, o plugin cai para uma busca escopada mais barata — sempre pelo `project_id`, nunca uma busca aberta que vazaria de outros projetos. E um teto de tempo garante que o recall nunca trave a sua sessão." }
+        {
+          "type": "p",
+          "text": "Se a composição do recall demora ou falha, o plugin cai para uma busca escopada mais barata — sempre pelo `project_id`, nunca uma busca aberta que vazaria de outros projetos. E um teto de tempo garante que o recall nunca trave a sua sessão."
+        }
       ]
     },
     {
       "id": "feedback-intencao",
       "title": "Feedback de intenção no grafo (governado)",
       "blocks": [
-        { "type": "p", "text": "Assim como o recall traz a **memória** certa, o grafo traz o **código** certo — mas por **nome** e **estrutura**. Intenção é outra coisa: perguntar \"onde tratamos rate limit\" pode não trazer `Throttler.guard()`, mesmo sendo o método certo. A **v1.10.0** fecha esse vão com um **loop de feedback governado**, pela oitava tool do grafo — a `graph_tag_node`." },
+        {
+          "type": "p",
+          "text": "Assim como o recall traz a **memória** certa, o grafo traz o **código** certo — mas por **nome** e **estrutura**. Intenção é outra coisa: perguntar \"onde tratamos rate limit\" pode não trazer `Throttler.guard()`, mesmo sendo o método certo. A **v1.10.0** fecha esse vão com um **loop de feedback governado**, pela oitava tool do grafo — a `graph_tag_node`."
+        },
         {
           "type": "steps",
           "items": [
-            { "title": "A busca por intenção falha", "text": "Uma query por **comportamento** não traz o método certo — a busca acha por **nome** e **estrutura**, não pelo que o código *faz*." },
-            { "title": "Confirma o nó pelo nome exato", "text": "O agente confirma o símbolo certo por **nome exato**, com `graph_symbols` — **determinístico**, nunca por palpite. Sem essa confirmação, nada é taggeado." },
-            { "title": "Taggeia com os termos que falharam", "text": "A `graph_tag_node` marca aquele nó com as palavras da query que falhou. A tag entra num **canal à parte**, governado — nenhuma linha do código é reescrita." },
-            { "title": "A próxima sessão colhe", "text": "Numa sessão ou agente seguinte, a mesma intenção passa a casar **sem** precisar do nome exato — assim que o servidor tem a **fusão** ligada (veja a nota abaixo)." }
+            {
+              "title": "A busca por intenção falha",
+              "text": "Uma query por **comportamento** não traz o método certo — a busca acha por **nome** e **estrutura**, não pelo que o código *faz*."
+            },
+            {
+              "title": "Confirma o nó pelo nome exato",
+              "text": "O agente confirma o símbolo certo por **nome exato**, com `graph_symbols` — **determinístico**, nunca por palpite. Sem essa confirmação, nada é taggeado."
+            },
+            {
+              "title": "Taggeia com os termos que falharam",
+              "text": "A `graph_tag_node` marca aquele nó com as palavras da query que falhou. A tag entra num **canal à parte**, governado — nenhuma linha do código é reescrita."
+            },
+            {
+              "title": "A próxima sessão colhe",
+              "text": "Numa sessão ou agente seguinte, a mesma intenção passa a casar **sem** precisar do nome exato — assim que o servidor tem a **fusão** ligada (veja a nota abaixo)."
+            }
           ]
         },
-        { "type": "p", "text": "A governança é toda do **servidor** (o plugin só consome) e é rígida de propósito, para a tag **ajudar** sem virar lixo:" },
+        {
+          "type": "p",
+          "text": "A governança é toda do **servidor** (o plugin só consome) e é rígida de propósito, para a tag **ajudar** sem virar lixo:"
+        },
         {
           "type": "list",
           "items": [
@@ -110,16 +235,29 @@
             "**Nada silencioso.** O servidor devolve `accepted`, `dropped` ou `rejected`: você sempre sabe o que entrou — e o que não."
           ]
         },
-        { "type": "p", "text": "A fronteira é limpa: o **servidor** entrega as **primitivas** — storage, governança atômica, TTL e a fusão densa+esparsa (via **RRF**); o **plugin** entrega a **estratégia** — quando e como taggear. É o mesmo desenho que Cody, Cursor e Copilot usam para fazer retrieval no cliente." },
-        { "type": "note", "tone": "info", "text": "**Sem exagero: a leitura ainda não colhe — por enquanto.** A fusão densa+esparsa que faz a tag **ajudar** na busca vem **desligada por padrão** no servidor (atrás de um protocolo de prova em escala). Então, na **v1.10.0**, o plugin já **escreve** as tags de forma governada e validada — o corpus de intenção **começa a acumular** — e a **leitura** passa a se beneficiar quando o servidor ligar a fusão, **sem o cliente mudar** (o read-path é NO-OP). É **preparar o terreno**: inócuo hoje, valioso amanhã." },
-        { "type": "p", "text": "**Feito com método:** ADR, TDD, um **revisor externo** independente (o mesmo padrão dos gates) e **validação ao vivo** contra o servidor `native-java` **v2.31.0** — 13 de 13 checagens verdes." }
+        {
+          "type": "p",
+          "text": "A fronteira é limpa: o **servidor** entrega as **primitivas** — storage, governança atômica, TTL e a fusão densa+esparsa (via **RRF**); o **plugin** entrega a **estratégia** — quando e como taggear. É o mesmo desenho que Cody, Cursor e Copilot usam para fazer retrieval no cliente."
+        },
+        {
+          "type": "note",
+          "tone": "info",
+          "text": "**Sem exagero: a leitura ainda não colhe — por enquanto.** A fusão densa+esparsa que faz a tag **ajudar** na busca vem **desligada por padrão** no servidor (atrás de um protocolo de prova em escala). Então, na **v1.10.0**, o plugin já **escreve** as tags de forma governada e validada — o corpus de intenção **começa a acumular** — e a **leitura** passa a se beneficiar quando o servidor ligar a fusão, **sem o cliente mudar** (o read-path é NO-OP). É **preparar o terreno**: inócuo hoje, valioso amanhã."
+        },
+        {
+          "type": "p",
+          "text": "**Feito com método:** ADR, TDD, um **revisor externo** independente (o mesmo padrão dos gates) e **validação ao vivo** contra o servidor `native-java` **v2.31.0** — 13 de 13 checagens verdes."
+        }
       ]
     },
     {
       "id": "destilador",
       "title": "O destilador de aprendizado (curadoria por agente)",
       "blocks": [
-        { "type": "p", "text": "O destilador fecha o ciclo: a experiência da sessão vira conhecimento reusável. Quem faz isso é um **agente curador** — um modelo que **lê a conversa** e entende o que aconteceu, não um filtro de palavras-chave. Roda sozinho, em **background**, quando a sessão abre." },
+        {
+          "type": "p",
+          "text": "O destilador fecha o ciclo: a experiência da sessão vira conhecimento reusável. Quem faz isso é um **agente curador** — um modelo que **lê a conversa** e entende o que aconteceu, não um filtro de palavras-chave. Roda sozinho, em **background**, quando a sessão abre."
+        },
         {
           "type": "list",
           "items": [
@@ -131,14 +269,21 @@
             "**Errou? Sai do recall.** `memory_invalidate_skill` tira uma lição errada do recall preservando o histórico (auditável, reversível)."
           ]
         },
-        { "type": "note", "tone": "info", "text": "Skills de projeto entram no recall automaticamente — o curador é o filtro de qualidade. Sua revisão fica reservada ao que sobe para o escopo global (que afeta todos os projetos). Segredos são redigidos antes de qualquer curadoria." }
+        {
+          "type": "note",
+          "tone": "info",
+          "text": "Skills de projeto entram no recall automaticamente — o curador é o filtro de qualidade. Sua revisão fica reservada ao que sobe para o escopo global (que afeta todos os projetos). Segredos são redigidos antes de qualquer curadoria."
+        }
       ]
     },
     {
       "id": "provisionamento",
       "title": "Sobe o servidor sozinho",
       "blocks": [
-        { "type": "p", "text": "Um plugin de memória sem servidor não serve para nada. Por isso, quando não há daemon vivo **e** o servidor não está instalado, o copilot-memory faz o primeiro arranque por você:" },
+        {
+          "type": "p",
+          "text": "Um plugin de memória sem servidor não serve para nada. Por isso, quando não há daemon vivo **e** o servidor não está instalado, o copilot-memory faz o primeiro arranque por você:"
+        },
         {
           "type": "list",
           "items": [
@@ -148,14 +293,21 @@
             "**Degrada em silêncio** se faltar Java ou rede: o plugin nunca trava a sessão — no pior caso, fica sem memória e avisa."
           ]
         },
-        { "type": "note", "tone": "warn", "text": "Instalar o plugin autoriza esse download na ausência de um servidor — é parte esperada do setup. Para desligar, defina `COPILOT_MEMORY_AUTOPROVISION=0`: o plugin então só reusa um daemon já existente." }
+        {
+          "type": "note",
+          "tone": "warn",
+          "text": "Instalar o plugin autoriza esse download na ausência de um servidor — é parte esperada do setup. Para desligar, defina `COPILOT_MEMORY_AUTOPROVISION=0`: o plugin então só reusa um daemon já existente."
+        }
       ]
     },
     {
       "id": "painel",
       "title": "O painel (canvas)",
       "blocks": [
-        { "type": "p", "text": "Chame `memory_dashboard` (ou abra \"Memory\" na seção de canvas do app) para ver a memória do projeto num painel lateral, ao vivo e com auto-refresh. Ele não muda nada — é só leitura." },
+        {
+          "type": "p",
+          "text": "Chame `memory_dashboard` (ou abra \"Memory\" na seção de canvas do app) para ver a memória do projeto num painel lateral, ao vivo e com auto-refresh. Ele não muda nada — é só leitura."
+        },
         {
           "type": "list",
           "items": [
@@ -165,7 +317,11 @@
             "**Telemetria de recall** — quantos recalls, quantos ponteiros injetados, quantas buscas de corpo e o *hit-rate* ponteiro→fetch."
           ]
         },
-        { "type": "note", "tone": "info", "text": "Com o daemon offline, o painel oferece um botão para provisionar o servidor — o mesmo caminho consentido do `memory_setup`. O painel aparece depois de reiniciar o app uma vez (o hook espelha o plugin para as extensões do app)." }
+        {
+          "type": "note",
+          "tone": "info",
+          "text": "Com o daemon offline, o painel oferece um botão para provisionar o servidor — o mesmo caminho consentido do `memory_setup`. O painel aparece depois de reiniciar o app uma vez (o hook espelha o plugin para as extensões do app)."
+        }
       ]
     },
     {
@@ -182,7 +338,10 @@
             "**Gates (opt-in)** — nos repos que você habilita, um hook determinístico intercepta o `git push` e o barra até `memory_gate_review` gravar o recibo do commit. O bloqueio lê políticas e recibos locais: hot-path, sem daemon."
           ]
         },
-        { "type": "p", "text": "O plugin não recria o que o servidor já faz — composição do recall, telemetria de uso, reforço e poda são do servidor. Ele é o cliente que traz esse valor para dentro da sua sessão do Copilot." }
+        {
+          "type": "p",
+          "text": "O plugin não recria o que o servidor já faz — composição do recall, telemetria de uso, reforço e poda são do servidor. Ele é o cliente que traz esse valor para dentro da sua sessão do Copilot."
+        }
       ]
     }
   ],
@@ -194,18 +353,54 @@
     "Rede na primeira vez, para baixar o servidor quando ele ainda não existe"
   ],
   "faq": [
-    { "q": "Preciso instalar o servidor de memória na mão?", "a": "Não. Se não houver um servidor rodando nem instalado, o plugin baixa a release pública, confere o sha256 e sobe o servidor na primeira sessão — ou na hora, se você rodar `memory_setup`. Precisa de Java 21 no PATH." },
-    { "q": "A memória de um projeto aparece em outro?", "a": "Não. Toda leitura e escrita é escopada pelo `project_id`. O plugin nunca faz uma busca aberta — mesmo o plano B de recall é escopado, então a memória de um projeto não vaza para outro." },
-    { "q": "Por que ele pede para criar o .memory/project.json?", "a": "Porque sem ele (e sem um remote git) o escopo vira o caminho da pasta, que muda entre máquinas e faz o recall não casar. Com o arquivo, o `project_id` é declarado e estável. A sugestão aparece no máximo uma vez por projeto e nunca insiste." },
-    { "q": "O que o destilador salva na memória?", "a": "Só o que é generalizável e verificado. Ele exige um sinal concreto (uma execução de ferramenta bem-sucedida, a sua confirmação) e redige segredos antes de propor. Sem prova, recusa criar a skill. E toda skill nasce candidata, fora do recall automático, até você promovê-la." },
-    { "q": "O plugin fica lento se o servidor demora?", "a": "Não trava a sessão. O recall tem um teto de tempo e cai para uma busca escopada mais barata se a composição demora; se estourar o teto, ele injeta nada e segue. Os hooks nunca derrubam a sua conversa." },
-    { "q": "Como desligo o download automático do servidor?", "a": "Defina `COPILOT_MEMORY_AUTOPROVISION=0`. O plugin então apenas reusa um daemon que já esteja rodando e degrada se não houver — sem baixar nem subir nada." },
-    { "q": "Onde mora o código do servidor?", "a": "No projeto `native-java` (mcp-memory-server), publicado como release pública. Esta vitrine guarda só o plugin cliente; o servidor é baixado do repositório oficial de releases, verificado por sha256." },
-    { "q": "Tem uma tela para ver o estado da memória?", "a": "Tem. O `memory_dashboard` abre um painel lateral (canvas) com a saúde do daemon, o escopo do projeto e a escada que resolveu o `project_id`, os documentos e skills recentes e a telemetria de recall. É só leitura e aparece depois de reiniciar o app uma vez." },
-    { "q": "Se eu declarar um project_id novo, perco a memória antiga?", "a": "Não. Ao declarar um `.memory/project.json`, o plugin detecta a memória carimbada com o escopo anterior e oferece migrá-la para o novo id, via reatribuição sem re-processar (o conteúdo é preservado). A migração nunca é automática: ele previsualiza e só aplica com a sua confirmação, e avisa quando o escopo antigo é compartilhado (git) para não deixar a memória órfã para colegas." },
-    { "q": "Os gates afetam meus outros projetos?", "a": "Não. O gate é **opt-in por repositório**: `memory_gate enable` escreve um hook só no `.github/hooks/hooks.json` daquele repo. Suas outras sessões, projetos e máquinas seguem intactos. `memory_gate disable` remove quando quiser." },
-    { "q": "Se o daemon da memória cair, o gate para de barrar?", "a": "Não. O bloqueio roda num **hot-path local**: o hook lê as políticas e os recibos direto do disco (em `~/.copilot-memory/`), sem rede e sem daemon. Só a **revisão** (`memory_gate_review`) usa o modelo — o bloqueio em si é determinístico e independente." },
-    { "q": "Preciso do painel (canvas) aberto para o gate valer?", "a": "Não. O gate é um hook que dispara toda vez que o agente tenta um `git push`, com ou sem painel aberto. O canvas é só leitura e não tem relação com o bloqueio." }
+    {
+      "q": "Preciso instalar o servidor de memória na mão?",
+      "a": "Não. Se não houver um servidor rodando nem instalado, o plugin baixa a release pública, confere o sha256 e sobe o servidor na primeira sessão — ou na hora, se você rodar `memory_setup`. Precisa de Java 21 no PATH."
+    },
+    {
+      "q": "A memória de um projeto aparece em outro?",
+      "a": "Não. Toda leitura e escrita é escopada pelo `project_id`. O plugin nunca faz uma busca aberta — mesmo o plano B de recall é escopado, então a memória de um projeto não vaza para outro."
+    },
+    {
+      "q": "Por que ele pede para criar o .memory/project.json?",
+      "a": "Porque sem ele (e sem um remote git) o escopo vira o caminho da pasta, que muda entre máquinas e faz o recall não casar. Com o arquivo, o `project_id` é declarado e estável. A sugestão aparece no máximo uma vez por projeto e nunca insiste."
+    },
+    {
+      "q": "O que o destilador salva na memória?",
+      "a": "Só o que é generalizável e verificado. Ele exige um sinal concreto (uma execução de ferramenta bem-sucedida, a sua confirmação) e redige segredos antes de propor. Sem prova, recusa criar a skill. E toda skill nasce candidata, fora do recall automático, até você promovê-la."
+    },
+    {
+      "q": "O plugin fica lento se o servidor demora?",
+      "a": "Não trava a sessão. O recall tem um teto de tempo e cai para uma busca escopada mais barata se a composição demora; se estourar o teto, ele injeta nada e segue. Os hooks nunca derrubam a sua conversa."
+    },
+    {
+      "q": "Como desligo o download automático do servidor?",
+      "a": "Defina `COPILOT_MEMORY_AUTOPROVISION=0`. O plugin então apenas reusa um daemon que já esteja rodando e degrada se não houver — sem baixar nem subir nada."
+    },
+    {
+      "q": "Onde mora o código do servidor?",
+      "a": "No projeto `native-java` (mcp-memory-server), publicado como release pública. Esta vitrine guarda só o plugin cliente; o servidor é baixado do repositório oficial de releases, verificado por sha256."
+    },
+    {
+      "q": "Tem uma tela para ver o estado da memória?",
+      "a": "Tem. O `memory_dashboard` abre um painel lateral (canvas) com a saúde do daemon, o escopo do projeto e a escada que resolveu o `project_id`, os documentos e skills recentes e a telemetria de recall. É só leitura e aparece depois de reiniciar o app uma vez."
+    },
+    {
+      "q": "Se eu declarar um project_id novo, perco a memória antiga?",
+      "a": "Não. Ao declarar um `.memory/project.json`, o plugin detecta a memória carimbada com o escopo anterior e oferece migrá-la para o novo id, via reatribuição sem re-processar (o conteúdo é preservado). A migração nunca é automática: ele previsualiza e só aplica com a sua confirmação, e avisa quando o escopo antigo é compartilhado (git) para não deixar a memória órfã para colegas."
+    },
+    {
+      "q": "Os gates afetam meus outros projetos?",
+      "a": "Não. O gate é **opt-in por repositório**: `memory_gate enable` escreve um hook só no `.github/hooks/hooks.json` daquele repo. Suas outras sessões, projetos e máquinas seguem intactos. `memory_gate disable` remove quando quiser."
+    },
+    {
+      "q": "Se o daemon da memória cair, o gate para de barrar?",
+      "a": "Não. O bloqueio roda num **hot-path local**: o hook lê as políticas e os recibos direto do disco (em `~/.copilot-memory/`), sem rede e sem daemon. Só a **revisão** (`memory_gate_review`) usa o modelo — o bloqueio em si é determinístico e independente."
+    },
+    {
+      "q": "Preciso do painel (canvas) aberto para o gate valer?",
+      "a": "Não. O gate é um hook que dispara toda vez que o agente tenta um `git push`, com ou sem painel aberto. O canvas é só leitura e não tem relação com o bloqueio."
+    }
   ],
   "files": {
     "plugin.json": "Metadados + extensão (.) + marcador de hooks.",

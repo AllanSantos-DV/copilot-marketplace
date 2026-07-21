@@ -6,8 +6,6 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
-import { projectConfigPath } from "./projectConfig.mjs";
 
 function dir() {
     return process.env.COPILOT_MEMORY_TELEMETRY_DIR || join(homedir(), ".copilot-memory");
@@ -48,11 +46,13 @@ export function markAsked(workspacePath, status = "asked") {
     writeStamps(all);
 }
 
-// Deve sugerir agora? Só se escopo frágil E ainda não perguntei E o arquivo não existe. Uma única vez.
+// Deve sugerir agora? Gate pela FORÇA do escopo (isFragileScope já faz o walk-up: strength declared/
+// git-remote ⇒ não frágil ⇒ não sugere). Dispara quando frágil ("none") — inclusive no beco em que
+// existe um marcador SEM project_id usável (resolver lança, mas o usuário precisa da orientação).
+// Não checa a existência do arquivo (isso silenciava esse beco). Uma única vez por workspace.
 export function shouldOfferScaffold(workspacePath, fragile) {
     if (!fragile) return false;
-    if (existsSync(projectConfigPath(workspacePath))) return false; // resolvido = arquivo existe
-    if (alreadyAsked(workspacePath)) return false;                  // X de zero nas próximas
+    if (alreadyAsked(workspacePath)) return false; // X de zero nas próximas
     return true;
 }
 
@@ -76,20 +76,22 @@ export function projectJsonTemplate({ suggestedName, suggestedProjectId } = {}) 
 export function scaffoldGuidance(workspacePath, { suggestedName, suggestedProjectId } = {}) {
     const tmpl = projectJsonTemplate({ suggestedName, suggestedProjectId });
     return [
-        "# 🧠 Memória: escopo de projeto FRÁGIL",
+        "# 🧠 Memória: escopo de projeto sem identificador estável",
         "",
         `Este workspace (${workspacePath}) não tem um \`project_id\` estável: não há \`.memory/project.json\` ` +
-        "nem um remote git. Sem isso, a memória é escopada pelo CAMINHO da pasta — o que **não casa** entre " +
-        "máquinas/pessoas nem é portável, então o recall e o salvamento podem falhar em recuperar o contexto certo.",
+        "na raiz nem um `git remote origin`. **Sem um identificador estável, a memória NÃO é gravada nem " +
+        "injetada** (fail-loud, de propósito — para não espalhar escopo-lixo indexado por caminho de pasta). " +
+        "Resolva de uma destas formas:",
         "",
-        "**Se fizer sentido para este projeto, crie `.memory/project.json` na raiz do workspace.** " +
-        "Antes, ANALISE a estrutura de pastas para inferir um bom nome e um `project_id` canônico " +
-        "(ex.: `owner/projeto`, estável e único). Use `memory_init_project` para gravar, ou escreva o arquivo. " +
-        "Modelo:",
+        "1. **Crie `.memory/project.json` na raiz do projeto** (recomendado; portável entre máquinas, " +
+        "worktrees e subpastas). ANALISE a estrutura de pastas para inferir um bom nome e um `project_id` " +
+        "canônico (ex.: `owner/projeto`, estável e único). Use `memory_init_project` ou escreva o arquivo. Modelo:",
         "",
         "```json",
         tmpl,
         "```",
+        "",
+        "2. **Ou** trabalhe num repositório com `git remote origin` — o `project_id` sai do remote (único por repo).",
         "",
         "_Se este diretório não for um projeto de verdade (pasta avulsa, temporário), ignore — " +
         "não vou sugerir de novo aqui._",

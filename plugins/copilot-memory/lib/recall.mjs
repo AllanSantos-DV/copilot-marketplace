@@ -153,6 +153,9 @@ export async function composeRecall(client, workingDirectory, query, opts = {}) 
     const projectId = tryResolveProjectId(workingDirectory);
     const q = String(query || "").trim();
     if (!q) return { text: null, count: 0, projectId, source: "none", pointerIds: [] };
+    // Escopo ESTRITO: sem project_id estável (nem marcador nem git remote) NÃO injeta recall — honra
+    // a decisão "sem identificador estável = sem recall". O nudge de scaffold (session-start) já avisa.
+    if (!projectId) return { text: null, count: 0, projectId: null, source: "no-scope", pointerIds: [] };
 
     let env = null;
     try {

@@ -184,12 +184,15 @@ export class MemoryDashboard {
         if (!q) return { results: [] };
         const workdir = this._cwd();
         const pid = tryResolveProjectId(workdir);
+        // Escopo ESTRITO: sem project_id estável NÃO faz busca ABERTA (vazaria memória de outros
+        // produtos no painel). Retorna erro acionável em vez de degradar para cross-project.
+        if (!pid) return { error: "sem project_id estável — crie .memory/project.json na raiz OU trabalhe num repo com git remote", results: [] };
         let info = null;
         try { info = await discover(); } catch { info = null; }
         if (!info) return { error: "daemon offline" };
         try {
             const client = new MemoryClient(info.url);
-            const r = await client.search(q, { topK: 6, metadata: pid ? { project_id: pid } : undefined });
+            const r = await client.search(q, { topK: 6, metadata: { project_id: pid } });
             const results = ((r && r.results) || []).map((x) => ({
                 id: x.documentId, score: x.score, text: clampText(x.text, 200),
             }));
@@ -349,11 +352,9 @@ const PAGE_HTML = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"
   const $=(id)=>document.getElementById(id);
   const esc=(s)=>String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   const RUNGS=[
-    ['declared','.memory/project.json'],
-    ['git-remote','origin normalizado'],
-    ['git-base','repo base (worktrees)'],
-    ['path','caminho absoluto'],
-    ['name','nome da pasta'],
+    ['declared','.memory/project.json (raiz)'],
+    ['git-remote','git remote origin'],
+    ['none','sem id estável → erro (fail-loud)'],
   ];
   const TEMPLATE=JSON.stringify({version:"1",project:{name:"<nome>",client:"<cliente|opcional>",team:"<time|opcional>"},metadata:{defaults:{project_id:"<owner>/<projeto>"},branches:{"feat/*":{type:"feature"},"fix/*":{type:"bugfix"},"main":{type:"production"}}},user:{identifyBy:"git-email"}},null,2);
   let busy=false;
@@ -363,7 +364,7 @@ const PAGE_HTML = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"
     const order=RUNGS.map(r=>r[0]); const ai=order.indexOf(strength);
     return '<div class="ladder">'+RUNGS.map(([k,d],i)=>{
       let cls='rung'; if(ai>=0&&i<ai)cls+=' past'; if(k===strength)cls+=' active';
-      const mark=(k===strength)?'<span class="mark">◀ resolve</span>':'';
+      const mark=(k===strength)?('<span class="mark">◀ '+(k==='none'?'erro':'resolve')+'</span>'):'';
       return '<div class="'+cls+'"><span class="rk">'+k+'</span><span class="rd">'+d+'</span>'+mark+'</div>';
     }).join('')+'</div>';
   }
@@ -390,7 +391,7 @@ const PAGE_HTML = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"
     h+='<div class="pid">'+esc(sc.projectId||'(não resolvido)')+'</div>';
     h+=ladder(sc.strength);
     if(sc.fragile){
-      h+='<div class="warn"><b>Escopo frágil.</b> Sem <code>.memory/project.json</code> nem git remote, a memória é escopada pelo CAMINHO — não casa entre máquinas. Peça ao agente: <code>memory_init_project</code>.';
+      h+='<div class="warn"><b>Sem identificador estável.</b> Sem <code>.memory/project.json</code> na raiz nem git remote, a memória <b>não é gravada nem injetada</b> (fail-loud, evita escopo-lixo). Peça ao agente: <code>memory_init_project</code>, ou trabalhe num repo com git remote.';
       h+='<details><summary>modelo do project.json</summary><pre>'+esc(TEMPLATE)+'</pre></details></div>';
     } else if(sc.hasConfig){
       h+='<div class="hint">✓ escopo estável via '+esc(sc.configPath)+'</div>';

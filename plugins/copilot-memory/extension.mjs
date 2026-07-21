@@ -13,7 +13,7 @@
 // NB: o import de joinSession é DINÂMICO (dentro do guard no fim) — assim importar { tools, hooks }
 // num harness de smoke não exige resolver @github/copilot-sdk/extension (que só existe no host).
 import { discover } from "./lib/daemon.mjs";
-import { tryResolveProjectId, isFragileScope, resolveFallbackProjectId, fallbackStrength } from "./lib/projectId.mjs";
+import { tryResolveProjectId, isFragileScope, resolveFallbackProjectId, fallbackStrength, SCOPE_HELP } from "./lib/projectId.mjs";
 import { configMetadata, projectConfigPath } from "./lib/projectConfig.mjs";
 import { shouldOfferScaffold, markAsked, scaffoldGuidance } from "./lib/scaffold.mjs";
 import { existsSync as existsSyncSafe } from "node:fs";
@@ -41,6 +41,10 @@ import { armSelfReview } from "./lib/selfReview.mjs";
 let provisionKicked = false;
 // Curadoria de aprendizado (o distiller) disparada 1× por processo, em background.
 let curationKicked = false;
+
+// Mensagem ACIONÁVEL única quando o escopo não resolve (sem marcador declarado e sem git remote). O
+// resolver ESTRITO (ADR project_id) retorna null nesse caso — nenhuma tool grava/consulta em escopo-lixo.
+const NO_SCOPE = "🧠 Sem project_id estável para o projeto aberto — operação indisponível (evita gravar/consultar em escopo-lixo e vazar entre produtos). " + SCOPE_HELP;
 
 // Curadoria ligada por padrão; COPILOT_MEMORY_NO_CURATION=1 desliga (ex.: economizar tokens).
 function curationEnabled() {
@@ -331,7 +335,7 @@ export const tools = [
                     `🧠 Memória: ONLINE (${status})`,
                     `daemon: ${c.url}${c.version ? ` (v${c.version})` : ""}`,
                     `projeto aberto: ${cwd}`,
-                    `project_id: ${c.projectId ?? "(não resolvido — sem git remote/caminho)"}`,
+                    `project_id: ${c.projectId ?? "(não resolvido — crie .memory/project.json na raiz OU use um repo com git remote)"}`,
                 ].join("\n");
             },
         },
@@ -372,7 +376,7 @@ export const tools = [
             handler: async (args) => {
                 const c = await connect(toolCwd());
                 if (!c.ok) return `🧠 Memória offline: ${c.reason}`;
-                if (!c.projectId) return "Sem project_id resolvido para o projeto aberto — busca escopada indisponível (evita vazar memória de outros produtos).";
+                if (!c.projectId) return NO_SCOPE;
                 let r;
                 try {
                     r = await c.client.search(String(args.query || ""), { topK: args.topK || 5, metadata: { project_id: c.projectId } });
@@ -396,7 +400,7 @@ export const tools = [
             handler: async (args) => {
                 const c = await connect(toolCwd());
                 if (!c.ok) return `🧠 Memória offline: ${c.reason}`;
-                if (!c.projectId) return "Sem project_id resolvido — indisponível.";
+                if (!c.projectId) return NO_SCOPE;
                 let r;
                 try {
                     r = await c.client.recent({ limit: args.limit || 10, metadata: { project_id: c.projectId } });
@@ -454,7 +458,7 @@ export const tools = [
             handler: async (args) => {
                 const c = await connect(toolCwd());
                 if (!c.ok) return `🧠 Memória offline: ${c.reason}`;
-                if (!c.projectId) return "Sem project_id resolvido — não salvo (evita gravar sem escopo, o que vazaria entre produtos).";
+                if (!c.projectId) return NO_SCOPE;
                 const content = String(args.content || "").trim();
                 if (!content) return "Conteúdo vazio — nada salvo.";
                 // scopedMeta aplica os defaults/branch do .memory/project.json (paridade REST); o
@@ -492,7 +496,7 @@ export const tools = [
                 const wd = toolCwd();
                 const c = await connect(wd);
                 if (!c.ok) return `🧠 Memória offline: ${c.reason}`;
-                if (!c.projectId) return "Sem project_id resolvido.";
+                if (!c.projectId) return NO_SCOPE;
                 const getEvents = hostHistoryReader();
                 if (!getEvents) return "Histórico indisponível: a session do host não expõe getEvents (plugin carregado pelo host?).";
                 const sid = invocation?.sessionId || SELF_SESSION_ID;
@@ -547,7 +551,7 @@ export const tools = [
             handler: async (args, invocation) => {
                 const c = await connect(toolCwd());
                 if (!c.ok) return `🧠 Memória offline: ${c.reason}`;
-                if (!c.projectId) return "Sem project_id resolvido — skill não salva (evita escopo errado/vazamento).";
+                if (!c.projectId) return NO_SCOPE;
                 const v = validateSkill(args);
                 if (!v.ok) return "Skill inválida:\n- " + v.errors.join("\n- ");
                 // Duplicação temporal (ledger): a mesma lição já foi destilada antes?
@@ -671,7 +675,7 @@ export const tools = [
             handler: async (args) => {
                 const c = await connect(toolCwd());
                 if (!c.ok) return `🧠 Memória offline: ${c.reason}`;
-                if (!c.projectId) return "Sem project_id resolvido.";
+                if (!c.projectId) return NO_SCOPE;
                 const out = [];
                 for (const t of [TYPE_ACTIVE, TYPE_CANDIDATE]) {
                     try {
