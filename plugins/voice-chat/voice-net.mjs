@@ -25,7 +25,7 @@ import {
     quiesceClosedPanelCapture, sessionHasClient, checkForUpdate, readUpdateState, micLockHeldByOther,
     writeUpdateState, effectiveVersion, pendingRestartVersion, saveSettings, drainPendingSpeak,
     sanitizeSettings, settings, setSettings, setLastTtsPreviewSid,
-    session, RUNNING_AS_PLUGIN, CONVERSE_ONSET_MS, log, recordingActiveSid,
+    session, RUNNING_AS_PLUGIN, log, recordingActiveSid,
 } from "./extension.mjs";
 
 const EXT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -205,9 +205,6 @@ export async function handleRequest(req, res) {
         res.write(": connected\n\n");
         sseClients.set(res, sid);
         if (sid) drainPendingSpeak(sid).catch(() => { });   // canvas conectou -> toca o que o hook coletou
-        if (settings.wakeWord) {
-            try { workerSend({ cmd: "wake", on: true, phrases: [settings.wakePhrase] }); } catch { }
-        }
         const _us = readUpdateState();
         const pendingUpdate = pendingRestartVersion(_us);
         res.write(
@@ -307,16 +304,6 @@ export async function handleRequest(req, res) {
         return sendJson(res, { ok: true });
     }
 
-    if (req.method === "POST" && path === "/converse") {
-        const body = await readBody(req);
-        if (body && body.sid) claimVoiceOwnership(body.sid); 
-        if (settings.wakeWord) {
-            ensureWorker();
-            workerSend({ cmd: "converse", timeoutMs: CONVERSE_ONSET_MS });
-        }
-        return sendJson(res, { ok: !!settings.wakeWord });
-    }
-
     if (req.method === "POST" && path === "/played") {
         // O iframe confirmou que TOCOU um item até o fim -> avança o cursor DURÁVEL de
         // "ouvido". Fork LOCAL: aplica direto (nunca encaminha).
@@ -348,8 +335,6 @@ export async function handleRequest(req, res) {
     if (req.method === "POST" && path === "/settings") {
         const body = await readBody(req);
         const prevLang = settings.language;
-        const prevWake = settings.wakeWord;
-        const prevPhrase = settings.wakePhrase;
         const prevTtsVoice = settings.ttsVoice;
         setSettings({ ...settings, ...sanitizeSettings(body) });
         await saveSettings();
@@ -359,10 +344,6 @@ export async function handleRequest(req, res) {
         if (settings.ttsVoice !== prevTtsVoice) {
             setLastTtsPreviewSid(mySid());   // o preview da nova voz toca no iframe DESTA sessão
             workerSend({ cmd: "tts_voice", voice: settings.ttsVoice });
-        }
-        if (settings.wakeWord !== prevWake || settings.wakePhrase !== prevPhrase) {
-            ensureWorker();
-            workerSend({ cmd: "wake", on: settings.wakeWord, phrases: [settings.wakePhrase] });
         }
         return sendJson(res, { ok: true, settings });
     }
