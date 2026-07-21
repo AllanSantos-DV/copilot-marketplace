@@ -279,13 +279,13 @@ export async function handleRequest(req, res) {
         const reqSid = body && body.sid ? String(body.sid) : "";
         // Cross-fork: o mic é único na máquina. Se OUTRA sessão (viva + fresca) tem o lock, recusa.
         if (reqSid && micLockHeldByOther(reqSid)) {
-            dbg(`rec/start busy: mic locked by another session, requested by ${reqSid}`);
-            broadcastTo(reqSid, { type: "busy", msg: "O microfone está em uso por outra sessão." });
+            dbg(`rec/start busy: mic locked (daemon/dictate), requested by ${reqSid}`);
+            broadcastTo(reqSid, { type: "busy", msg: "Microfone em uso (ditado ou outra captura de voz). Solte-o e toque para gravar." });
             return sendJson(res, { ok: false, busy: true });
         }
         if (recordingActiveSid && reqSid && recordingActiveSid !== reqSid) {
             dbg(`rec/start busy: mic in use by ${recordingActiveSid}, requested by ${reqSid}`);
-            broadcastTo(reqSid, { type: "busy", msg: "O microfone está em uso por outra sessão." });
+            broadcastTo(reqSid, { type: "busy", msg: "Microfone em uso por outra sessão de voz. Solte-o e toque para gravar." });
             return sendJson(res, { ok: false, busy: true });
         }
         if (reqSid) { claimVoiceOwnership(reqSid); setRecordingActive(reqSid); }

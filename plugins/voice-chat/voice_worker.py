@@ -1221,6 +1221,10 @@ def main():
                     emit({"event": "transcribed", "id": rid, "ok": False, "msg": str(exc)})
             elif cmd == "shutdown":
                 break
+            elif cmd == "monitor":
+                # idle-VU (monitor) NÃO existe no worker fino: o daemon só emite nível
+                # DURANTE a captura (capture_level). No-op silencioso — sem "unknown cmd".
+                pass
             else:
                 log(f"unknown cmd: {cmd}")
         except Exception as exc:

@@ -354,7 +354,7 @@ function onWorkerEvent(ev) {
             }
             break;
         }
-        case "error":
+        case "error": {
             clearRecordingActive();
             setTurnOwnerSid(null);
             // Liveness: um worker que EMITE erro está vivo e ciclando (o loop de boot
@@ -363,13 +363,28 @@ function onWorkerEvent(ev) {
             // e encerra qualquer fase busy (a operação longa terminou em erro).
             lastLoadingAt = Date.now();
             lastLoadingBusy = false;
-            if (ev.fatal) {
+            // Reconcilia DUAS formas no MESMO evento: (a) erro do WORKER/motor {fatal,msg};
+            // (b) erro de CAPTURA da CaptureSession {code,message,cause}. Sem isto, um erro
+            // de captura caía em `ev.msg` undefined -> banner "Erro." MUDO (o bug do dono).
+            const emsg = ev.msg || ev.message || "";
+            const code = ev.code || ev.cause || "";
+            dbg(`worker/capture error: code=${code || "-"} fatal=${!!ev.fatal} msg=${emsg || "-"}`);
+            if (code === "mic_busy" || code === "busy" || code === "already_open") {
+                // single-owner do mic (mic.lock do daemon): outro capturador tem a VEZ — pode ser o
+                // DITADO (vox-dictate) OU outra captura de voz (vox-daemon). NÃO é bug: 1 mic, 1
+                // captura por vez. Mensagem HONESTA/genérica (não cravar "ditado" — nem sempre é).
+                // TODO(SDK 2.0.0): quando re-vendorizar, propagar `owner` do CaptureError pra cravar
+                // "ditado" vs "outra captura" com precisão em vez de genérico.
+                broadcast({ type: "busy", msg: emsg && /ditad|dictate/i.test(emsg) ? emsg
+                    : "Microfone em uso (ditado ou outra captura de voz). Solte-o e toque para gravar." });
+            } else if (ev.fatal) {
                 workerReady = false;
-                broadcast({ type: "worker", state: "error", msg: ev.msg });
+                broadcast({ type: "worker", state: "error", msg: emsg || (code ? `Falha no motor de voz (${code}).` : "Erro no motor de voz.") });
             } else {
-                broadcast({ type: "error", msg: ev.msg });
+                broadcast({ type: "error", msg: emsg || (code ? `Falha na captura (${code}).` : "Erro no motor de voz.") });
             }
             break;
+        }
         case "tts": {
             if (ev.id === "__warm__") {
                 broadcast({ type: "worker", state: "voiceReady" });
