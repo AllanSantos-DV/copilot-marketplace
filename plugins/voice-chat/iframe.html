@@ -285,9 +285,9 @@
         <svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 3.5a.5.5 0 0 1 1 0v3.248l6.267-3.636A.6.6 0 0 1 12 3.6v8.8a.6.6 0 0 1-.733.488L5 9.252V12.5a.5.5 0 0 1-1 0z"/></svg>
         Anterior
       </button>
-      <button id="replayBtn" class="btn" disabled>
-        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/></svg>
-        Repetir
+      <button id="stopPlayBtn" class="btn" disabled>
+        <svg id="stopPlayIcon" viewBox="0 0 16 16" fill="currentColor"><rect x="3.5" y="3.5" width="9" height="9" rx="1"/></svg>
+        <span id="stopPlayLabel">Parar</span>
       </button>
       <button id="pauseBtn" class="btn" disabled>
         <svg id="pauseIcon" viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.25h2.2v9.5H5zM8.8 3.25H11v9.5H8.8z"/></svg>
@@ -389,7 +389,7 @@ const TOK = (function () {
 const mic = $("mic"), ring = $("ring"), pill = $("pill"), pillText = $("pillText");
 const hint = $("hint"), youText = $("youText"), replyText = $("replyText");
 const fullWrap = $("fullWrap"), fullText = $("fullText"), banner = $("banner");
-const audio = $("audio"), replayBtn = $("replayBtn"), pauseBtn = $("pauseBtn"), pauseLabel = $("pauseLabel"), pauseIcon = $("pauseIcon");
+const audio = $("audio"), stopPlayBtn = $("stopPlayBtn"), stopPlayLabel = $("stopPlayLabel"), stopPlayIcon = $("stopPlayIcon"), pauseBtn = $("pauseBtn"), pauseLabel = $("pauseLabel"), pauseIcon = $("pauseIcon");
 const prevBtn = $("prevBtn"), nextBtn = $("nextBtn"), histBadge = $("histBadge"), histPos = $("histPos");
 const replyCard = $("replyCard"), progress = $("progress"), progressBar = progress.querySelector("i");
 const confirmWrap = $("confirmWrap"), confirmText = $("confirmText"), sendBtn = $("sendBtn"), cancelBtn = $("cancelBtn");
@@ -669,11 +669,12 @@ function playAt(i) {
   previewPlaying = false;
   showItemText(it);
   currentAudioUrl = it.audio || null;
-  replayBtn.disabled = !it.audio;
+  stopPlayBtn.disabled = !it.audio;
   if (it.audio) {
     playing = true;
     playingSeq = (typeof it.seq === "number") ? it.seq : null;
     pauseBtn.disabled = false; setPauseBtn(true);
+    setStopPlayBtn(true);
     phase = "speaking"; reflectPhase();
     audio.src = base + it.audio + "?t=" + Date.now();
     unlockAudio();
@@ -698,7 +699,8 @@ function onPlaybackEnded() {
   if (playQueue.length) { pumpAudio(); return; }
   // fim do autoplay: volta a pronto e libera a conversa contínua.
   phase = "ready"; reflectPhase(); hint.textContent = defaultHint();
-  setPauseBtn(true);
+  pauseBtn.disabled = true; setPauseBtn(true);
+  setStopPlayBtn(false);
   updateHistUi();
 }
 // Um áudio novo (ao vivo) chegou do servidor.
@@ -752,7 +754,7 @@ function applyAudioHistory(ah) {
   if (curIdx >= 0) {
     showItemText(hist[curIdx]);
     currentAudioUrl = hist[curIdx].audio || null;
-    replayBtn.disabled = !hist[curIdx].audio; pauseBtn.disabled = true; setPauseBtn(true);
+    stopPlayBtn.disabled = !hist[curIdx].audio; setStopPlayBtn(false); pauseBtn.disabled = true; setPauseBtn(true);
   }
   updateHistUi();
   pumpAudio();
@@ -761,6 +763,7 @@ function stopPlayback() {   // corta o que toca e cancela o autoplay (controle m
   playQueue = [];
   softPause();   // corte SUAVE (fade-out anti-clique) em vez de pause seco
   playing = false; previewPlaying = false; playingSeq = null;   // o item já foi marcado OUVIDO no início do play (não regride ao cortar)
+  setStopPlayBtn(false);
 }
 function goPrev() {
   if (curIdx <= 0) return;
@@ -802,6 +805,16 @@ function setPauseBtn(playing) {
     ? '<path d="M5 3.25h2.2v9.5H5zM8.8 3.25H11v9.5H8.8z"/>'
     : '<path d="M5 3.5v9l8-4.5z"/>';
 }
+// Botão único Parar/Tocar, espelhado no estado `playing` (inclui pausado): tocando -> ⏹ Parar
+// (corta a fala inteira e volta ao padrão — a próxima mensagem autoplaya); parado -> ▶ Tocar
+// (repete a mensagem atual da tela do início). Pausar/Continuar (pauseBtn) é separado e retoma
+// de onde pausou; um áudio novo durante a PAUSA vira badge, não interrompe.
+const ICON_STOP = '<rect x="3.5" y="3.5" width="9" height="9" rx="1"/>';
+const ICON_PLAY = '<path d="M5 3.5v9l8-4.5z"/>';
+function setStopPlayBtn(isPlaying) {
+  stopPlayLabel.textContent = isPlaying ? "Parar" : "Tocar";
+  stopPlayIcon.innerHTML = isPlaying ? ICON_STOP : ICON_PLAY;
+}
 audio.addEventListener("ended", () => {
   if (previewPlaying) { previewPlaying = false; pumpAudio(); return; }
   // O ACK de "ouvido" já foi no INÍCIO do play (ackPlayStart) — aqui só encerra e puxa a fila.
@@ -811,11 +824,24 @@ audio.addEventListener("ended", () => {
 prevBtn.addEventListener("click", (e) => { e.preventDefault(); goPrev(); });
 nextBtn.addEventListener("click", (e) => { e.preventDefault(); goNext(); });
 histBadge.addEventListener("click", (e) => { e.preventDefault(); goLive(); });
-replayBtn.addEventListener("click", () => {
+// STOP corta a fala inteira (volta ao padrão: a próxima nova autoplaya) e PLAY toca a mensagem
+// atual da tela do início. NÃO mexe em `reviewing`: o contexto de navegação já está correto —
+// live segue autoplayando, revisando mantém o badge.
+function stopSpeech() {
+  stopPlayback();
+  phase = "ready"; reflectPhase();
+  pauseBtn.disabled = true; setPauseBtn(true);
+  hint.textContent = defaultHint();
+  setStopPlayBtn(false);
+  updateHistUi();
+}
+function onStopPlayClick() {
+  if (playing) { stopSpeech(); return; }
   if (curIdx < 0 || !hist[curIdx] || !hist[curIdx].audio) return;
   stopPlayback();
   playAt(curIdx);
-});
+}
+stopPlayBtn.addEventListener("click", (e) => { e.preventDefault(); onStopPlayClick(); });
 pauseBtn.addEventListener("click", () => {
   if (!audio.src) return;
   if (audio.paused) {                    

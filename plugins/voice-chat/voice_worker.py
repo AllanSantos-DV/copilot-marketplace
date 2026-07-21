@@ -23,6 +23,7 @@ import threading
 import traceback
 import wave
 import vox_sdk
+import vox_lifecycle
 from capture_session import CaptureSession
 from vox_capture_adapter import VoxPipeCaptureAdapter
 
@@ -822,7 +823,7 @@ class _VoxBridge:
             try:
                 if self._connected:
                     return True
-                self._client = vox_sdk.ensure_vox(
+                self._client = vox_lifecycle.ensure_vox(
                     self._pipe, autostart=False, auto_update=False,
                     recycle_stale=False, with_translation=False,
                     connect_timeout_ms=connect_ms)
@@ -837,7 +838,7 @@ class _VoxBridge:
                 return True
             self._status("Conectando ao motor de voz…")
             try:
-                res = vox_sdk.ensure_vox_detailed(
+                res = vox_lifecycle.ensure_vox_detailed(
                     self._pipe, autostart=True, auto_update=True,
                     recycle_stale=True, with_translation=True,
                     boot_timeout_ms=int(max(0.0, boot_timeout) * 1000))
@@ -976,6 +977,10 @@ class _VoxBridge:
 
 
 def main():
+    # GUARD (fail-loud): o worker FINO conecta ao daemon SEM numpy no boot — vox_stream/numpy sao
+    # LAZY (so o transcribe_file offline os carrega). Se um import de vox_stream/numpy vazar pro
+    # topo do worker, o boot FALHA AQUI, alto e claro, em vez de inflar a RAM ociosa em silencio.
+    assert "numpy" not in sys.modules, "numpy carregado no boot do worker (vox_stream vazou no import de topo)"
     state = {"language": (os.environ.get("VOICE_LANG", "pt").strip() or "pt"),
              "model": VOX_PROFILE}
     def _vox_status(msg, busy=False):
