@@ -79,7 +79,7 @@ const ADVISOR_MAX = 5;              // teto absoluto de avisos de reload por ses
 function readForkHeartbeat(sid) {
   try {
     const hb = JSON.parse(fs.readFileSync(shared.forkHeartbeatFile(DATA_DIR, sid), 'utf8'));
-    if (hb && typeof hb.pid === 'number' && hb.pid > 0 && Number(hb.ts) > 0) return { pid: hb.pid, ts: Number(hb.ts) };
+    if (hb && typeof hb.pid === 'number' && hb.pid > 0 && Number(hb.ts) > 0) return { pid: hb.pid, ts: Number(hb.ts), status: typeof hb.status === 'string' ? hb.status : 'ready' };
   } catch { /* ausente/corrompido = voz nunca aberta aqui -> não avisa */ }
   return null;
 }
@@ -135,7 +135,10 @@ if (require.main === module) {
     // no fork; se ele morreu, pedir `falar` é IMPOSSÍVEL -> pulamos o enforcement e deixamos o advisor
     // pedir o reload (senão o usuário come 3 nags inúteis antes da dica que resolve).
     const hb = sid ? readForkHeartbeat(sid) : null;
-    const forkAlive = hb ? (pidAlive(hb.pid) && (Date.now() - hb.ts) < HEARTBEAT_STALE_MS) : true;
+    // "vivo" p/ o canvas = PID vivo E heartbeat fresco E o registro NÃO falhou. status:"failed"
+    // (joinSession falhou 2x) conta como canvas AUSENTE mesmo com PID vivo -> o advisor pede reload
+    // (o join pode falhar com o host de pé; sem isto ficaria o buraco negro host-vivo-sem-canvas).
+    const forkAlive = hb ? (pidAlive(hb.pid) && (Date.now() - hb.ts) < HEARTBEAT_STALE_MS && hb.status !== 'failed') : true;
     const forkDead = !!hb && !forkAlive;
 
     // 1) ENFORCEMENT da tool `falar` (cap CONSECUTIVO anti-loop). Pulado se o fork está morto. Fail-open
