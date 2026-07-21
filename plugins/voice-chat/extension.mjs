@@ -50,7 +50,7 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 
-export const CURRENT_VERSION = "2.1.3";
+export const CURRENT_VERSION = "2.1.4";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -71,21 +71,21 @@ export function setLastTtsPreviewSid(v) { lastTtsPreviewSid = v; }
 export let recordingActiveSid = null; 
 let recordingActiveTimer = null; 
 
-// Lock de gravação MACHINE-WIDE e CROSS-PRODUTO. O device de microfone é ÚNICO: dois donos gravando
-// ao mesmo tempo = dois InputStreams = corrida/lixo. O lock vive num caminho NEUTRO compartilhado
-// (%USERPROFILE%\.copilot\vox\mic.lock) que a extensão, o daemon vox (CaptureService) e o dictate
-// honram — UMA fonte de verdade. Formato {sid,pid,ts} atômico, renovado pelo heartbeat rec_alive,
-// expira por TTL, pid-check invalida dono morto. O daemon se identifica com o sid reservado
-// "vox-daemon" (nenhuma sessão usa) → meu check já o trata como "de outro". Override por env.
+// Pré-checagem READ-ONLY do lock de mic do DAEMON. A captura é 100% no daemon agora (capture_open),
+// então o DAEMON é o ÚNICO DONO/ESCRITOR do lock em %USERPROFILE%\.copilot\vox\mic.lock (sid
+// reservado "vox-daemon"; o dictate usa "vox-dictate"). O voice-chat só LÊ este arquivo para um
+// "ocupado" RÁPIDO no /rec/start (evita subir a captura só pra ouvir busy). NUNCA escreve: escrever
+// com a PRÓPRIA sid fazia o daemon ver um dono "estranho" e recusar a PRÓPRIA captura (mic_busy) —
+// o bug do AUTO-BLOQUEIO. Formato {sid,pid,ts}, TTL, pid-check (dono morto -> livre).
 const MIC_LOCK_FILE = process.env.VOICE_MIC_LOCK_FILE || join(homedir(), ".copilot", "vox", "mic.lock");
 const MIC_LOCK_TTL_MS = Number(process.env.VOICE_MIC_LOCK_TTL_MS) || 15000;
 export function micLockHeldByOther(mySid) {
     const l = readJson(MIC_LOCK_FILE, null);
     if (!l || !l.sid) return false;
-    if (String(l.sid) === String(mySid || "")) return false;          // é meu
+    if (String(l.sid) === String(mySid || "")) return false;          // defensivo: só o daemon escreve, nunca eu
     if ((Date.now() - (Number(l.ts) || 0)) > MIC_LOCK_TTL_MS) return false;  // lease expirada
-    if (!pidAlive(l.pid)) return false;                               // fork dona morreu
-    return true;                                                      // vivo + fresco + de OUTRA sessão
+    if (!pidAlive(l.pid)) return false;                               // dono (daemon/dictate) morto
+    return true;                                                      // vivo + fresco + de OUTRO (daemon/dictate)
 }
 
 
@@ -846,13 +846,15 @@ export function setRecordingActive(sid) {
     if (recordingActiveTimer) clearTimeout(recordingActiveTimer);
     recordingActiveTimer = setTimeout(() => { recordingActiveSid = null; recordingActiveTimer = null; }, 60000);
     if (recordingActiveTimer.unref) recordingActiveTimer.unref();
-    if (sid) { try { writeJsonAtomic(MIC_LOCK_FILE, { sid: String(sid), pid: process.pid, ts: Date.now() }); } catch { /* best-effort */ } }
+    // NÃO escreve mais o mic.lock: a captura é 100% no DAEMON (capture_open) e ele é o ÚNICO
+    // dono/escritor do lock (sid "vox-daemon"). Escrever aqui com a MINHA sid fazia o daemon ver
+    // um dono "estranho" e recusar a PRÓPRIA captura (mic_busy) = auto-bloqueio. Só estado em memória.
 }
 
 export function clearRecordingActive() {
     recordingActiveSid = null;
     if (recordingActiveTimer) { clearTimeout(recordingActiveTimer); recordingActiveTimer = null; }
-    try { const l = readJson(MIC_LOCK_FILE, null); if (l && Number(l.pid) === process.pid) unlinkSync(MIC_LOCK_FILE); } catch { /* best-effort: só libero se o lock for MEU */ }
+    // NÃO toca no mic.lock: quem o possui e o libera é o DAEMON (no stop/cancel da captura).
 }
 
 export function startMonitor(sid) {

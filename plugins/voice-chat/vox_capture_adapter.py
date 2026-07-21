@@ -19,9 +19,11 @@ idêntico ao ``FakeCaptureAdapter``.
 """
 from __future__ import annotations
 
+import time
 from typing import Any, List, Optional
 
 from capture_port import (
+    BUSY_CODES,
     CaptureClosed,
     CaptureError,
     CaptureLevel,
@@ -147,30 +149,50 @@ class VoxPipeCaptureAdapter:
     def __init__(self, client: Any, *, lang: str = "", model: Optional[str] = None,
                  profile: Optional[str] = None, input_device: Any = None,
                  min_rms: float = 0.0, connect_timeout: float = 5.0,
-                 open_timeout: float = 8.0) -> None:
+                 open_timeout: float = 8.0, busy_retries: int = 2,
+                 busy_retry_s: float = 0.3, sleep=None) -> None:
         self._client = client
         self._opts = dict(lang=lang, model=model, profile=profile,
                           input_device=input_device, min_rms=min_rms,
                           connect_timeout=connect_timeout, open_timeout=open_timeout)
         self.opened: List[str] = []
+        # RETRY curto no mic_busy: o mic.lock (single-owner) pode estar com o DITADO por
+        # instantes (ele solta o mic ENTRE frases). `sleep` é injetável p/ teste sem delay real.
+        self._busy_retries = int(busy_retries)
+        self._busy_retry_s = float(busy_retry_s)
+        self._sleep = sleep if sleep is not None else time.sleep
 
     def open(self, session_id: str) -> VoxPipeCaptureStream:
         """Abre uma captura para ``session_id``. Erro de abertura TIPADO (``CaptureError``
         do SDK) OU falha de transporte (daemon fora) vira um ``CaptureError`` TERMINAL no
-        stream — o worker trata sucesso e falha pela MESMA ``events()``."""
+        stream — o worker trata sucesso e falha pela MESMA ``events()``.
+
+        RETRY curto SÓ em ``BUSY_CODES`` (mic.lock já com OUTRO dono — quase sempre o
+        DITADO): reabre ``busy_retries`` vezes com ``busy_retry_s`` entre elas p/ pegar a
+        janela em que o outro capturador solta o mic. NÃO força coexistência (o lock impede
+        dupla captura DE PROPÓSITO); erro NÃO-busy (device_fail/pipe_broken) falha na hora."""
         stream = VoxPipeCaptureStream()
         self.opened.append(session_id)
         opts = dict(self._opts)
         dev = opts.get("input_device")
         if callable(dev):
             opts["input_device"] = dev()   # resolve o mic selecionado NA HORA da captura
-        try:
-            handle = self._client.capture_open(session_id, stream._on_event, **opts)
-        except SdkCaptureError as exc:
-            stream.emit(CaptureError(exc.code, exc.message))
+        last_busy = None
+        for attempt in range(self._busy_retries + 1):
+            try:
+                handle = self._client.capture_open(session_id, stream._on_event, **opts)
+            except SdkCaptureError as exc:
+                if exc.code in BUSY_CODES and attempt < self._busy_retries:
+                    last_busy = exc
+                    self._sleep(self._busy_retry_s)   # espera o ditado soltar o mic e re-tenta
+                    continue
+                stream.emit(CaptureError(exc.code, exc.message))
+                return stream
+            except (OSError, TimeoutError) as exc:  # daemon fora / pipe não abriu
+                stream.emit(CaptureError("pipe_broken", f"capture_open falhou: {exc}"))
+                return stream
+            stream._bind(handle)
             return stream
-        except (OSError, TimeoutError) as exc:  # daemon fora / pipe não abriu
-            stream.emit(CaptureError("pipe_broken", f"capture_open falhou: {exc}"))
-            return stream
-        stream._bind(handle)
+        # esgotou os retries de busy -> erro terminal com o último código busy
+        stream.emit(CaptureError(last_busy.code, last_busy.message))
         return stream
