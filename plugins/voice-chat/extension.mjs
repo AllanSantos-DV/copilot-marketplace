@@ -15,7 +15,7 @@ import { buildPythonCandidates, savePythonPath } from "./voice-python.mjs";
 import { cleanForSpeech, makeSpoken } from "./voice-text.mjs";
 import {
     verGt, shouldStepDownForNewer, sha256Hex, verifyManifestSig, updateVersionAcceptable,
-    fetchBuf, pickPluginVersion, releaseAssetBase, computeLogicSha, classifyStagedUpdate,
+    fetchBuf, pickPluginVersion, releaseAssetBase, computeLogicSha, classifyStagedUpdate, updateNameSafe,
     RUNNING_EXT_LOGIC_SHA, PLUGIN_NAME,
 } from "./voice-update.mjs";
 import {
@@ -50,7 +50,7 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 
-export const CURRENT_VERSION = "2.2.0";
+export const CURRENT_VERSION = "2.2.1";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -61,6 +61,10 @@ export const RUNNING_AS_PLUGIN = /[\\/]installed-plugins[\\/]/.test(EXT_DIR);
 const UPDATE_DISABLED = process.env.VOICE_UPDATE_DISABLED === "1" || RUNNING_AS_PLUGIN;
 const UPDATE_THROTTLE_MS = Number(process.env.VOICE_UPDATE_THROTTLE_MS) || 0;
 const UPDATE_STATE_FILE = join(ARTIFACTS, "update-state.json");
+// Fonte DECLARATIVA do conjunto empacotado (o gate afere gen-manifest FILES == UPDATABLE_FILES).
+// NÃO é mais a allowlist do updater em runtime — a autorização do que se escreve é a ASSINATURA
+// Ed25519 do manifesto (ver checkForUpdate + updateNameSafe); senão install antigo nunca recebia
+// arquivo NOVO (ex.: vox_lifecycle.py) e aplicava update PARCIAL = "motor de voz falhou" em loop.
 const UPDATABLE_FILES = new Set(["extension.mjs", "voice-shared.cjs", "voice-core.mjs", "voice-python.mjs", "voice-update.mjs", "voice-text.mjs", "voice-state.mjs", "voice-audio.mjs", "voice-worker.mjs", "voice-net.mjs", "voice_worker.py", "vox_sdk.py", "vox_lifecycle.py", "vox_stream.py", "capture_port.py", "capture_session.py", "vox_capture_adapter.py", "_ed25519_ref.py", "iframe.html", "requirements.txt", "hooks.json", "voice-summary-stop.cjs", "voice-canvas-guard.cjs"]);
 
 // Python interpreters are discovered dynamically (see buildPythonCandidates).
@@ -436,8 +440,13 @@ async function _checkForUpdateImpl(opts = {}) {
         const staged = [];
         for (const f of files) {
             const rel = typeof f === "string" ? f : f && f.path;
-            if (!rel || rel.includes("/") || rel.includes("\\") || rel.includes("..") || !UPDATABLE_FILES.has(rel)) {
-                dbg("update: skipping unsafe/unlisted file " + rel);
+            // AUTORIZAÇÃO = assinatura Ed25519 do manifesto (verifyManifestSig, acima), NÃO a
+            // allowlist LOCAL: um install ANTIGO precisa poder receber um arquivo NOVO do release
+            // (ex.: vox_lifecycle.py) — senão aplica update PARCIAL (worker novo sem o módulo novo
+            // -> ModuleNotFoundError -> "motor de voz falhou"). Só a segurança do NOME fica aqui
+            // (basename, sem traversal); o conteúdo já é coberto por assinatura + sha256 por arquivo.
+            if (!updateNameSafe(rel)) {
+                dbg("update: skipping unsafe file name " + rel);
                 continue;
             }
             const want = typeof f === "object" ? f.sha256 : null;
