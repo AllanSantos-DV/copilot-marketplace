@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">copilot-remote</h1>
-        <span class="chip" title="versão publicada">v0.1.0</span>
+        <span class="chip" title="versão publicada">v0.2.0</span>
       </div>
       <p class="doc-hero__lede">O <strong>copilot-remote</strong> usa o daemon do copilot-mobile para alcançar sessões do Copilot em outros computadores. Escolha a máquina, liste as sessões, converse com o agente de lá, mande áudio (reusando o motor de voz local) e arquivos — tudo de um painel no desktop.</p>
       <div class="doc-hero__cta">
@@ -126,17 +126,17 @@
             <li class="tree__row">
               <code class="tree__name">client.mjs</code>
               <span class="tree__role">Cliente de transporte (HTTP/SSE).</span>
-              <span class="tree__size">14 KB</span>
+              <span class="tree__size">10 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">daemon.mjs</code>
               <span class="tree__role">Fala com o daemon apartado (fora da sessão).</span>
-              <span class="tree__size">11 KB</span>
+              <span class="tree__size">8.8 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
               <span class="tree__role">Extensão in-app: hooks e tools da sessão viva do agente.</span>
-              <span class="tree__size">59 KB</span>
+              <span class="tree__size">62 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">hooks.json</code>
@@ -144,14 +144,19 @@
               <span class="tree__size">178 B</span>
             </li>
             <li class="tree__row">
+              <code class="tree__name">netcore.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">5.8 KB</span>
+            </li>
+            <li class="tree__row">
               <code class="tree__name">panel.html</code>
               <span class="tree__role">Canvas: painel de UI carregado pelo app GUI.</span>
-              <span class="tree__size">21 KB</span>
+              <span class="tree__size">22 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
               <span class="tree__role">Metadados do plugin + marcadores (extensions / hooks).</span>
-              <span class="tree__size">746 B</span>
+              <span class="tree__size">696 B</span>
             </li>
             </ul>
           </div>
@@ -183,11 +188,11 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.1.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.2.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
-            <div class="meta__row"><dt>tipo</dt><dd><span class="pill">canvas</span> <span class="pill">hooks</span></dd></div>
+            <div class="meta__row"><dt>tipo</dt><dd><span class="pill">canvas</span></dd></div>
             <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>copilot-mobile instalado na máquina remota, com o daemon armado</li><li>Rede entre as máquinas (LAN, Tailscale ou URL pública)</li><li>Node 18+ (runtime da extensão)</li></ul></dd></div>
             <div class="meta__row"><dt>tags</dt><dd><ul class="tags tags--meta"><li>remote</li><li>daemon</li><li>copilot-mobile</li><li>sessions</li><li>voice</li><li>pt-BR</li></ul></dd></div>
           </dl>
