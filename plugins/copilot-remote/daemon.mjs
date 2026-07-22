@@ -13,15 +13,10 @@
 // One persistent SSE stream fans events to per-call waiters, each filtered by the
 // sessionId it cares about — so N sessions never cross wires.
 
-import http from "node:http";
-import https from "node:https";
-import { URL } from "node:url";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-
-const TOKEN_HEADER = "x-copilot-token";
-const mod = (u) => (u.protocol === "https:" ? https : http);
+import { httpJson, openEvents } from "./netcore.mjs";
 
 // Read the locally-running daemon's loopback coordinates (published on boot).
 export function localDaemonInfo() {
@@ -35,34 +30,6 @@ export function localDaemonInfo() {
     return null;
 }
 
-export function httpJson(baseUrl, path, { method = "GET", token = null, body = null, timeoutMs = 20000 } = {}) {
-    return new Promise((resolve, reject) => {
-        let u;
-        try { u = new URL(path, baseUrl); } catch (e) { return reject(new Error("bad url: " + (e?.message || e))); }
-        const data = body != null ? Buffer.from(JSON.stringify(body)) : null;
-        const headers = { Accept: "application/json" };
-        if (data) { headers["Content-Type"] = "application/json"; headers["Content-Length"] = data.length; }
-        if (token) headers[TOKEN_HEADER] = token;
-        let settled = false;
-        const finish = (fn, v) => { if (!settled) { settled = true; fn(v); } };
-        const req = mod(u).request(u, { method, headers }, (res) => {
-            let buf = "";
-            res.setEncoding("utf8");
-            res.on("data", (d) => (buf += d));
-            res.on("end", () => {
-                let json = null;
-                try { json = buf ? JSON.parse(buf) : {}; } catch { json = { ok: false, error: "bad_json", raw: buf }; }
-                finish(resolve, { ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode || 0, json });
-            });
-            res.on("error", (e) => finish(reject, e));
-        });
-        req.on("error", (e) => finish(reject, e));
-        if (timeoutMs > 0) req.setTimeout(timeoutMs, () => req.destroy(new Error("timeout")));
-        if (data) req.write(data);
-        req.end();
-    });
-}
-
 export class DaemonClient {
     constructor({ baseUrl, token = null, deviceId = null, deviceSecret = null, name = "Controle Remoto (desktop)" } = {}) {
         if (!baseUrl) throw new Error("baseUrl required");
@@ -73,7 +40,6 @@ export class DaemonClient {
         this.name = name;
         this._sinks = new Set();   // (evt) => void  — evt carries .sessionId
         this._sse = null;
-        this._sseReq = null;
         this._closed = false;
     }
 
@@ -137,40 +103,31 @@ export class DaemonClient {
         return !!r.json?.ok;
     }
 
+    // Answer a pending ask_user question on a specific session. requestId (from the
+    // question event) lets the daemon unblock the turn immediately; without it the
+    // daemon best-effort routes the answer as a message.
+    async answer(sessionId, text, { requestId = "", wasFreeform = true } = {}) {
+        const r = await httpJson(this.baseUrl, "/answer", { method: "POST", token: this.token, body: { sessionId, answer: String(text ?? ""), requestId: String(requestId || ""), wasFreeform: !!wasFreeform }, timeoutMs: 30000 });
+        if (!r.ok || !r.json?.ok) throw new Error(r.json?.error || ("http_" + r.status));
+        return r.json;
+    }
+
+    // Answer + await the session's continued turn (mirror of ask()).
+    async answerAndWait(sessionId, text, { requestId = "", wasFreeform = true, timeoutMs = 180000 } = {}) {
+        this.ensureStream();
+        await this.subscribe(sessionId, 1);
+        const waiter = this._waitTurn(sessionId, timeoutMs);
+        await this.answer(sessionId, text, { requestId, wasFreeform });
+        return waiter;
+    }
+
     // Persistent multiplexed event stream. Idempotent; auto-reconnects unless closed.
     ensureStream() {
         if (this._sse || this._closed) return;
-        let u;
-        try { u = new URL("/events", this.baseUrl); } catch { return; }
-        const headers = { Accept: "text/event-stream", [TOKEN_HEADER]: this.token };
-        try {
-            this._sseReq = mod(u).request(u, { method: "GET", headers }, (res) => {
-                if (res.statusCode !== 200) { res.resume(); this._sse = null; if (!this._closed) setTimeout(() => this.ensureStream(), 1500); return; }
-                this._sse = res;
-                res.setEncoding("utf8");
-                let buf = "";
-                res.on("data", (chunk) => {
-                    buf += chunk;
-                    let idx;
-                    while ((idx = buf.indexOf("\n\n")) >= 0) {
-                        const frame = buf.slice(0, idx);
-                        buf = buf.slice(idx + 2);
-                        for (const line of frame.split("\n")) {
-                            if (!line.startsWith("data:")) continue;
-                            const payload = line.slice(5).trim();
-                            if (!payload) continue;
-                            let obj = null;
-                            try { obj = JSON.parse(payload); } catch { obj = null; }
-                            if (obj) for (const s of [...this._sinks]) { try { s(obj); } catch {} }
-                        }
-                    }
-                });
-                res.on("end", () => { this._sse = null; if (!this._closed) setTimeout(() => this.ensureStream(), 1500); });
-                res.on("error", () => { this._sse = null; if (!this._closed) setTimeout(() => this.ensureStream(), 1500); });
-            });
-            this._sseReq.on("error", () => { this._sse = null; if (!this._closed) setTimeout(() => this.ensureStream(), 2000); });
-            this._sseReq.end();
-        } catch {}
+        this._sse = openEvents(this.baseUrl, this.token, {
+            onEvent: (obj) => { for (const s of [...this._sinks]) { try { s(obj); } catch {} } },
+            onError: () => { this._sse = null; if (!this._closed) setTimeout(() => this.ensureStream(), 1500); },
+        });
     }
 
     onEvent(cb) { this._sinks.add(cb); this.ensureStream(); return () => this._sinks.delete(cb); }
@@ -215,8 +172,7 @@ export class DaemonClient {
     close() {
         this._closed = true;
         this._sinks.clear();
-        try { this._sse?.destroy(); } catch {}
-        try { this._sseReq?.destroy(); } catch {}
+        try { this._sse?.close(); } catch {}
         this._sse = null;
     }
 }

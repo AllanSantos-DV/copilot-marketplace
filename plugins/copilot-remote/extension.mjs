@@ -691,6 +691,24 @@ async function handleLocal(req, res) {
         }
     }
 
+    if (req.method === "POST" && path === "/daemon/answer") {
+        const body = await readBody(req);
+        const sessionId = String(body?.sessionId || "");
+        const answer = typeof body?.answer === "string" ? body.answer : "";
+        const wasFreeform = body?.wasFreeform !== false;
+        if (!sessionId || !answer.trim()) return sendJson(res, { ok: false, error: "bad_request" }, 400);
+        try {
+            const dc = await getActiveDaemon();
+            if (!dc) return sendJson(res, { ok: false, error: "daemon_unavailable" }, 409);
+            const requestId = daemonPendingQ.get(sessionId) || "";
+            const r = await dc.answer(sessionId, answer, { requestId, wasFreeform });
+            daemonPendingQ.delete(sessionId);
+            return sendJson(res, { ok: true, resolved: !!r?.resolved });
+        } catch (e) {
+            return sendJson(res, { ok: false, error: String(e?.message || e) }, 502);
+        }
+    }
+
     if (req.method === "POST" && path === "/daemon/voice-in") {
         const body = await readBody(req);
         const sessionId = String(body?.sessionId || "");
@@ -723,10 +741,15 @@ async function getActiveDaemon() {
 // Fan the active daemon's multiplexed events out to the panel (tagged channel:"daemon").
 // Idempotent per active client: re-wiring drops the previous sink first.
 let _daemonStreamFor = null;
+const daemonPendingQ = new Map();   // sessionId -> requestId of the last pending ask_user (for /daemon/answer + remote_session_answer)
+
 function wireDaemonStream(dc) {
     if (_daemonStreamFor === dc && daemonStreamOff) return;
     try { daemonStreamOff?.(); } catch {}
-    daemonStreamOff = dc.onEvent((evt) => { try { broadcastPanel({ channel: "daemon", ...evt }); } catch {} });
+    daemonStreamOff = dc.onEvent((evt) => {
+        try { if (evt && evt.type === "question" && evt.sessionId) daemonPendingQ.set(evt.sessionId, evt.id ?? evt.requestId ?? ""); } catch {}
+        try { broadcastPanel({ channel: "daemon", ...evt }); } catch {}
+    });
     _daemonStreamFor = dc;
 }
 
@@ -1013,7 +1036,7 @@ const tools = [
     },
     {
         name: "remote_session_ask",
-        description: "Envia uma instrução ao agente de UMA sessão específica da máquina remota (via daemon) e AGUARDA a resposta. Pegue a sessionId com remote_daemon_status. Se o agente remoto fizer uma pergunta, o resultado indica (responder pergunta via daemon ainda não é suportado).",
+        description: "Envia uma instrução ao agente de UMA sessão específica da máquina remota (via daemon) e AGUARDA a resposta. Pegue a sessionId com remote_daemon_status. Se o agente remoto fizer uma pergunta (status question), responda com remote_session_answer para desbloquear o turno.",
         parameters: {
             type: "object",
             properties: {
@@ -1032,6 +1055,7 @@ const tools = [
             const ts = Math.min(600, Math.max(10, Number(args?.timeoutSeconds) || 180));
             try {
                 const r = await dc.ask(sessionId, prompt, { timeoutMs: ts * 1000 });
+                if (r.status === "question" && r.question?.id) daemonPendingQ.set(sessionId, r.question.id);
                 return { resultType: "success", textResultForLlm: formatDaemonTurn(sessionId, r) };
             } catch (e) {
                 return { resultType: "failure", textResultForLlm: "remote_session_ask falhou: " + (e?.message || e) };
@@ -1047,6 +1071,35 @@ const tools = [
             if (!dc) return { resultType: "failure", textResultForLlm: "Daemon não conectado." };
             try { await dc.abort(String(args?.sessionId || "")); return { resultType: "success", textResultForLlm: "Abort enviado à sessão." }; }
             catch (e) { return { resultType: "failure", textResultForLlm: "remote_session_abort falhou: " + (e?.message || e) }; }
+        },
+    },
+    {
+        name: "remote_session_answer",
+        description: "Responde uma pergunta (ask_user) feita pelo agente de UMA sessão da máquina remota — quando remote_session_ask retornou status 'question'. Desbloqueia o turno remoto na hora (via requestId) e AGUARDA a continuação da resposta.",
+        parameters: {
+            type: "object",
+            properties: {
+                sessionId: { type: "string", description: "A sessionId que está perguntando." },
+                answer: { type: "string", description: "Sua resposta à pergunta do agente remoto." },
+                timeoutSeconds: { type: "number", description: "Tempo máximo de espera pela continuação (padrão 180, máx 600)." },
+            },
+            required: ["sessionId", "answer"],
+        },
+        handler: async (args) => {
+            const dc = await ensureDaemon();
+            if (!dc) return { resultType: "failure", textResultForLlm: "Daemon não conectado. Rode remote_daemon_status primeiro." };
+            const sessionId = String(args?.sessionId || "").trim();
+            const answer = String(args?.answer || "").trim();
+            if (!sessionId || !answer) return { resultType: "failure", textResultForLlm: "remote_session_answer: informe sessionId e answer." };
+            const ts = Math.min(600, Math.max(10, Number(args?.timeoutSeconds) || 180));
+            const requestId = daemonPendingQ.get(sessionId) || "";
+            try {
+                const r = await dc.answerAndWait(sessionId, answer, { requestId, wasFreeform: true, timeoutMs: ts * 1000 });
+                if (r.status === "question" && r.question?.id) daemonPendingQ.set(sessionId, r.question.id); else daemonPendingQ.delete(sessionId);
+                return { resultType: "success", textResultForLlm: formatDaemonTurn(sessionId, r) };
+            } catch (e) {
+                return { resultType: "failure", textResultForLlm: "remote_session_answer falhou: " + (e?.message || e) };
+            }
         },
     },
     {
@@ -1119,7 +1172,7 @@ function formatDaemonTurn(sessionId, r) {
     if (r.status === "question") {
         const q = r.question || {};
         const ch = (q.choices || []).length ? `\nOpções: ${q.choices.join(" | ")}` : "";
-        return `[sessão ${tag}] está PERGUNTANDO:\n\n${q.question}${ch}\n\n⚠ Responder pergunta via daemon ainda NÃO é suportado (o daemon não expõe /answer). A sessão remota está aguardando — use remote_session_abort para liberar, ou responda pelo app/celular.${r.reply ? "\n\nContexto:\n" + r.reply : ""}`;
+        return `[sessão ${tag}] está PERGUNTANDO:\n\n${q.question}${ch}\n\n-> Responda com remote_session_answer { sessionId: "${sessionId}", answer: "..." } para desbloquear o turno, ou remote_session_abort para liberar.${r.reply ? "\n\nContexto:\n" + r.reply : ""}`;
     }
     if (r.status === "permission") {
         const p = r.permission || {};
