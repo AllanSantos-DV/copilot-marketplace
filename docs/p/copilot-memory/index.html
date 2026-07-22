@@ -39,9 +39,9 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">copilot-memory</h1>
-        <span class="chip" title="versão publicada">v1.13.0</span>
+        <span class="chip" title="versão publicada">v1.14.0</span>
       </div>
-      <p class="doc-hero__lede">O <strong>copilot-memory</strong> dá ao agente uma memória que dura além da sessão, <strong>escopada por projeto</strong>. Ele injeta o contexto certo no começo de cada conversa (decisões, convenções, pendências), deixa você buscar e salvar conhecimento, e <strong>destila</strong> o que deu certo em skills reusáveis. É um <strong>cliente puro</strong> do servidor de memória <code>native-java</code>: descobre o daemon, reusa se estiver no ar e, se não estiver, <strong>baixa e sobe o servidor</strong> — verificando a assinatura antes de rodar. Toda a memória fica na sua máquina. Ele também <strong>impõe</strong> os passos que dá pra esquecer: desde a <strong>v1.8</strong>, um <strong>gate</strong> barra o <code>git push</code> até um <strong>revisor externo independente</strong> aprovar exatamente aquele commit. Desde a <strong>v1.9.0</strong>, um <strong>grafo semântico</strong> do código deixa o agente <strong>navegar</strong> um repositório — o aberto ou um externo gigante — em vez de garimpar arquivo por arquivo com grep. <strong>Novo na v1.10.0:</strong> esse grafo começa a <strong>aprender com a intenção</strong> — quando uma busca por comportamento falha e o agente confirma o nó certo pelo <strong>nome exato</strong>, ele <strong>taggeia</strong> aquele símbolo, de forma governada, para ensinar o grafo a reconhecer aquela intenção. <strong>Novo na v1.11.0:</strong> o <strong>escopo</strong> virou uma <strong>escada estrita</strong> — o <code>project_id</code> sai só do marcador <code>.memory/project.json</code> (achado subindo até a raiz, então <strong>worktree e subpasta do mesmo projeto convergem</strong>) ou do <strong>git remote</strong>; sem um identificador estável ele <strong>falha alto</strong> em vez de gravar em &quot;escopo-lixo&quot; pelo caminho da pasta. <strong>Novo na v1.12.0:</strong> quando falta identificador (projeto sem marcador e sem git remote), o plugin não fica mudo — a cada tentativa de uso ele emite um <strong>aviso acionável</strong> deixando claro que a memória está <strong>desativada</strong> e instruindo a <strong>ligá-la</strong> (criar o marcador ou usar um git remote), com um <code>project_id</code> sugerido.</p>
+      <p class="doc-hero__lede">O <strong>copilot-memory</strong> dá ao agente uma memória que dura além da sessão, <strong>escopada por projeto</strong>. Ele injeta o contexto certo no começo de cada conversa (decisões, convenções, pendências), deixa você buscar e salvar conhecimento, e <strong>destila</strong> o que deu certo em skills reusáveis. É um <strong>cliente puro</strong> do servidor de memória <code>native-java</code>: descobre o daemon, reusa se estiver no ar e, se não estiver, <strong>baixa e sobe o servidor</strong> — verificando a assinatura antes de rodar. Toda a memória fica na sua máquina. Ele também <strong>impõe</strong> os passos que dá pra esquecer: desde a <strong>v1.8</strong>, um <strong>gate</strong> barra o <code>git push</code> até um <strong>revisor externo independente</strong> aprovar exatamente aquele commit. Desde a <strong>v1.9.0</strong>, um <strong>grafo semântico</strong> do código deixa o agente <strong>navegar</strong> um repositório — o aberto ou um externo gigante — em vez de garimpar arquivo por arquivo com grep. <strong>Novo na v1.10.0:</strong> esse grafo começa a <strong>aprender com a intenção</strong> — quando uma busca por comportamento falha e o agente confirma o nó certo pelo <strong>nome exato</strong>, ele <strong>taggeia</strong> aquele símbolo, de forma governada, para ensinar o grafo a reconhecer aquela intenção. <strong>Novo na v1.11.0:</strong> o <strong>escopo</strong> virou uma <strong>escada estrita</strong> — o <code>project_id</code> sai só do marcador <code>.memory/project.json</code> (achado subindo até a raiz, então <strong>worktree e subpasta do mesmo projeto convergem</strong>) ou do <strong>git remote</strong>; sem um identificador estável ele <strong>falha alto</strong> em vez de gravar em &quot;escopo-lixo&quot; pelo caminho da pasta. <strong>Novo na v1.12.0:</strong> quando falta identificador (projeto sem marcador e sem git remote), o plugin não fica mudo — a cada tentativa de uso ele emite um <strong>aviso acionável</strong> deixando claro que a memória está <strong>desativada</strong> e instruindo a <strong>ligá-la</strong> (criar o marcador ou usar um git remote), com um <code>project_id</code> sugerido. Novo na v1.14.0: um guard deterministico barra busca recursiva ampla (o grep sem escopo que trava a maquina varrendo pastas gigantes) e manda usar o grafo, que ja vai direto ao ponto. Cirurgico: grep dentro de um projeto passa; so varredura de arvore gigante e bloqueada.</p>
       <div class="doc-hero__cta">
         <div class="prompt prompt--sm" data-cmd="copilot plugin install copilot-memory@copilot-marketplace">
         <span class="prompt__glyph" aria-hidden="true">⌁</span>
@@ -60,6 +60,10 @@
         <li class="hl__item">
           <h3 class="hl__title">Acha por intenção, não só por nome</h3>
           <p class="hl__body"><strong>Novo na v1.10.0.</strong> A busca no grafo acha por <strong>nome e estrutura</strong> — &quot;onde tratamos rate limit&quot; pode não trazer <code>Throttler.guard()</code>. A <strong>oitava</strong> tool, <code>graph_tag_node</code>, fecha o vão: quando a busca por intenção falha e o agente confirma o nó certo pelo <strong>nome exato</strong> (via <code>graph_symbols</code>, nunca por palpite), ela <strong>taggeia</strong> o símbolo com os termos que falharam, num canal governado. O corpus de intenção começa a acumular já; a <strong>leitura</strong> colhe quando o servidor liga a fusão.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Nao deixa a busca fritar a maquina</h3>
+          <p class="hl__body">Novo na v1.14.0. Um hook deterministico bloqueia busca recursiva ampla sobre raizes gigantes que travam CPU e disco, e redireciona pro grafo, que vai direto ao arquivo e linha. Cirurgico: busca dentro de um projeto passa normal; so a varredura de arvore absurda e barrada. Fail-open: na duvida, libera, nunca trava a sessao. Liga/desliga por COPILOT_MEMORY_GREP_GUARD (off/observe/enforce).</p>
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Barra o <code>git push</code> sem revisão</h3>
@@ -217,7 +221,7 @@
             <li class="tree__row">
               <code class="tree__name">hooks.json</code>
               <span class="tree__role">SessionStart → node boot.mjs (espelhamento via canvas-sync).</span>
-              <span class="tree__size">178 B</span>
+              <span class="tree__size">328 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
@@ -227,7 +231,7 @@
             <li class="tree__row">
               <code class="tree__name">README.md</code>
               <span class="tree__role">Documentação vinda do repositório de origem.</span>
-              <span class="tree__size">17 KB</span>
+              <span class="tree__size">18 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/checkpoints.mjs</code>
@@ -395,6 +399,11 @@
               <span class="tree__size">8.5 KB</span>
             </li>
             <li class="tree__row">
+              <code class="tree__name">lib/gates/grepGuard.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">5.8 KB</span>
+            </li>
+            <li class="tree__row">
               <code class="tree__name">lib/gates/policyCache.mjs</code>
               <span class="tree__role">Política como dado: semeia e lê as regras do gate (hot-path local).</span>
               <span class="tree__size">3.6 KB</span>
@@ -403,6 +412,11 @@
               <code class="tree__name">lib/gates/receipts.mjs</code>
               <span class="tree__role">Recibos amarrados ao SHA do commit — recommit invalida (anti-burla).</span>
               <span class="tree__size">5.4 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/gates/searchClassifier.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">8.7 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/gates/shadow.mjs</code>
@@ -486,7 +500,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.13.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.14.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
