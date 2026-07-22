@@ -4,11 +4,8 @@
 // (que é semântica, feita pelo curador LLM). Arquivo global keyed por sessionId.
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 
-function dir() {
-    return process.env.COPILOT_MEMORY_TELEMETRY_DIR || join(homedir(), ".copilot-memory");
-}
+import { stateDir as dir } from "./paths.mjs";
 function file() {
     return join(dir(), "curation-ledger.json");
 }

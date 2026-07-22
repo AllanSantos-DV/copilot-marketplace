@@ -7,11 +7,8 @@
 // local, só ids/escopo, arquivo local — privacidade preservada.
 import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { homedir } from "node:os";
 
-function dir() {
-    return process.env.COPILOT_MEMORY_TELEMETRY_DIR || join(homedir(), ".copilot-memory");
-}
+import { stateDir as dir } from "./paths.mjs";
 export function consumptionLogPath() {
     return join(dir(), "consumption.jsonl");
 }

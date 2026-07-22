@@ -9,11 +9,8 @@
 
 import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 
-function dir() {
-    return process.env.COPILOT_MEMORY_TELEMETRY_DIR || join(homedir(), ".copilot-memory");
-}
+import { stateDir as dir } from "../paths.mjs";
 function file() {
     return join(dir(), "gate-policies.json");
 }

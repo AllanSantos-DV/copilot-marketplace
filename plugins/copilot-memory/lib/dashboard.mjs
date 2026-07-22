@@ -6,13 +6,13 @@
 import { createServer } from "node:http";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { discover } from "./daemon.mjs";
 import { MemoryClient } from "./client.mjs";
 import { tryResolveProjectId, projectIdStrength, isFragileScope, resolveFallbackProjectId, fallbackStrength } from "./projectId.mjs";
 import { projectConfigPath, loadProjectConfig } from "./projectConfig.mjs";
 import { consumptionLogPath } from "./consumption.mjs";
 import { TYPE_ACTIVE, TYPE_CANDIDATE } from "./skill.mjs";
+import { stateDir } from "./paths.mjs";
 
 // id/instância FIXOS: o host é last-writer-wins, então a sessão MAIS RECENTE possui o canvas — que é
 // exatamente a que o usuário está usando. Simples e alinhado ao mcp-bridge-dashboard.
@@ -27,9 +27,6 @@ const clampText = (s, n) => {
 
 // Diretório de estado local (mesma convenção da telemetria) + porta preferida do painel, persistida
 // para sobreviver a reloads (ver ensureServer). Tudo best-effort: falha silenciosa → porta efêmera.
-function stateDir() {
-    return process.env.COPILOT_MEMORY_TELEMETRY_DIR || join(homedir(), ".copilot-memory");
-}
 function portFile() {
     return join(stateDir(), "dashboard-port.json");
 }
@@ -308,6 +305,10 @@ const PAGE_HTML = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"
   .rung .mark{margin-left:auto;font-size:11px;color:var(--mint)}
   .warn{margin-top:10px;background:#1c1608;border:1px solid #5c4611;border-radius:9px;padding:10px 12px;color:#e8cf94;font-size:12px}
   .warn b{color:var(--amber)}
+  .banner{margin:12px 0 4px;border-radius:10px;padding:11px 13px;font-size:12.5px;line-height:1.5}
+  .banner.off{background:#2a0f0e;border:1px solid #7a2f2b;color:#ffb3ad;box-shadow:0 0 0 1px #7a2f2b33}
+  .banner.off b{color:#ff726b}
+  .banner code{background:#00000033;padding:1px 5px;border-radius:5px}
   details{margin-top:8px} summary{cursor:pointer;color:var(--blue);font-size:12px}
   pre{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;font-size:11px;color:#c9d4e0;margin:8px 0 0}
   /* telemetria */
@@ -341,6 +342,7 @@ const PAGE_HTML = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"
     <div id="pill" class="pill"><span class="dot"></span><span id="pillt">…</span></div>
   </header>
   <div id="dmeta" class="meta">verificando o daemon…</div>
+  <div id="scopebanner" class="banner" hidden></div>
   <div id="app"><div class="card"><span class="empty">carregando…</span></div></div>
   <div class="foot">
     <button id="refresh">↻ Atualizar</button>
@@ -372,10 +374,25 @@ const PAGE_HTML = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"
   function when(ts){ if(!ts)return 'nunca'; try{const d=new Date(ts);const s=Math.round((Date.now()-d)/1000);
     if(s<60)return s+'s atrás'; if(s<3600)return Math.round(s/60)+'min atrás'; if(s<86400)return Math.round(s/3600)+'h atrás'; return Math.round(s/86400)+'d atrás';}catch{return ts;} }
 
+  function setScopeBanner(s){
+    const b=$('scopebanner');
+    if(!b) return;
+    // Escopo NÃO resolvido (sem marcador e sem git remote) = memória DESATIVADA para este projeto,
+    // mesmo com o daemon no ar. Mostra no TOPO, independente do card lá embaixo — visibilidade de golpe
+    // de vista (canal complementar; o principal é o aviso na resposta da tool, que não depende do painel).
+    if(s.scope && s.scope.fragile){
+      b.className='banner off'; b.hidden=false;
+      b.innerHTML='⛔ <b>Memória do projeto DESATIVADA</b> — sem identificador estável (nem <code>.memory/project.json</code> na raiz, nem <code>git remote</code>). Nada é salvo nem injetado aqui até identificar o projeto: peça ao agente <code>memory_init_project</code> (ou trabalhe num repo com git remote).';
+    } else {
+      b.hidden=true; b.className='banner'; b.innerHTML='';
+    }
+  }
+
   function setPill(s){
     const p=$('pill'),t=$('pillt');
     if(!s.daemon.online){p.className='pill off';t.textContent='offline';}
     else if(s.daemon.status&&/degrad/i.test(s.daemon.status)){p.className='pill deg';t.textContent='degradado';}
+    else if(s.scope&&s.scope.fragile){p.className='pill deg';t.textContent='sem escopo';}
     else {p.className='pill on';t.textContent='online';}
     $('dmeta').innerHTML = s.daemon.online
       ? 'daemon '+esc(s.daemon.url)+(s.daemon.version?' · v'+esc(s.daemon.version):'')+(s.daemon.status?' · '+esc(s.daemon.status):'')
@@ -453,6 +470,7 @@ const PAGE_HTML = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"
 
   function render(s){
     setPill(s);
+    setScopeBanner(s);
     $('app').innerHTML = scopeCard(s)+staleCard(s)+teleCard(s)+searchCard(s)+docsCard(s)+skillsCard(s);
     const go=$('go'),q=$('q');
     if(go){ go.onclick=doSearch; }

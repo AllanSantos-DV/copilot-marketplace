@@ -7,12 +7,9 @@
 
 import { appendFileSync, readFileSync, mkdirSync, writeFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { execFileSync } from "node:child_process";
 
-function dir() {
-    return process.env.COPILOT_MEMORY_TELEMETRY_DIR || join(homedir(), ".copilot-memory");
-}
+import { stateDir as dir } from "../paths.mjs";
 function file() {
     return join(dir(), "gate-receipts.jsonl");
 }

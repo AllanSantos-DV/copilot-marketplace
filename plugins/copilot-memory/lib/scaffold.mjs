@@ -4,12 +4,9 @@
 // pasta de quem recusou). 3 estados efetivos: resolvido (arquivo existe) · asked (já perguntei) · declined.
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 
-function dir() {
-    return process.env.COPILOT_MEMORY_TELEMETRY_DIR || join(homedir(), ".copilot-memory");
-}
+import { stateDir as dir } from "./paths.mjs";
 function stampPath() {
     return join(dir(), "scaffold-asked.json");
 }
