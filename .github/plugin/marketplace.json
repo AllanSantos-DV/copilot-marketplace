@@ -11,7 +11,7 @@
     {
       "name": "copilot-memory",
       "description": "Memória por projeto para o Copilot: descobre/sobe o daemon do servidor de memória (native-java, verificado por sha256); resolve o escopo por uma ESCADA ESTRITA (marcador .memory/project.json achado subindo à raiz — worktree/subpasta-safe — ou git remote; sem identificador estável FALHA ALTO em vez de gravar em escopo-lixo) e migra a memória com sua aprovação; injeta recall two-tier; um AGENTE CURADOR destila lições técnicas E comportamentais em skills; GATES obrigatórios opt-in por projeto (ex.: revisor externo antes do git push, recibo por commit); e TOOLS DE GRAFO SEMÂNTICO (graph_*): analisa um repo — o aberto ou externos gigantes via 'root' — navegando o grafo do código (símbolos, chamadas, imports, PageRank) em vez de garimpar, com detecção de project_id e reuso cross-session idênticos à memória. NOVO: FEEDBACK DE INTENÇÃO governado (graph_tag_node, ADR-021) — quando a busca por intenção falha, taggeia o nó confirmado por NOME EXATO com as palavras da query, para o grafo passar a achar por COMPORTAMENTO (governado pelo servidor: teto/dedup/TTL/fingerprint). Painel (canvas) com saúde, escopo, skills e telemetria.",
-      "version": "1.13.0",
+      "version": "1.14.0",
       "source": "./plugins/copilot-memory",
       "author": {
         "name": "Allan Santos"
@@ -26,7 +26,8 @@
         "recall",
         "skills",
         "native-java",
-        "project-scope"
+        "project-scope",
+        "performance"
       ],
       "category": "productivity"
     },

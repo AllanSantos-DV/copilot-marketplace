@@ -7,6 +7,13 @@
         "command": "node boot.mjs",
         "timeout": 20
       }
+    ],
+    "PreToolUse": [
+      {
+        "type": "command",
+        "command": "node lib/gates/grepGuard.mjs",
+        "timeout": 10
+      }
     ]
   }
 }

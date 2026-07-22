@@ -138,6 +138,30 @@ só após a confirmação por nome exato. A fusão denso+sparse (RRF) é do serv
 padrão**; a busca (`graph_search`) consome o canal sparse de forma transparente quando ligada — o cliente
 não muda (read-path é NO-OP).
 
+## Grep Guard — busca escopada, máquina não frita
+
+Um **hook determinístico** (`PreToolUse`, global — roda em toda sessão do plugin) que **barra busca
+recursiva AMPLA** e redireciona pro grafo. Motivação medida: um `rg`/`grep`/`Grep`/`Glob` sem escopo
+sobre uma raiz gigante (ex.: `~/.copilot` = ~137k arquivos / ~21GB) **trava a máquina** (CPU 100%,
+disco saturado). O grafo (`graph_search`) já vai **direto ao node** — então busca ampla é desperdício.
+
+**Cirúrgico** (não bloqueia grep em geral): nega **só alvos absurdos** — home (exato), raiz de disco
+(`C:\`), `~/.copilot`, `~/.copilot-memory`, `~/.mcp-memory`, `AppData`, `Temp`, `Program Files`,
+`Windows`. Um grep **dentro de um projeto** (mesmo o repo inteiro) **passa** — o que trava é varrer
+árvores gigantes. Cobre a tool `Grep`/`Glob` do host (via `paths`) e `rg`/`grep`/`findstr`/
+`Select-String`/`Get-ChildItem -Recurse` no shell.
+
+- **Só gateia com memória ATIVA** (`project_id` resolvido) — sem escopo não há grafo pra redirecionar,
+  então passa direto.
+- **Fail-open DURO**: qualquer erro/timeout/dúvida → libera. O guard **nunca** trava a sessão nem
+  bloqueia trabalho legítimo. Early-exit baratíssimo (só tools de busca pagam qualquer checagem).
+- Ao bloquear, devolve uma mensagem acionável: *escope o `paths`, ou use `graph_search`/`graph_analyze`
+  pra achar o node e então busque escopado.*
+
+**Modo** — env `COPILOT_MEMORY_GREP_GUARD` = `off` | `observe` | `enforce` (padrão **enforce**; senão
+`~/.copilot-memory/grepguard.json`). `observe` mede sem bloquear; `off` desliga. Escape rápido numa
+sessão: `COPILOT_MEMORY_GREP_GUARD=off`.
+
 ## O formato de skill
 
 Uma skill é **um documento de memória** (`type:"skill"`), não uma pasta `SKILL.md`. O servidor só
