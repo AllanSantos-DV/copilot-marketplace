@@ -39,9 +39,9 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">copilot-memory</h1>
-        <span class="chip" title="versão publicada">v1.11.0</span>
+        <span class="chip" title="versão publicada">v1.12.0</span>
       </div>
-      <p class="doc-hero__lede">O <strong>copilot-memory</strong> dá ao agente uma memória que dura além da sessão, <strong>escopada por projeto</strong>. Ele injeta o contexto certo no começo de cada conversa (decisões, convenções, pendências), deixa você buscar e salvar conhecimento, e <strong>destila</strong> o que deu certo em skills reusáveis. É um <strong>cliente puro</strong> do servidor de memória <code>native-java</code>: descobre o daemon, reusa se estiver no ar e, se não estiver, <strong>baixa e sobe o servidor</strong> — verificando a assinatura antes de rodar. Toda a memória fica na sua máquina. Ele também <strong>impõe</strong> os passos que dá pra esquecer: desde a <strong>v1.8</strong>, um <strong>gate</strong> barra o <code>git push</code> até um <strong>revisor externo independente</strong> aprovar exatamente aquele commit. Desde a <strong>v1.9.0</strong>, um <strong>grafo semântico</strong> do código deixa o agente <strong>navegar</strong> um repositório — o aberto ou um externo gigante — em vez de garimpar arquivo por arquivo com grep. <strong>Novo na v1.10.0:</strong> esse grafo começa a <strong>aprender com a intenção</strong> — quando uma busca por comportamento falha e o agente confirma o nó certo pelo <strong>nome exato</strong>, ele <strong>taggeia</strong> aquele símbolo, de forma governada, para ensinar o grafo a reconhecer aquela intenção. <strong>Novo na v1.11.0:</strong> o <strong>escopo</strong> virou uma <strong>escada estrita</strong> — o <code>project_id</code> sai só do marcador <code>.memory/project.json</code> (achado subindo até a raiz, então <strong>worktree e subpasta do mesmo projeto convergem</strong>) ou do <strong>git remote</strong>; sem um identificador estável ele <strong>falha alto</strong> em vez de gravar em &quot;escopo-lixo&quot; pelo caminho da pasta.</p>
+      <p class="doc-hero__lede">O <strong>copilot-memory</strong> dá ao agente uma memória que dura além da sessão, <strong>escopada por projeto</strong>. Ele injeta o contexto certo no começo de cada conversa (decisões, convenções, pendências), deixa você buscar e salvar conhecimento, e <strong>destila</strong> o que deu certo em skills reusáveis. É um <strong>cliente puro</strong> do servidor de memória <code>native-java</code>: descobre o daemon, reusa se estiver no ar e, se não estiver, <strong>baixa e sobe o servidor</strong> — verificando a assinatura antes de rodar. Toda a memória fica na sua máquina. Ele também <strong>impõe</strong> os passos que dá pra esquecer: desde a <strong>v1.8</strong>, um <strong>gate</strong> barra o <code>git push</code> até um <strong>revisor externo independente</strong> aprovar exatamente aquele commit. Desde a <strong>v1.9.0</strong>, um <strong>grafo semântico</strong> do código deixa o agente <strong>navegar</strong> um repositório — o aberto ou um externo gigante — em vez de garimpar arquivo por arquivo com grep. <strong>Novo na v1.10.0:</strong> esse grafo começa a <strong>aprender com a intenção</strong> — quando uma busca por comportamento falha e o agente confirma o nó certo pelo <strong>nome exato</strong>, ele <strong>taggeia</strong> aquele símbolo, de forma governada, para ensinar o grafo a reconhecer aquela intenção. <strong>Novo na v1.11.0:</strong> o <strong>escopo</strong> virou uma <strong>escada estrita</strong> — o <code>project_id</code> sai só do marcador <code>.memory/project.json</code> (achado subindo até a raiz, então <strong>worktree e subpasta do mesmo projeto convergem</strong>) ou do <strong>git remote</strong>; sem um identificador estável ele <strong>falha alto</strong> em vez de gravar em &quot;escopo-lixo&quot; pelo caminho da pasta. <strong>Novo na v1.12.0:</strong> quando falta identificador (projeto sem marcador e sem git remote), o plugin não fica mudo — a cada tentativa de uso ele emite um <strong>aviso acionável</strong> deixando claro que a memória está <strong>desativada</strong> e instruindo a <strong>ligá-la</strong> (criar o marcador ou usar um git remote), com um <code>project_id</code> sugerido.</p>
       <div class="doc-hero__cta">
         <div class="prompt prompt--sm" data-cmd="copilot plugin install copilot-memory@copilot-marketplace">
         <span class="prompt__glyph" aria-hidden="true">⌁</span>
@@ -66,8 +66,8 @@
           <p class="hl__body"><strong>Desde a v1.8.0.</strong> Um <strong>gate opt-in por projeto</strong> torna passos críticos obrigatórios e à prova de esquecimento. O primeiro exige que um <strong>revisor externo independente</strong> aprove exatamente aquele commit antes de publicar — com <strong>recibo amarrado ao SHA</strong>. Determinístico onde importa, semântico onde agrega.</p>
         </li>
         <li class="hl__item">
-          <h3 class="hl__title">Lembra por projeto, não vaza entre eles</h3>
-          <p class="hl__body"><strong>Reforçado na v1.11.0.</strong> Cada leitura e escrita é carimbada com o <code>project_id</code> do projeto aberto, resolvido por uma <strong>escada estrita</strong>: marcador <code>.memory/project.json</code> (achado <strong>subindo à raiz</strong> — worktree e subpasta convergem no mesmo id) ou <strong>git remote</strong>. Sem identificador estável, a memória <strong>falha alto</strong> — nunca grava indexada por caminho de pasta (<code>C:\…</code>, <code>Temp</code>, <code>AppData</code>), o que antes poluía o acervo entre projetos. Um <strong>piso de segurança</strong> recusa qualquer id com forma de caminho.</p>
+          <h3 class="hl__title">Visível quando liga — e quando não liga</h3>
+          <p class="hl__body"><strong>Novo na v1.12.0.</strong> Se o projeto não tem identificador estável (sem <code>.memory/project.json</code> e sem git remote), a memória fica <strong>desativada</strong> de propósito — e o plugin <strong>avisa</strong>: a cada tentativa de salvar ou buscar, devolve um <strong>aviso acionável</strong> que explica que a memória está desligada e como <strong>ligá-la</strong> (criar o marcador com <code>memory_init_project</code>, com um <code>project_id</code> sugerido, ou trabalhar num repo com git remote). Nada de falha silenciosa: se você ligou o plugin, você <strong>vê</strong> se ele está funcionando.</p>
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Recall em dois níveis</h3>
@@ -212,7 +212,7 @@
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
               <span class="tree__role">Entrypoint: 17 tools de memória + 8 tools graph_* (com a nova graph_tag_node) + painel (canvas) + 2 hooks — memória, recall, skills, destilador, gates e o grafo de código.</span>
-              <span class="tree__size">55 KB</span>
+              <span class="tree__size">56 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">hooks.json</code>
@@ -328,6 +328,11 @@
               <code class="tree__name">lib/scaffold.mjs</code>
               <span class="tree__role">Sugere criar o .memory/project.json — uma única vez por projeto.</span>
               <span class="tree__size">4.7 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/scopeAlert.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.4 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/selfReview.mjs</code>
@@ -476,7 +481,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.11.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.12.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
