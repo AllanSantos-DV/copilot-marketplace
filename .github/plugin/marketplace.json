@@ -73,7 +73,7 @@
     {
       "name": "copilot-remote",
       "description": "Controle remoto de sessões do Copilot em outras máquinas via o daemon do copilot-mobile: escolha a máquina, liste sessões, converse, mande áudio (reusa o motor de voz local) e arquivos — direto do desktop.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "source": "./plugins/copilot-remote",
       "author": {
         "name": "Allan Santos"
