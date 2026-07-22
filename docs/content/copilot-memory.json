@@ -32,7 +32,7 @@
     },
     {
       "title": "Um painel pra ver tudo",
-      "body": "Um canvas lateral mostra, ao vivo, a saúde do daemon, o escopo do projeto (com a **escada** que resolveu o `project_id`), os documentos e skills recentes e a telemetria de recall."
+      "body": "Um canvas lateral mostra, ao vivo, a saúde do daemon, o escopo do projeto (com a **escada** que resolveu o `project_id`), os documentos e skills recentes e a telemetria de recall. **Novo na v1.13.0:** quando falta identificador, o topo do painel acende um aviso claro de **memória DESATIVADA** — o status deixa de parecer \"tudo certo\" quando na verdade a memória do projeto está desligada."
     },
     {
       "title": "Muda o escopo sem perder a memória",

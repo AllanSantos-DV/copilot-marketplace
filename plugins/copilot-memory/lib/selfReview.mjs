@@ -21,13 +21,10 @@
 
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { redact } from "./redact.mjs";
 
-function dir() {
-    return process.env.COPILOT_MEMORY_TELEMETRY_DIR || join(homedir(), ".copilot-memory");
-}
+import { stateDir as dir } from "./paths.mjs";
 export function selfReviewConfigPath() { return join(dir(), "selfreview.json"); }
 export function selfReviewFile() { return join(dir(), "selfreview.jsonl"); }
 export function triggerMapPath() { return join(dir(), "review-triggers.json"); }
