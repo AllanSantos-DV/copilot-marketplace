@@ -1,250 +1,250 @@
 {
-    "name":  "copilot-marketplace",
-    "owner":  {
-                  "name":  "Allan Santos"
-              },
-    "metadata":  {
-                     "description":  "Plugins do Allan para o GitHub Copilot CLI",
-                     "version":  "1.0.0"
-                 },
-    "plugins":  [
-                    {
-                        "name":  "session-unloader",
-                        "description":  "Descarrega da memória as sessões ociosas do Copilot que continuam com o processo-servidor vivo depois de paradas — o app não libera a RAM ao parar, e elas se acumulam. Detecta ociosidade por sinal duplo (sem eventos há mais de 10 min E CPU zerada), protegendo a sessão ativa, um subagente e uma mesa de deliberação. Mata a árvore do processo sem apagar a sessão do disco: o lazy-load reabre com chat e histórico. Automático (hooks de sessão) e sob demanda pela tool unload_idle (dry-run por padrão).",
-                        "version":  "0.1.0",
-                        "source":  "./plugins/session-unloader",
-                        "author":  {
-                                       "name":  "Allan Santos"
-                                   },
-                        "homepage":  "https://github.com/AllanSantos-DV/copilot-marketplace",
-                        "repository":  "https://github.com/AllanSantos-DV/copilot-marketplace",
-                        "license":  "MIT",
-                        "keywords":  [
-                                         "sessions",
-                                         "sessoes",
-                                         "ram",
-                                         "memory",
-                                         "cleanup",
-                                         "idle",
-                                         "processes"
-                                     ],
-                        "category":  "productivity"
-                    },
-                    {
-                        "name":  "copilot-memory",
-                        "description":  "Memória persistente por projeto para o Copilot (pt-BR): guarda decisões, conhecimento e lições e as recupera por busca semântica, isoladas no projeto certo, com recall automático. Um curador destila os aprendizados da sessão em skills, e um grafo semântico do código (símbolos, chamadas, imports) ajuda a navegar repositórios grandes sem garimpar. Traz um painel de saúde, escopo e skills.",
-                        "version":  "1.14.0",
-                        "source":  "./plugins/copilot-memory",
-                        "author":  {
-                                       "name":  "Allan Santos"
-                                   },
-                        "homepage":  "https://github.com/AllanSantos-DV/copilot-marketplace",
-                        "repository":  "https://github.com/AllanSantos-DV/copilot-marketplace",
-                        "license":  "MIT",
-                        "keywords":  [
-                                         "memory",
-                                         "memoria",
-                                         "mcp",
-                                         "recall",
-                                         "skills",
-                                         "native-java",
-                                         "project-scope",
-                                         "performance"
-                                     ],
-                        "category":  "productivity"
-                    },
-                    {
-                        "name":  "visual-explainer",
-                        "description":  "Explicações visuais animadas, narradas por voz e interativas: peça um assunto e um agente desenhista gera UMA página HTML autocontida e offline, com narração assada pelo motor (vox-engine), play/pause, zoom, câmera passo a passo e peças clicáveis — incluindo vista explodida (montado→desmontado) e design system rico. Você escreve só uma spec; o builder assa a voz e monta o HTML otimizado.",
-                        "version":  "0.3.0",
-                        "source":  "./plugins/visual-explainer",
-                        "author":  {
-                                       "name":  "Allan Santos"
-                                   },
-                        "homepage":  "https://github.com/AllanSantos-DV/copilot-marketplace",
-                        "repository":  "https://github.com/AllanSantos-DV/copilot-marketplace",
-                        "license":  "MIT",
-                        "keywords":  [
-                                         "visual",
-                                         "explicacao",
-                                         "animacao",
-                                         "canvas",
-                                         "agente",
-                                         "pt-BR"
-                                     ],
-                        "category":  "productivity"
-                    },
-                    {
-                        "name":  "canvas-sync",
-                        "description":  "Infra da vitrine: espelha canvas extensions (installed-plugins) para ~/.copilot/extensions via hook de SessionStart. Instale junto ou deixe um plugin baixar sozinho.",
-                        "version":  "0.3.0",
-                        "source":  "./plugins/canvas-sync",
-                        "author":  {
-                                       "name":  "Allan Santos"
-                                   },
-                        "homepage":  "https://github.com/AllanSantos-DV/copilot-marketplace",
-                        "repository":  "https://github.com/AllanSantos-DV/copilot-marketplace",
-                        "license":  "MIT",
-                        "keywords":  [
-                                         "canvas",
-                                         "sync",
-                                         "infra",
-                                         "hooks"
-                                     ],
-                        "category":  "productivity"
-                    },
-                    {
-                        "name":  "copilot-remote",
-                        "description":  "Controle remoto de sessões do Copilot em outras máquinas via o daemon do copilot-mobile: escolha a máquina, liste sessões, converse, mande áudio (reusa o motor de voz local) e arquivos — direto do desktop.",
-                        "version":  "0.2.0",
-                        "source":  "./plugins/copilot-remote",
-                        "author":  {
-                                       "name":  "Allan Santos"
-                                   },
-                        "homepage":  "https://github.com/AllanSantos-DV/copilot-remote",
-                        "repository":  "https://github.com/AllanSantos-DV/copilot-remote",
-                        "license":  "MIT",
-                        "keywords":  [
-                                         "remote",
-                                         "daemon",
-                                         "copilot-mobile",
-                                         "sessions",
-                                         "voice",
-                                         "pt-BR"
-                                     ],
-                        "category":  "productivity"
-                    },
-                    {
-                        "name":  "copilot-mobile",
-                        "description":  "Bridge do copilot-mobile: provisiona o daemon apartado na 1ª execução (baixa a release buildada, sem build), encaminha o resumo falado ao celular (narração on-device, sem injetar marcador) e detecta drift celular→PC na sessão viva. Pareamento, transporte e painel de configuração ficam no daemon (ícone da bandeja).",
-                        "version":  "0.3.10",
-                        "source":  "./plugins/copilot-mobile",
-                        "author":  {
-                                       "name":  "Allan Santos"
-                                   },
-                        "homepage":  "https://github.com/AllanSantos-DV/copilot-mobile",
-                        "repository":  "https://github.com/AllanSantos-DV/copilot-mobile",
-                        "license":  "MIT",
-                        "keywords":  [
-                                         "copilot-mobile",
-                                         "daemon",
-                                         "mobile",
-                                         "bridge",
-                                         "remote",
-                                         "voz",
-                                         "pt-BR"
-                                     ],
-                        "category":  "productivity"
-                    },
-                    {
-                        "name":  "voice-chat",
-                        "description":  "Converse por voz com o Copilot (pt-BR): fale e ouça um resumo falado. STT e TTS pelo motor único local vox-engine, que a extensão instala e atualiza sozinha no Windows, verificando a assinatura Ed25519 do instalador antes de executá-lo.",
-                        "version":  "2.3.1",
-                        "source": "./plugins/voice-chat",
-                        "author":  {
-                                       "name":  "Allan Santos"
-                                   },
-                        "homepage":  "https://github.com/AllanSantos-DV/copilot-voice",
-                        "repository":  "https://github.com/AllanSantos-DV/copilot-voice",
-                        "license":  "MIT",
-                        "keywords":  [
-                                         "voice",
-                                         "voz",
-                                         "tts",
-                                         "stt",
-                                         "whisper",
-                                         "canvas",
-                                         "pt-BR"
-                                     ],
-                        "category":  "productivity"
-                    },
-                    {
-                        "name":  "action-bridge",
-                        "description":  "Controla o app Action (captura e memória de reuniões, 100% local no Windows) pelo agente: reuniões, transcrição, memória semântica cruzada, curadoria e grafo — e instala o Action automaticamente quando ele ainda não existe.",
-                        "version":  "1.2.0",
-                        "source":  "./plugins/action-bridge",
-                        "author":  {
-                                       "name":  "Allan Santos"
-                                   },
-                        "homepage":  "https://github.com/AllanSantos-DV/action-releases",
-                        "repository":  "https://github.com/AllanSantos-DV/action-releases",
-                        "license":  "MIT",
-                        "keywords":  [
-                                         "action",
-                                         "meetings",
-                                         "reunioes",
-                                         "transcription",
-                                         "mcp",
-                                         "memory",
-                                         "whisper",
-                                         "pt-BR"
-                                     ],
-                        "category":  "productivity"
-                    },
-                    {
-                        "name":  "mcp-bridge",
-                        "description":  "Restaura o MCP no GitHub Copilot onde ele é bloqueado por política mas as extensões são permitidas: conecta a servidores MCP (stdio/http/sse, com login OAuth) e expõe tools, prompts e resources nativamente ao agente, com resiliência, auditoria e um painel de saúde. Devolve os braços e as pernas da IA.",
-                        "version":  "0.1.0",
-                        "source":  "./plugins/mcp-bridge",
-                        "author":  {
-                                       "name":  "Allan Santos"
-                                   },
-                        "homepage":  "https://github.com/AllanSantos-DV/copilot-marketplace",
-                        "repository":  "https://github.com/AllanSantos-DV/copilot-marketplace",
-                        "license":  "MIT",
-                        "keywords":  [
-                                         "mcp",
-                                         "bridge",
-                                         "model-context-protocol",
-                                         "tools",
-                                         "enterprise",
-                                         "pt-BR"
-                                     ],
-                        "category":  "productivity"
-                    },
-                    {
-                        "name":  "embed-house",
-                        "description":  "Casa de embeddings compartilhada: um daemon único (MiniLM-L6-v2, 384-dim) que carrega o modelo UMA vez e serve vetores a N plugins via 127.0.0.1 — em vez de cada sessão carregar ~147 MB do mesmo modelo. Singleton por port-lock, distribuída por release público (SHA256 fail-closed) e provisionada automaticamente pelos plugins que a consomem. Não é um plugin instalável.",
-                        "version":  "1.0.4",
-                        "kind":  "daemon",
-                        "source": "./plugins/embed-house",
-                        "author":  {
-                                       "name":  "Allan Santos"
-                                   },
-                        "homepage":  "https://github.com/AllanSantos-DV/embed-house",
-                        "repository":  "https://github.com/AllanSantos-DV/embed-house",
-                        "license":  "MIT",
-                        "keywords":  [
-                                         "embeddings",
-                                         "daemon",
-                                         "minilm",
-                                         "infra",
-                                         "singleton",
-                                         "pt-BR"
-                                     ],
-                        "category":  "infrastructure"
-                    },
-                    {
-                        "name":  "vox-engine",
-                        "description":  "Motor único de fala local para Windows (STT + TTS + tradução): um daemon via named pipe serve modelos residentes (Whisper) a vários apps e sessões, com GPU CUDA automática e sem admin. Distribuído por release público assinado (Ed25519, fail-closed) e instalado/atualizado automaticamente pelos apps que o usam (voice-chat, visual-explainer). Não é um plugin instalável.",
-                        "version":  "0.22.4",
-                        "kind":  "daemon",
-                        "source": "./plugins/vox-engine",
-                        "author":  {
-                                       "name":  "Allan Santos"
-                                   },
-                        "homepage":  "https://github.com/AllanSantos-DV/vox-engine",
-                        "repository":  "https://github.com/AllanSantos-DV/vox-engine",
-                        "license":  "MIT",
-                        "keywords":  [
-                                         "stt",
-                                         "tts",
-                                         "traducao",
-                                         "whisper",
-                                         "daemon",
-                                         "pt-BR"
-                                     ],
-                        "category":  "infrastructure"
-                    }
-                ]
+  "name": "copilot-marketplace",
+  "owner": {
+    "name": "Allan Santos"
+  },
+  "metadata": {
+    "description": "Plugins do Allan para o GitHub Copilot CLI",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "session-unloader",
+      "description": "Descarrega da memória as sessões ociosas do Copilot que continuam com o processo-servidor vivo depois de paradas — o app não libera a RAM ao parar, e elas se acumulam. Detecta ociosidade por sinal duplo (sem eventos há mais de 10 min E CPU zerada), protegendo a sessão ativa, um subagente e uma mesa de deliberação. Mata a árvore do processo sem apagar a sessão do disco: o lazy-load reabre com chat e histórico. Automático (hooks de sessão) e sob demanda pela tool unload_idle (dry-run por padrão).",
+      "version": "0.2.0",
+      "source": "./plugins/session-unloader",
+      "author": {
+        "name": "Allan Santos"
+      },
+      "homepage": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "license": "MIT",
+      "keywords": [
+        "sessions",
+        "sessoes",
+        "ram",
+        "memory",
+        "cleanup",
+        "idle",
+        "processes"
+      ],
+      "category": "productivity"
+    },
+    {
+      "name": "copilot-memory",
+      "description": "Memória persistente por projeto para o Copilot (pt-BR): guarda decisões, conhecimento e lições e as recupera por busca semântica, isoladas no projeto certo, com recall automático. Um curador destila os aprendizados da sessão em skills, e um grafo semântico do código (símbolos, chamadas, imports) ajuda a navegar repositórios grandes sem garimpar. Traz um painel de saúde, escopo e skills.",
+      "version": "1.14.0",
+      "source": "./plugins/copilot-memory",
+      "author": {
+        "name": "Allan Santos"
+      },
+      "homepage": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "license": "MIT",
+      "keywords": [
+        "memory",
+        "memoria",
+        "mcp",
+        "recall",
+        "skills",
+        "native-java",
+        "project-scope",
+        "performance"
+      ],
+      "category": "productivity"
+    },
+    {
+      "name": "visual-explainer",
+      "description": "Explicações visuais animadas, narradas por voz e interativas: peça um assunto e um agente desenhista gera UMA página HTML autocontida e offline, com narração assada pelo motor (vox-engine), play/pause, zoom, câmera passo a passo e peças clicáveis — incluindo vista explodida (montado→desmontado) e design system rico. Você escreve só uma spec; o builder assa a voz e monta o HTML otimizado.",
+      "version": "0.3.0",
+      "source": "./plugins/visual-explainer",
+      "author": {
+        "name": "Allan Santos"
+      },
+      "homepage": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "license": "MIT",
+      "keywords": [
+        "visual",
+        "explicacao",
+        "animacao",
+        "canvas",
+        "agente",
+        "pt-BR"
+      ],
+      "category": "productivity"
+    },
+    {
+      "name": "canvas-sync",
+      "description": "Infra da vitrine: espelha canvas extensions (installed-plugins) para ~/.copilot/extensions via hook de SessionStart. Instale junto ou deixe um plugin baixar sozinho.",
+      "version": "0.3.0",
+      "source": "./plugins/canvas-sync",
+      "author": {
+        "name": "Allan Santos"
+      },
+      "homepage": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "license": "MIT",
+      "keywords": [
+        "canvas",
+        "sync",
+        "infra",
+        "hooks"
+      ],
+      "category": "productivity"
+    },
+    {
+      "name": "copilot-remote",
+      "description": "Controle remoto de sessões do Copilot em outras máquinas via o daemon do copilot-mobile: escolha a máquina, liste sessões, converse, mande áudio (reusa o motor de voz local) e arquivos — direto do desktop.",
+      "version": "0.2.0",
+      "source": "./plugins/copilot-remote",
+      "author": {
+        "name": "Allan Santos"
+      },
+      "homepage": "https://github.com/AllanSantos-DV/copilot-remote",
+      "repository": "https://github.com/AllanSantos-DV/copilot-remote",
+      "license": "MIT",
+      "keywords": [
+        "remote",
+        "daemon",
+        "copilot-mobile",
+        "sessions",
+        "voice",
+        "pt-BR"
+      ],
+      "category": "productivity"
+    },
+    {
+      "name": "copilot-mobile",
+      "description": "Bridge do copilot-mobile: provisiona o daemon apartado na 1ª execução (baixa a release buildada, sem build), encaminha o resumo falado ao celular (narração on-device, sem injetar marcador) e detecta drift celular→PC na sessão viva. Pareamento, transporte e painel de configuração ficam no daemon (ícone da bandeja).",
+      "version": "0.3.10",
+      "source": "./plugins/copilot-mobile",
+      "author": {
+        "name": "Allan Santos"
+      },
+      "homepage": "https://github.com/AllanSantos-DV/copilot-mobile",
+      "repository": "https://github.com/AllanSantos-DV/copilot-mobile",
+      "license": "MIT",
+      "keywords": [
+        "copilot-mobile",
+        "daemon",
+        "mobile",
+        "bridge",
+        "remote",
+        "voz",
+        "pt-BR"
+      ],
+      "category": "productivity"
+    },
+    {
+      "name": "voice-chat",
+      "description": "Converse por voz com o Copilot (pt-BR): fale e ouça um resumo falado. STT e TTS pelo motor único local vox-engine, que a extensão instala e atualiza sozinha no Windows, verificando a assinatura Ed25519 do instalador antes de executá-lo.",
+      "version": "2.3.1",
+      "source": "./plugins/voice-chat",
+      "author": {
+        "name": "Allan Santos"
+      },
+      "homepage": "https://github.com/AllanSantos-DV/copilot-voice",
+      "repository": "https://github.com/AllanSantos-DV/copilot-voice",
+      "license": "MIT",
+      "keywords": [
+        "voice",
+        "voz",
+        "tts",
+        "stt",
+        "whisper",
+        "canvas",
+        "pt-BR"
+      ],
+      "category": "productivity"
+    },
+    {
+      "name": "action-bridge",
+      "description": "Controla o app Action (captura e memória de reuniões, 100% local no Windows) pelo agente: reuniões, transcrição, memória semântica cruzada, curadoria e grafo — e instala o Action automaticamente quando ele ainda não existe.",
+      "version": "1.2.0",
+      "source": "./plugins/action-bridge",
+      "author": {
+        "name": "Allan Santos"
+      },
+      "homepage": "https://github.com/AllanSantos-DV/action-releases",
+      "repository": "https://github.com/AllanSantos-DV/action-releases",
+      "license": "MIT",
+      "keywords": [
+        "action",
+        "meetings",
+        "reunioes",
+        "transcription",
+        "mcp",
+        "memory",
+        "whisper",
+        "pt-BR"
+      ],
+      "category": "productivity"
+    },
+    {
+      "name": "mcp-bridge",
+      "description": "Restaura o MCP no GitHub Copilot onde ele é bloqueado por política mas as extensões são permitidas: conecta a servidores MCP (stdio/http/sse, com login OAuth) e expõe tools, prompts e resources nativamente ao agente, com resiliência, auditoria e um painel de saúde. Devolve os braços e as pernas da IA.",
+      "version": "0.1.0",
+      "source": "./plugins/mcp-bridge",
+      "author": {
+        "name": "Allan Santos"
+      },
+      "homepage": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "license": "MIT",
+      "keywords": [
+        "mcp",
+        "bridge",
+        "model-context-protocol",
+        "tools",
+        "enterprise",
+        "pt-BR"
+      ],
+      "category": "productivity"
+    },
+    {
+      "name": "embed-house",
+      "description": "Casa de embeddings compartilhada: um daemon único (MiniLM-L6-v2, 384-dim) que carrega o modelo UMA vez e serve vetores a N plugins via 127.0.0.1 — em vez de cada sessão carregar ~147 MB do mesmo modelo. Singleton por port-lock, distribuída por release público (SHA256 fail-closed) e provisionada automaticamente pelos plugins que a consomem. Não é um plugin instalável.",
+      "version": "1.0.4",
+      "kind": "daemon",
+      "source": "./plugins/embed-house",
+      "author": {
+        "name": "Allan Santos"
+      },
+      "homepage": "https://github.com/AllanSantos-DV/embed-house",
+      "repository": "https://github.com/AllanSantos-DV/embed-house",
+      "license": "MIT",
+      "keywords": [
+        "embeddings",
+        "daemon",
+        "minilm",
+        "infra",
+        "singleton",
+        "pt-BR"
+      ],
+      "category": "infrastructure"
+    },
+    {
+      "name": "vox-engine",
+      "description": "Motor único de fala local para Windows (STT + TTS + tradução): um daemon via named pipe serve modelos residentes (Whisper) a vários apps e sessões, com GPU CUDA automática e sem admin. Distribuído por release público assinado (Ed25519, fail-closed) e instalado/atualizado automaticamente pelos apps que o usam (voice-chat, visual-explainer). Não é um plugin instalável.",
+      "version": "0.22.4",
+      "kind": "daemon",
+      "source": "./plugins/vox-engine",
+      "author": {
+        "name": "Allan Santos"
+      },
+      "homepage": "https://github.com/AllanSantos-DV/vox-engine",
+      "repository": "https://github.com/AllanSantos-DV/vox-engine",
+      "license": "MIT",
+      "keywords": [
+        "stt",
+        "tts",
+        "traducao",
+        "whisper",
+        "daemon",
+        "pt-BR"
+      ],
+      "category": "infrastructure"
+    }
+  ]
 }
