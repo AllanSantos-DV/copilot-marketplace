@@ -236,13 +236,13 @@ export async function handleRequest(req, res) {
                     if (!sessionHasClient(sid)) quiesceClosedPanelCapture(sid, { cancelRecording: false });
                 }, 5000);
                 if (t1.unref) t1.unref();
-                const t2 = setTimeout(() => {
-                    if (!sessionHasClient(sid) && recordingActiveSid === sid) {
-                        try { workerSend({ cmd: "cancel" }); } catch { }
-                        clearRecordingActive();
-                    }
-                }, 15000);
-                if (t2.unref) t2.unref();
+                // NUNCA cancelar gravação ativa por causa de um close do SSE: o SSE (event-stream do
+                // painel) é SEPARADO e independente do pipe de captura (extensão↔daemon). Um "close"
+                // aqui é transitório e frequente — EventSource reciclando, perda de foco, re-render,
+                // fallback de token — e NÃO significa que o mic morreu. Só o STOP explícito do usuário
+                // (/rec/stop) ou o onClose DEFINITIVO do painel (canvas destruído -> quiesceClosedPanel
+                // Capture(sid) com cancel default) encerram a gravação. Cancelar num blip DESCARTAVA a
+                // CAUDA da fala (bug de perda sistemática do final da transcrição).
             }
         });
         ensureWorker();
@@ -255,7 +255,10 @@ export async function handleRequest(req, res) {
 
     if (req.method === "POST" && path === "/quiesce") {
         const body = await readBody(req);
-        if (body && body.sid) quiesceClosedPanelCapture(String(body.sid));
+        // Beacon TRANSITÓRIO do painel (visibilitychange/pagehide/blur): NÃO descartar a gravação —
+        // um blur/ocultar aba não é o fim da captura. cancelRecording:false. Só o onClose DEFINITIVO
+        // (canvas destruído) cancela (extension.mjs:onClose -> quiesceClosedPanelCapture default true).
+        if (body && body.sid) quiesceClosedPanelCapture(String(body.sid), { cancelRecording: false });
         return sendJson(res, { ok: true });
     }
 
