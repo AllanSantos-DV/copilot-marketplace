@@ -1,7 +1,7 @@
 {
   "name": "canvas-sync",
   "version": "0.3.0",
-  "description": "Infra da vitrine: espelha as canvas extensions instaladas (installed-plugins) para ~/.copilot/extensions, que é a única pasta que o app GUI carrega. Roda como hook de SessionStart — sem passos manuais.",
+  "description": "Infra da vitrine: espelha canvas extensions (installed-plugins) para ~/.copilot/extensions via hook de SessionStart. Instale junto ou deixe um plugin baixar sozinho.",
   "author": {
     "name": "Allan Santos",
     "url": "https://github.com/AllanSantos-DV"
