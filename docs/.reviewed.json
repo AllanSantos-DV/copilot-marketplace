@@ -34,6 +34,11 @@
     "hash": "f6a21fce49f3f76b",
     "at": "2026-07-23T15:56:39.872Z"
   },
+  "session-unloader": {
+    "version": "0.1.0",
+    "hash": "df22a6f62764e082",
+    "at": "2026-07-23T20:58:15.769Z"
+  },
   "visual-explainer": {
     "version": "0.3.0",
     "hash": "1db32f26311e4ffc",
