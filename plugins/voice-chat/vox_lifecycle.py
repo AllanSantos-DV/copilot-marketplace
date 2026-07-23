@@ -41,6 +41,10 @@ import zipfile
 
 from vox_sdk import DEFAULT_PIPE, SDK_VERSION, VoxClient
 
+# Windows: spawna filhos SEM alocar console — mata o flash de janela de
+# ``powershell``/``taskkill``/``python.exe`` na init e no update. 0 fora do Windows.
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 # ---------------------------------------------------------------------------
 # CONFIG canônica de release/instalação (os MESMOS valores no SDK Node irmão).
@@ -285,7 +289,8 @@ def installed_version(python_exe: "str | None" = None, run=None) -> "str | None"
     try:
         out = runner([python_exe, "-c",
                       "import vox_engine,sys;sys.stdout.write(vox_engine.__version__)"],
-                     capture_output=True, text=True, timeout=30)
+                     capture_output=True, text=True, timeout=30,
+                     creationflags=_NO_WINDOW)
         v = (getattr(out, "stdout", "") or "").strip()
         return v or None
     except Exception:  # noqa: BLE001
@@ -304,7 +309,8 @@ def _kill_tree(proc) -> None:
         try:
             subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, timeout=30)
+                           stderr=subprocess.DEVNULL, timeout=30,
+                           creationflags=_NO_WINDOW)
         except Exception:  # noqa: BLE001
             pass
     try:
@@ -325,7 +331,8 @@ def _run_installer(args, *, timeout: float, log_path: str):
     try:
         with open(log_path, "wb") as outf:
             proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=outf,
-                                    stderr=subprocess.STDOUT, close_fds=True)
+                                    stderr=subprocess.STDOUT, close_fds=True,
+                                    creationflags=_NO_WINDOW)
             rc = proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         _kill_tree(proc)
@@ -721,7 +728,8 @@ def _find_daemon_pid(pipe: str) -> "int | None":
               "-and $_.CommandLine -match $re } | "
               "Select-Object -First 1 -ExpandProperty ProcessId")
         r = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
-                           capture_output=True, text=True, timeout=15)
+                           capture_output=True, text=True, timeout=15,
+                           creationflags=_NO_WINDOW)
         pid = int((r.stdout or "").strip())
         return pid if pid > 0 else None
     except Exception:  # noqa: BLE001
@@ -738,7 +746,8 @@ def _daemon_pid_matches(pid: int, pipe: str) -> bool:
               "if ($p -and $p.CommandLine -like '*vox_engine*' -and "
               "$p.CommandLine -match $re) { 'yes' }")
         r = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
-                           capture_output=True, text=True, timeout=15)
+                           capture_output=True, text=True, timeout=15,
+                           creationflags=_NO_WINDOW)
         return (r.stdout or "").strip() == "yes"
     except Exception:  # noqa: BLE001
         return False
@@ -749,7 +758,8 @@ def _kill_pid(pid: int) -> None:
     try:
         subprocess.run(["taskkill", "/PID", str(int(pid)), "/T", "/F"],
                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL, timeout=30)
+                       stderr=subprocess.DEVNULL, timeout=30,
+                       creationflags=_NO_WINDOW)
     except Exception:  # noqa: BLE001
         pass
 
