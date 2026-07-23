@@ -1,13 +1,14 @@
 {
   "tagline": "Um daemon único de fala local carrega o modelo de voz uma vez e serve STT, TTS e tradução a todos os apps por um named pipe — a RAM do modelo não multiplica por app nem por sessão.",
   "lede": "O **vox-engine** é a sala de máquinas da voz no Windows. Um **daemon único** que carrega o modelo de fala **uma vez** e serve **STT**, **TTS** e **tradução** a todos os apps por uma named pipe (`\\\\.\\pipe\\vox`). Sem ele, cada app — o **voice-chat**, o **visual-explainer** — subiria o próprio Whisper na RAM, e cada sessão pagaria essa conta de novo. Com ele, o modelo mora **residente**: carregado uma vez, servindo N sessões. Um motor, N consumidores — a RAM do modelo não multiplica. Dois apps ou dez sessões, é um motor só.",
-  "install_note": "Você **não instala** o vox-engine à mão — não existe `copilot plugin install vox-engine`. Ele é **instalado e atualizado automaticamente** pelos apps que o usam (o **voice-chat** e o **visual-explainer**): na primeira vez, o app baixa o **installer assinado** do release público, **verifica a assinatura Ed25519** contra a chave embutida (fail-closed) e sobe o daemon sozinho. Release público: `AllanSantos-DV/copilot-marketplace`, tag `vox-engine-v0.22.3` — `https://github.com/AllanSantos-DV/copilot-marketplace/releases`.",
+  "install_note": "Você **não instala** o vox-engine à mão — não existe `copilot plugin install vox-engine`. Ele é **instalado e atualizado automaticamente** pelos apps que o usam (o **voice-chat** e o **visual-explainer**): na primeira vez, o app baixa o **installer assinado** do release público, **verifica a assinatura Ed25519** contra a chave embutida (fail-closed) e sobe o daemon sozinho. Release público: `AllanSantos-DV/copilot-marketplace`, tag `vox-engine-v0.22.4` — `https://github.com/AllanSantos-DV/copilot-marketplace/releases`.",
   "highlights": [
     { "title": "Um motor, N consumidores", "body": "Um daemon único carrega o modelo de fala uma vez e serve STT, TTS e tradução a todos os apps e sessões por uma named pipe (`\\\\.\\pipe\\vox`)." },
     { "title": "Modelo residente, RAM em O(1)", "body": "Sem motor, cada app sobe o **próprio** Whisper — **gigabytes** do mesmo modelo, multiplicados por app e por sessão. Com motor, carregado **uma vez** e compartilhado: dois apps ou dez sessões, mesma pegada." },
     { "title": "FAIL-LOUD", "body": "Erro do motor sobe **tipado** — `mic_busy` (com o dono da trava), `mic_open_failed`, `capture_timeout` — nunca um resultado falso e calado. Ausência é sinalizada, jamais mascarada." },
-    { "title": "Dono único do microfone", "body": "O daemon é o **dono físico** do mic; o app **nunca** o abre sozinho — **delega**. Um `mic.lock` coordena entre processos e cede só ao ditado. (Contrato endurecido na **0.22.3**.)" }
-  ],
+    { "title": "Dono único do microfone", "body": "O daemon é o **dono físico** do mic; o app **nunca** o abre sozinho — **delega**. Um `mic.lock`     coordena entre processos e cede só ao ditado. (Contrato endurecido na **0.22.3**.)" },
+        { "title": "O mic morre? Você fica sabendo", "body": "Se o microfone cai no meio da captura (desconexão, driver, WASAPI), o motor detecta em **<5s**, **libera o mic** e entrega o **parcial transcrito** com `truncated=True` — nunca trava calado nem perde o fim sem avisar. (**0.22.4**)" }
+      ],
   "sections": [
     {
       "id": "o-que-e",
@@ -73,7 +74,7 @@
           "items": [
             "**Installer assinado (Ed25519).** Antes de executar qualquer coisa, o app **verifica a assinatura** do installer contra a **chave pública embutida**. Assinatura que não confere → **não roda** (fail-closed). Um installer é código; a prova vem **antes** da execução.",
             "**Auto-update on-use.** O daemon se atualiza sozinho por um **contrato seguro** — **só quando está ocioso**, sem interromper uma captura em voo. Os consumidores disparam a checagem pelo SDK; você nunca roda um update à mão.",
-            "**Release público.** `AllanSantos-DV/copilot-marketplace`, tag `vox-engine-v0.22.3` — os pacotes assinados moram nas releases."
+            "**Release público.** `AllanSantos-DV/copilot-marketplace`, tag `vox-engine-v0.22.4` — os pacotes assinados moram nas releases."
           ]
         },
         { "type": "note", "tone": "info", "text": "A prova é a **assinatura**, não o transporte: mesmo numa rede que reassina o TLS (proxy corporativo com CA própria), nada forjado roda — a checagem Ed25519 acontece **antes** de qualquer byte executar." }
@@ -114,6 +115,7 @@
     { "q": "Por que um motor único em vez de cada app carregar o seu?", "a": "Porque seria o **mesmo** modelo N vezes na RAM. O motor carrega o modelo **residente** — uma vez — e serve todas as sessões pelo named pipe, então a RAM do modelo é **O(1)**: constante, com dois apps ou dez sessões. O que se multiplicava era a cópia local." },
     { "q": "O motor atualiza no meio de uma gravação?", "a": "Não. O auto-update on-use só troca a versão quando o daemon está **ocioso** — uma captura em voo **nunca** é interrompida. O contrato de update espera o motor ficar livre antes de se reciclar." },
     { "q": "Quem é o dono do microfone?", "a": "O daemon. Ele é o **dono físico** do mic; os apps **delegam** a captura (`capture_open`) e recebem os trechos transcritos ao vivo — nunca abrem o microfone sozinhos. Um `mic.lock` coordena entre processos: o motor reivindica qualquer trava de consumidor e cede **só** ao ditado. Esse contrato foi endurecido na **0.22.3**." },
+    { "q": "E se o microfone morrer no meio da gravação?", "a": "O motor **não fica calado**. Um watchdog de liveness detecta a morte do device (desconexão física, crash de driver, WASAPI reiniciando o serviço de áudio) em **menos de 5s**, faz o teardown, **libera o mic** e entrega o texto transcrito **até o momento da falha** com `truncated=True` — em vez de travar em 'gravando' e perder o fim sem aviso. Correção da **0.22.4**." },
     { "q": "Precisa de GPU?", "a": "Não. O motor detecta uma **NVIDIA** com **CUDA 12** e instala as wheels certas sozinho para acelerar; sem GPU, ele cai para **CPU** de forma transparente. Você não configura nada." },
     { "q": "Minha voz vai para a nuvem?", "a": "Não. **STT, TTS e tradução rodam no motor local**, na sua máquina. O canal é uma **named pipe** do Windows, restrita à sua sessão — nenhum áudio sai do computador." }
   ]
