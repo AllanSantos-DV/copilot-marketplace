@@ -14,6 +14,9 @@ import { ancestorsOf, guardKill } from "./guards.mjs";
 import { readSnapshot, isIdle } from "./snapshot.mjs";
 import { parseTelemetry } from "./telemetry.mjs";
 import { pidAlive } from "./process-utils.mjs";
+import { unloadIdle } from "./unload.mjs";
+import { readConfig, writeConfig } from "./config.mjs";
+import { logLine } from "./log.mjs";
 
 export const CANVAS_ID = "session-unloader-panel";
 export const CANVAS_INSTANCE = "session-unloader-panel";
@@ -79,9 +82,11 @@ export class Dashboard {
 
   async _handle(req, res) {
     const u = new URL(req.url || "/", "http://127.0.0.1");
-    if (this.token && u.searchParams.get("token") !== this.token) { // gate só no daemon (token setado)
+    const tk = req.headers["x-token"] || u.searchParams.get("token"); // POST usa header X-Token; GET usa query
+    if (this.token && tk !== this.token) { // gate só no daemon (token setado)
       res.statusCode = 403; res.setHeader("Connection", "close"); res.end("forbidden"); return;
     }
+    if (req.method === "POST" && u.pathname.startsWith("/action/")) { return this._handleAction(u, res); }
     if (u.pathname === "/health") { res.setHeader("Connection", "close"); res.end("ok"); return; }
     if (u.pathname === "/data") {
       const callerPid = Number(u.searchParams.get("callerPid")) || null;
@@ -97,10 +102,40 @@ export class Dashboard {
     res.statusCode = 404; res.setHeader("Connection", "close"); res.end("not found");
   }
 
+  // Ações do painel (POST + token). callerPid vem da query (nunca do body) → protege quem clicou.
+  async _handleAction(u, res) {
+    const json = (code, obj) => { res.statusCode = code; res.setHeader("Content-Type", "application/json"); res.setHeader("Connection", "close"); res.end(JSON.stringify(obj)); };
+    const action = u.pathname.slice("/action/".length);
+    const callerPid = Number(u.searchParams.get("callerPid")) || null;
+
+    if (action === "rescan") { this._scanCache = null; return json(200, { ok: true, live: (await this._snapshot(callerPid)).live }); }
+
+    if (action === "toggle") {
+      const next = writeConfig({ enabled: !readConfig({ home: this.home }).enabled }, { home: this.home });
+      logLine({ action: "toggle", enabled: next.enabled });
+      return json(200, { ok: true, enabled: next.enabled });
+    }
+
+    if (action === "unload") {
+      if (this._unloading) return json(409, { error: "descarga já em execução" }); // mutex anti-double-click
+      this._unloading = true;
+      try {
+        const dryRun = u.searchParams.get("dryRun") === "1";
+        const r = await unloadIdle({ home: this.home, dryRun, callerPid }); // guardas + callerPid protegem
+        this._scanCache = null; // estado mudou → invalida o scan cacheado
+        logLine({ action: dryRun ? "panel-dryrun" : "panel-unload", killed: r.killed?.length || 0, candidates: r.candidates?.length || 0, skipped: r.skipped?.length || 0 });
+        return json(200, r);
+      } catch (e) { return json(500, { error: String(e?.message || e) }); }
+      finally { this._unloading = false; }
+    }
+    return json(404, { error: "ação desconhecida" });
+  }
+
   async _snapshot(callerPid = null) {
     const live = await this._live(callerPid);
     const status = {
       active: true,
+      enabled: readConfig({ home: this.home }).enabled,
       lastScan: readLastScan(this.home),
       loadedNow: live && Array.isArray(live.sessions) ? live.sessions.length : null,
       generatedAt: new Date().toISOString(),
@@ -174,10 +209,24 @@ tr:last-child td{border-bottom:none}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:var(--grn)}
 .empty{color:var(--mut);padding:14px;text-align:center}
 .foot{color:var(--mut);font-size:11px;margin-top:18px;text-align:center}
+.actions{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.btn{background:var(--panel);border:1px solid var(--bd);color:var(--fg);border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px}
+.btn:hover{border-color:var(--aqua)} .btn:disabled{opacity:.5;cursor:default}
+.btn.primary{background:var(--coral);border-color:var(--coral);color:#0d1117;font-weight:600}
+.switch{display:flex;align-items:center;gap:6px;margin-left:auto;color:var(--mut);cursor:pointer;user-select:none}
+.warn-banner{background:rgba(248,81,73,.15);border:1px solid var(--red);color:var(--red);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px}
+.result{font-size:13px;color:var(--mut);margin-bottom:14px;white-space:pre-wrap;min-height:18px}
 </style></head>
 <body><div class="wrap">
 <h1>🧹 Session Unloader <span id="live" class="dot"></span></h1>
 <div class="sub" id="status">carregando…</div>
+<div id="banner" class="warn-banner" style="display:none">⚠️ Modo automático DESLIGADO — sessões ociosas não são descarregadas sozinhas.</div>
+<div class="actions">
+<button id="btn-unload" class="btn primary">Descarregar ociosas agora</button>
+<button id="btn-rescan" class="btn">Reescanear</button>
+<label class="switch"><input type="checkbox" id="toggle"> Automático</label>
+</div>
+<div id="action-result" class="result"></div>
 <div class="cards" id="cards"></div>
 <h2>Sessões carregadas agora</h2>
 <table><thead><tr><th></th><th>Sessão</th><th>Ocioso</th><th>RAM</th><th>Situação</th></tr></thead><tbody id="live-tb"><tr><td class="empty" colspan="5">escaneando…</td></tr></tbody></table>
@@ -192,6 +241,9 @@ function card(label,value,cls){var d=el("div");d.className="card"+(cls?(" "+cls)
 function render(d){
   var s=d.status||{},t=d.telemetry||{},live=d.live||{};
   document.getElementById("status").textContent="Ativo · última varredura: "+fmtTime(s.lastScan)+" · "+(s.loadedNow!=null?s.loadedNow:"?")+" sessão(ões) carregada(s)";
+  var enabled=s.enabled!==false;
+  document.getElementById("banner").style.display=enabled?"none":"block";
+  document.getElementById("toggle").checked=enabled;
   var cards=document.getElementById("cards");cards.textContent="";
   cards.appendChild(card("descarregadas (total)",String(t.totalKilled||0),"aqua"));
   cards.appendChild(card("descarregadas hoje",String(t.killedToday||0),"aqua"));
@@ -208,5 +260,11 @@ function render(d){
   document.getElementById("foot").textContent="atualizado "+fmtTime(s.generatedAt)+" · dados: "+((live&&live.cachedAt)?("scan "+fmtTime(live.cachedAt)):"");
 }
 function tick(){fetch("/data"+window.location.search).then(function(r){return r.json();}).then(render).catch(function(){document.getElementById("live").style.background="var(--red)";});}
+var Q=window.location.search;var TOKEN=new URLSearchParams(Q).get("token")||"";
+function postAction(path){return fetch(path+Q,{method:"POST",headers:{"X-Token":TOKEN}}).then(function(r){return r.json().then(function(j){return{status:r.status,j:j};});});}
+function setResult(t){document.getElementById("action-result").textContent=t;}
+document.getElementById("btn-unload").addEventListener("click",function(){var b=this;b.disabled=true;setResult("verificando candidatas…");postAction("/action/unload?dryRun=1").then(function(o){var c=(o.j.candidates||[]);if(!c.length){setResult("Nenhuma sessão ociosa para descarregar agora.");b.disabled=false;return;}var names=c.map(function(x){return x.sessionId?String(x.sessionId).slice(0,8):x.pid;}).join(", ");if(!confirm("Descarregar "+c.length+" sessao(oes) ociosa(s)?\\n"+names+"\\n\\nO estado pode mudar entre a previa e a execucao; as guardas sao reavaliadas no kill.")){b.disabled=false;setResult("");return;}setResult("descarregando…");postAction("/action/unload").then(function(o2){var k=(o2.j.killed||[]).length,sk=(o2.j.skipped||[]).length;setResult("Descarregadas "+k+" | preservadas por guarda "+sk+".");b.disabled=false;tick();});}).catch(function(){setResult("erro na acao.");b.disabled=false;});});
+document.getElementById("btn-rescan").addEventListener("click",function(){var b=this;b.disabled=true;setResult("reescaneando…");postAction("/action/rescan").then(function(){setResult("");b.disabled=false;tick();});});
+document.getElementById("toggle").addEventListener("change",function(){postAction("/action/toggle").then(function(o){setResult(o.j.enabled?"Automatico LIGADO.":"Automatico DESLIGADO.");tick();});});
 tick();setInterval(tick,10000);
 </script></body></html>`;

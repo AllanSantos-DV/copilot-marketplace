@@ -14,6 +14,7 @@ export async function unloadIdle({
   home = resolveCopilotHome(),
   dryRun = true,
   sessionId = null,
+  callerPid = null,
   now = Date.now(),
   killFn = null,
   pidAliveFn = null,
@@ -32,6 +33,8 @@ export async function unloadIdle({
     const procMap = await procMapFn();
     const selfPid = process.pid;
     const selfAncestors = ancestorsOf(selfPid, procMap);
+    // protege também a sessão que disparou a ação pelo painel (nunca mata quem clicou)
+    if (callerPid) { for (const p of ancestorsOf(callerPid, procMap)) selfAncestors.add(p); selfAncestors.add(callerPid); }
 
     const candidates = [], killed = [], skipped = [];
     // rebase = atualiza a linha de base de CPU. SÓ em execução real (dryRun=false): o dry-run é READ-ONLY,

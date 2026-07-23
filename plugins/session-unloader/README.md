@@ -32,9 +32,19 @@ base (protege contra PID reciclado).
 Um **daemon único** (singleton por porta — `server-daemon.mjs`) faz o scan e a telemetria e serve o painel; o
 canvas de **cada sessão é um cliente fino** que só aponta pra URL do daemon — **1 leitura de processos para N
 sessões**, o próprio preceito do plugin. Mostra status, telemetria (descargas + RAM liberada) e as sessões
-carregadas agora (🟢 esta sessão/ativa · 🔴 candidata · 🔒 protegida · ⚪ casca). Read-only, token loopback; o
+carregadas agora (🟢 esta sessão/ativa · 🔴 candidata · 🔒 protegida · ⚪ casca). Token loopback; o
 daemon **se auto-encerra após 10 min ocioso** (não vira o processo órfão que o plugin combate). Se o daemon
 não subir, o canvas cai para um servidor in-process (fallback, zero painel bloqueado).
+
+**Ações no painel (v0.4):** três botões dão controle sem depender do automático — **Descarregar ociosas agora**
+(faz um *dry-run* que lista o que seria afetado, com o aviso "o estado pode mudar entre a prévia e a execução",
+e só descarrega após confirmação), **Reescanear** (re-varre na hora) e um interruptor **Automático ON/OFF** que
+liga/desliga o descarregamento pelos hooks de sessão. Com o automático **desligado** o painel exibe um **banner
+vermelho** persistente. As ações são `POST` autenticadas por header `X-Token` (o `GET` continua por query), com
+mutex anti-duplo-clique no daemon e desabilite-no-clique no botão. A flag fica em
+`~/.copilot/session-state/.unloader-config.json` (global do daemon único); em qualquer erro de leitura ela é
+**fail-closed** (automático desligado — melhor não descarregar do que matar por acidente com config quebrada).
+
 
 ## Reversibilidade
 Descarregar **não apaga** a sessão. Reabra-a no app: o lazy-load restaura chat e histórico; rode
