@@ -247,7 +247,7 @@ export function releaseAssetBase(version) {
 
 // --- Auto-aplicar update (worker/UI a quente; app-restart só se a LÓGICA mudou) ---
 // Arquivos que o worker (processo filho) carrega: um restart do worker os aplica a quente.
-const WORKER_UPDATE_FILES = new Set(["voice_worker.py", "vox_sdk.py", "vox_lifecycle.py", "vox_stream.py", "capture_port.py", "capture_session.py", "vox_capture_adapter.py", "_ed25519_ref.py", "requirements.txt"]);
+const WORKER_UPDATE_FILES = new Set(["voice_worker.py", "vox_sdk.py", "vox_lifecycle.py", "vox_splash.py", "vox_stream.py", "capture_port.py", "capture_session.py", "vox_capture_adapter.py", "_ed25519_ref.py", "requirements.txt"]);
 // A versão é sincronizada dentro do extension.mjs a cada release (gen-manifest), então o FILE
 // muda todo release. Para decidir se a LÓGICA mudou (e o app precisa reimportar o módulo),
 // hasheamos ignorando a linha da versão: release que só troca versão (ou só mexe em worker/UI)

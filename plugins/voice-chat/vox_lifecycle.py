@@ -46,6 +46,26 @@ from vox_sdk import DEFAULT_PIPE, SDK_VERSION, VoxClient
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
+def _try_show_splash(subtitle: str):
+    """Mostra a splash do install/update (best-effort, NUNCA levanta). Desligável por
+    ``VOX_SPLASH=0``. Import LAZY de ``vox_splash`` (flat vendorável) — ausência (consumidor
+    que ainda não vendorou o arquivo) ⇒ no-op silencioso, retrocompatível."""
+    try:
+        import vox_splash
+        return vox_splash.show_splash_async(subtitle=subtitle)
+    except Exception:  # noqa: BLE001 — splash é cosmética; jamais bloqueia o install
+        return None
+
+
+def _close_splash(handle) -> None:
+    if handle is None:
+        return
+    try:
+        handle.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 # ---------------------------------------------------------------------------
 # CONFIG canônica de release/instalação (os MESMOS valores no SDK Node irmão).
 # ``DEFAULT_PIPE`` é IMPORTADO do vox_sdk (core) — não é redefinido aqui.
@@ -458,10 +478,13 @@ def download_and_run_installer(asset_url: str, sig_url: "str | None" = None, *,
             return False  # zip sem install.ps1 na raiz
         args = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
                 "-File", install_ps1, "-NoStart", *(extra_args or [])]
+        splash = _try_show_splash("atualizando o motor de voz…")
         try:
             res = runner(args, timeout=INSTALL_TIMEOUT_MS / 1000.0, log_path=out_path)
         except Exception:  # noqa: BLE001 — powershell ausente etc.
             return False
+        finally:
+            _close_splash(splash)
         return getattr(res, "returncode", 1) == 0
     finally:
         lock.release()
