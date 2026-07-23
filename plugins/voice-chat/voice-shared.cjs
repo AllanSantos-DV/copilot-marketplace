@@ -30,8 +30,34 @@ function forkHeartbeatFile(dataDir, sid) { return path.join(forksDir(dataDir), s
 function pendingDir(dataDir) { return path.join(dataDir, 'pending'); }
 function pendingSpeakFile(dataDir, sid) { return path.join(pendingDir(dataDir), sanitizeSid(sid) + '.jsonl'); }
 function hookStateFile(dataDir, sid) { return path.join(dataDir, 'hook-state-' + sanitizeSid(sid) + '.json'); }
+// Modo POR SESSÃO (fullRead / "Ler resposta completa"): diferente dos demais toggles (globais no
+// settings.json), o modo Fala Completa é PER-SID — ligar num painel não afeta as outras sessões.
+// Mesmo padrão dos irmãos (forks/<sid>.json): arquivo modes/<sid>.json = { fullRead: bool }. É a
+// ÚNICA fonte do path (hook + extensão leem o MESMO arquivo -> nunca divergem).
+function sessionModesDir(dataDir) { return path.join(dataDir, 'modes'); }
+function sessionModeFile(dataDir, sid) { return path.join(sessionModesDir(dataDir), sanitizeSid(sid) + '.json'); }
+// Leitura resiliente (try/catch + fallback false), igual ao readState/readFullRead do hook: sid vazio
+// ou arquivo ausente/corrompido -> false (modo RESUMO, o default seguro).
+function readSessionFullRead(dataDir, sid) {
+  if (!sid) return false;
+  try {
+    const m = JSON.parse(require('fs').readFileSync(sessionModeFile(dataDir, sid), 'utf8'));
+    return !!(m && m.fullRead === true);
+  } catch { return false; }
+}
+// Escrita best-effort (cria modes/ se preciso). Devolve true se persistiu.
+function writeSessionFullRead(dataDir, sid, val) {
+  if (!sid) return false;
+  try {
+    const fs = require('fs');
+    fs.mkdirSync(sessionModesDir(dataDir), { recursive: true });
+    fs.writeFileSync(sessionModeFile(dataDir, sid), JSON.stringify({ fullRead: !!val }));
+    return true;
+  } catch { return false; }
+}
 
 module.exports = {
   resolveDataDir, sanitizeSid,
   forksDir, forkHeartbeatFile, pendingDir, pendingSpeakFile, hookStateFile,
+  sessionModesDir, sessionModeFile, readSessionFullRead, writeSessionFullRead,
 };

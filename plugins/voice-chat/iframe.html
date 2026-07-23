@@ -1005,7 +1005,6 @@ function pushSettings() {
     ttsVoice: $("setVoice").value,
     rate: parseInt($("setRate").value, 10),
     language: $("setLang").value,
-    fullRead: $("setFull").checked,
     confirmTranscript: $("setConfirm").checked,
     authorSummary: $("setAuthor").checked,
     cueStart: $("setCueStart").checked,
@@ -1027,8 +1026,11 @@ function pushSettings() {
   reflectToggles();
   post("/settings", s);
 }
-["setVoice","setRate","setLang","setFull","setConfirm","setAuthor","setCueStart","setCueCheckpoints","setHandsfree","setInterrupt","setFocusGate"]
+["setVoice","setRate","setLang","setConfirm","setAuthor","setCueStart","setCueCheckpoints","setHandsfree","setInterrupt","setFocusGate"]
   .forEach((id) => $(id).addEventListener("change", pushSettings));
+// fullRead (Ler resposta completa) é POR SESSÃO — vai num endpoint dedicado (modes/<sid>.json), FORA do
+// pushSettings global. Ligar aqui NÃO afeta as outras sessões.
+$("setFull").addEventListener("change", () => post("/full-mode", { fullRead: $("setFull").checked }));
 
 (function initVolume() {
   try { const v = parseFloat(localStorage.getItem("voiceGain2")); if (!isNaN(v)) currentGain = Math.max(0, Math.min(3, v)); } catch (e) {}
@@ -1056,7 +1058,6 @@ function applySettings(s) {
   if (typeof s.ttsVoice === "string") { curVoice = s.ttsVoice; selectVoice(); }
   if (typeof s.rate === "number") $("setRate").value = s.rate;
   if (s.language) $("setLang").value = s.language;
-  $("setFull").checked = !!s.fullRead;
   $("setConfirm").checked = !!s.confirmTranscript;
   $("setAuthor").checked = s.authorSummary !== false;
   $("setCueStart").checked = s.cueStart !== false;
@@ -1354,6 +1355,7 @@ function handle(m) {
   switch (m.type) {
     case "hello":
       applySettings(m.settings);
+      $("setFull").checked = !!m.fullRead;   // fullRead é POR SESSÃO (raiz do hello), não vem em m.settings
       if (typeof m.appFocused === "boolean") onAppFocus(m.appFocused);
       if (m.version) { appVersion = m.version; setUpdateVersionLabel(); }
       if (m.pluginManaged) {
