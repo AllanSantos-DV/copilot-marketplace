@@ -1,8 +1,8 @@
 {
   "action-bridge": {
-    "version": "1.1.0",
-    "hash": "cffd424d95c33116",
-    "at": "2026-07-05T14:24:52.364Z"
+    "version": "1.2.0",
+    "hash": "b6d3b47b22e77e4a",
+    "at": "2026-07-23T15:24:34.041Z"
   },
   "canvas-sync": {
     "version": "0.3.0",
