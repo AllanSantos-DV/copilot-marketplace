@@ -52,6 +52,11 @@ Você nunca pula esse passo — mas também não o faz sozinho: você **chama o 
    mudou. **Espere ele terminar** e confirme que o content file existe e parseia. Veja
    "Como delegar" abaixo.
 4. **Manifesto** — reflita `name`, `version` e `description` em `.github/plugin/marketplace.json`.
+   A `description` é **semântica** (o que ESSA versão entrega, na voz do usuário), **não um
+   changelog**: cada versão é um produto novo — reescreva a frase inteira, não acumule
+   `NOVO:`/`AGORA:` nem cite a versão anterior. Curta (cabe no card, ~150–400 chars);
+   **limite hard 1024** (`gate.mjs` recusa o push acima disso — estourar trava o
+   `plugin update` da vitrine inteira). Ver `AGENTS.md` §4.1.
 5. **Gerar** — rode `node docs/build.mjs` (reassa index + `docs/p/<nome>/` + tabela do README).
 6. **Marcar revisado** — rode `node docs/gate.mjs mark <nome>` para gravar o marcador em
    `docs/.reviewed.json` (versão + hash da página). **É esse marcador que libera o push**:
@@ -101,6 +106,9 @@ Não delegue o build nem o commit: essa parte é sua.
 - ❌ NUNCA pule o passo 3 nem escreva a página você mesmo enquanto puder delegar ao `vitrine`.
 - ❌ NUNCA `git push` ou `git tag` sem autorização explícita do usuário (commitar, pode).
 - ✅ SEMPRE mantenha `version` do `plugin.json` e do manifesto em sincronia.
+- ✅ SEMPRE escreva a `description` do manifesto como **uso da versão atual** (semântica),
+  nunca como changelog/timeline — reescreva por inteiro a cada versão, sem citar a anterior.
+  Máx **1024** chars (o `gate.mjs` bloqueia o push acima disso).
 - ✅ SEMPRE rode `node docs/build.mjs` depois que a página estiver pronta e antes do commit.
 - ✅ SEMPRE commite em Conventional Commits (uma linha) com o trailer
   `Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>`.
@@ -110,6 +118,7 @@ Não delegue o build nem o commit: essa parte é sua.
 - [ ] `plugins/<nome>/plugin.json` com `version` bumpada (se houve mudança de runtime).
 - [ ] `docs/content/<nome>.json` criado/atualizado **pelo `vitrine`** (frontend-design) e válido.
 - [ ] Entrada correspondente em `.github/plugin/marketplace.json` (mesma versão/descrição).
+- [ ] `description` do manifesto é **semântica** (uso da versão atual), não changelog, e ≤ 1024 chars.
 - [ ] `node docs/build.mjs` rodado sem erro (index + `docs/p/<nome>/` + README).
 - [ ] Página conferida (hero, seções, instalar, estrutura, TOC, prev/next).
 - [ ] Commit Conventional, uma linha, com o trailer.

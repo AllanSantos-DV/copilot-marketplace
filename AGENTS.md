@@ -78,6 +78,25 @@ copilot plugin update --all
 Campos usados pela vitrine: `name, version, description, category, keywords, repository,
 homepage`. Mantenha a `description` curta (cabe num card) e em pt-BR.
 
+> **A `description` é SEMÂNTICA, não um changelog.** Ela descreve **o que aquela versão
+> entrega** — o uso do plugin, na voz do usuário — e nada mais. Regras:
+>
+> - **Cada versão é um produto novo.** Descreva o **estado atual** do plugin, como se fosse
+>   a primeira vez. Não é uma linha do tempo.
+> - **Nunca vire changelog/timeline.** Não acumule `NOVO:`/`AGORA:`, não cite a versão
+>   anterior, não liste "o que mudou". Se um recurso deixou de ser novidade, ele é só parte
+>   do que o plugin faz — reescreva a frase inteira, não anexe.
+> - **Mínima e concreta.** 1–3 frases que dão o entendimento do produto (os plugins desta
+>   vitrine ficam em ~150–400 chars). Sem jargão interno, sem números de ADR, sem detalhes
+>   de implementação que o usuário não precisa.
+> - **Limite HARD: 1024 caracteres.** O schema do marketplace do Copilot rejeita acima disso
+>   e, quando isso acontece, o `copilot plugin update` para de ler o marketplace **inteiro**
+>   (todos os plugins deixam de atualizar). Por isso `docs/gate.mjs` recusa o push de uma
+>   `description` estourada — falha cedo, apontando o plugin culpado.
+>
+> A mesma filosofia vale para o `tagline`/`lede` da página dedicada (`docs/content/<nome>.json`,
+> escrita pelo `vitrine`).
+
 ### 4.2 `hooks.json` (opcional)
 
 Hooks de ciclo de vida do Copilot CLI. Padrão usado aqui (rodar um bootstrap no início da
