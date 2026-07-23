@@ -64,6 +64,9 @@ Diretrizes fiéis a esta vitrine:
   ponto de destaque.
 - **Escreva em pt-BR, na voz do usuário.** Diga o que o plugin faz e como usar, não como foi
   construído. Frases curtas, verbos ativos, sem enrolação.
+- **`tagline`/`lede` são semânticos, não changelog.** Descrevem o que **esta versão** entrega,
+  como um produto novo — nunca "o que mudou", nunca `NOVO:`, nunca cite a versão anterior. A
+  `tagline` vira o card e a meta description: uma linha concreta. (Ver `AGENTS.md` §4.1.)
 - **Refinos de design global** vão em `docs/assets/styles.css` e `docs/assets/app.js` — nunca no
   HTML gerado. Respeite acessibilidade: foco visível, `prefers-reduced-motion`, responsivo.
 
@@ -106,4 +109,6 @@ Boas seções para a maioria dos plugins: `o-que-e`, `como-usar` (em `steps`), `
 - ❌ NUNCA entregue uma página sem aplicar a skill `frontend-design`.
 - ✅ SEMPRE valide que `docs/content/<nome>.json` parseia (JSON válido) antes de terminar.
 - ✅ SEMPRE escreva em pt-BR, na voz do usuário.
+- ❌ NUNCA escreva `tagline`/`lede` como changelog ou linha do tempo — cada versão é um
+  produto novo; descreva o estado atual, não a história, e não cite a versão anterior.
 - ✅ Ao ser delegado, devolva um resumo curto do que desenhou — o `publisher` segue daí.

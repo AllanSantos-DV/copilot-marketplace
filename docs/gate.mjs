@@ -54,6 +54,32 @@ function manifestNames(text) {
   }
 }
 
+// Limite HARD do schema do marketplace do Copilot CLI: cada `description` tem no
+// máximo 1024 chars. Estourar NÃO falha na origem — falha lá na frente, no
+// `copilot plugin update`, e derruba a leitura do marketplace inteiro (TODOS os
+// plugins param de atualizar). Por isso o gate recusa cedo, no push, apontando o
+// plugin culpado. (A description é semântica — o que aquela versão entrega — não um
+// changelog; ver AGENTS.md §4.1.)
+const DESC_MAX = 1024;
+
+function descriptionOverflows(manifestText) {
+  let plugins;
+  try {
+    plugins = JSON.parse(manifestText ?? "").plugins;
+  } catch {
+    return []; // manifesto inválido é outro problema; aqui só medimos tamanho
+  }
+  if (!Array.isArray(plugins)) return [];
+  const bad = [];
+  for (const p of plugins) {
+    const len = String(p?.description ?? "").length;
+    if (len > DESC_MAX) {
+      bad.push(`${p?.name ?? "?"}: description ${len} chars > ${DESC_MAX} (limite do marketplace.json; encurte — é semântica, não changelog)`);
+    }
+  }
+  return bad;
+}
+
 function versionOf(pluginJsonText) {
   try {
     return JSON.parse(pluginJsonText).version ?? null;
@@ -134,6 +160,8 @@ function cmdCheck() {
   const names = manifestNames(readText(MANIFEST) ?? "");
   const marker = loadMarkerFrom(readText(MARKER));
   const fails = [];
+  // Trava de tamanho de description (protege a vitrine inteira, não um plugin só).
+  for (const f of descriptionOverflows(readText(MANIFEST))) fails.push(f);
   for (const name of names) {
     const pj = readText(join(PLUGINS, name, "plugin.json"));
     const cj = readText(join(CONTENT, `${name}.json`));
@@ -218,16 +246,18 @@ function blockMessage(fails) {
     "  ╭──────────────────────────────────────────────────────────────╮",
     "  │  PUSH BLOQUEADO · copilot-marketplace                          │",
     "  ╰──────────────────────────────────────────────────────────────╯",
-    "  Um ou mais plugins foram alterados sem a página dedicada revisada:",
+    "  Um ou mais plugins não passaram no gate de publicação:",
     ...fails.map((f) => `    • ${f}`),
     "",
-    "  Acione o agente que desenha a página (ele grava o marcador):",
+    "  Página não revisada → acione o agente que desenha a página:",
     "    publisher   (publica: vender/versão + delega o design ao vitrine)",
     "    vitrine     (só desenha docs/content/<nome>.json com frontend-design)",
+    "    depois: node docs/gate.mjs mark <nome>  e commit — aí libera.",
     "",
-    "  Depois de desenhar, o agente roda:  node docs/gate.mjs mark <nome>",
-    "  e faz o commit — aí o push é liberado. Verifique com:",
-    "    node docs/gate.mjs check",
+    "  Description longa → encurte no .github/plugin/marketplace.json (máx 1024).",
+    "    A description é semântica (o que ESSA versão entrega), não um changelog.",
+    "",
+    "  Verifique com:  node docs/gate.mjs check",
     "",
   ].join("\n");
 }
@@ -264,6 +294,18 @@ function cmdPrepush(url) {
     const [name, tip] = item.split("\u0000");
     const f = verifyAtRev(name, tip);
     if (f) fails.push(f);
+  }
+  // Trava de description: valida o manifesto em cada tip empurrado (um estouro >1024
+  // travaria o `plugin update` de TODOS os plugins, não só o alterado).
+  const tips = new Set();
+  for (const line of lines) {
+    const [, localSha, remoteRef] = line.split(/\s+/);
+    if (!localSha || ZERO.test(localSha)) continue;
+    if ((remoteRef ?? "").startsWith("refs/tags/")) continue;
+    tips.add(localSha);
+  }
+  for (const tip of tips) {
+    for (const f of descriptionOverflows(gitShow(tip, ".github/plugin/marketplace.json"))) fails.push(f);
   }
   if (fails.length) {
     process.stderr.write(blockMessage([...new Set(fails)]) + "\n");
