@@ -11,7 +11,7 @@
     {
       "name": "session-unloader",
       "description": "Descarrega da memória as sessões ociosas do Copilot que continuam com o processo-servidor vivo depois de paradas — o app não libera a RAM ao parar, e elas se acumulam. Detecta ociosidade por sinal duplo (sem eventos há mais de 10 min E CPU zerada), protegendo a sessão ativa, um subagente e uma mesa de deliberação. Mata a árvore do processo sem apagar a sessão do disco: o lazy-load reabre com chat e histórico. Automático (hooks de sessão) e sob demanda pela tool unload_idle (dry-run por padrão).",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "source": "./plugins/session-unloader",
       "author": {
         "name": "Allan Santos"

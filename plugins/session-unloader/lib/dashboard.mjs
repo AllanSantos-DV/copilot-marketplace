@@ -40,12 +40,14 @@ function sessionName(home, sid) {
 }
 
 export class Dashboard {
-  constructor({ home = resolveCopilotHome() } = {}) {
+  constructor({ home = resolveCopilotHome(), token = null, port = 0 } = {}) {
     this.home = home;
+    this.token = token; // setado no DAEMON → exige ?token=; o fallback in-process fica sem (loopback local)
+    this.port = port;   // porta FIXA (daemon = arbiter) ou 0 (fallback = efêmera)
     this.url = null;
     this._server = null;
     this._sockets = new Set();
-    this._scanCache = null; // { data, ts }
+    this._scanCache = null; // { data:{servers,procMap,at,error}, ts }
   }
 
   async ensureServer() {
@@ -55,17 +57,19 @@ export class Dashboard {
         this._handle(req, res).catch((e) => { res.statusCode = 500; res.setHeader("Connection", "close"); res.end(String(e?.message || e)); });
       });
       server.on("connection", (s) => { this._sockets.add(s); s.on("close", () => this._sockets.delete(s)); });
-      const preferred = readPreferredPort(this.home) || 0;
+      const preferred = this.port || readPreferredPort(this.home) || 0;
       const onOk = () => {
         const p = server.address().port;
         this.url = `http://127.0.0.1:${p}/`;
         this._server = server;
-        writePreferredPort(this.home, p);
+        if (!this.port) writePreferredPort(this.home, p);
         server.removeListener("error", onErr);
         resolve(this.url);
       };
       const onErr = (e) => {
-        if (preferred && e && e.code === "EADDRINUSE") { server.listen(0, "127.0.0.1", onOk); } // porta preferida ocupada → efêmera
+        // porta FIXA (daemon) ocupada → outro daemon já venceu o arbiter: REJEITA (não cai pra efêmera).
+        // porta preferida (fallback) ocupada → efêmera.
+        if (e && e.code === "EADDRINUSE" && !this.port && preferred) { server.listen(0, "127.0.0.1", onOk); }
         else { reject(e); }
       };
       server.once("error", onErr);
@@ -74,14 +78,18 @@ export class Dashboard {
   }
 
   async _handle(req, res) {
-    const path = (req.url || "/").split("?")[0];
-    if (path === "/data") {
-      const snap = await this._snapshot();
+    const u = new URL(req.url || "/", "http://127.0.0.1");
+    if (this.token && u.searchParams.get("token") !== this.token) { // gate só no daemon (token setado)
+      res.statusCode = 403; res.setHeader("Connection", "close"); res.end("forbidden"); return;
+    }
+    if (u.pathname === "/health") { res.setHeader("Connection", "close"); res.end("ok"); return; }
+    if (u.pathname === "/data") {
+      const callerPid = Number(u.searchParams.get("callerPid")) || null;
       res.setHeader("Content-Type", "application/json"); res.setHeader("Connection", "close");
-      res.end(JSON.stringify(snap));
+      res.end(JSON.stringify(await this._snapshot(callerPid)));
       return;
     }
-    if (path === "/" || path === "/index.html") {
+    if (u.pathname === "/" || u.pathname === "/index.html") {
       res.setHeader("Content-Type", "text/html; charset=utf-8"); res.setHeader("Connection", "close");
       res.end(PAGE_HTML);
       return;
@@ -89,8 +97,8 @@ export class Dashboard {
     res.statusCode = 404; res.setHeader("Connection", "close"); res.end("not found");
   }
 
-  async _snapshot() {
-    const live = await this._live();
+  async _snapshot(callerPid = null) {
+    const live = await this._live(callerPid);
     const status = {
       active: true,
       lastScan: readLastScan(this.home),
@@ -100,39 +108,40 @@ export class Dashboard {
     return { status, telemetry: parseTelemetry(readLogLines(this.home)), live };
   }
 
-  async _live() {
+  async _live(callerPid = null) {
     const now = Date.now();
-    if (this._scanCache && (now - this._scanCache.ts) < SCAN_TTL_MS) return this._scanCache.data;
-    let data;
-    try {
-      const servers = await scanServers({ home: this.home });
-      const procMap = await getProcMap();
-      const selfPid = process.pid;
-      const selfAncestors = ancestorsOf(selfPid, procMap);
-      const sessions = servers.map((s) => {
-        const idle = isIdle(s, s.sessionId ? readSnapshot(s.sessionId, { home: this.home }) : null, now);
-        let verdict, icon;
-        if (!s.sessionId) { verdict = "casca (sem sessão)"; icon = "⚪"; }
-        else if (!idle) { verdict = "ativa"; icon = "🟢"; }
-        else {
-          const g = guardKill(s, { selfPid, selfAncestors, procMap, pidAlive });
-          if (g.ok) { verdict = "candidata"; icon = "🔴"; }
-          else { verdict = "protegida (" + g.reason + ")"; icon = "🔒"; }
-        }
-        return {
-          pid: s.pid,
-          name: s.sessionId ? sessionName(this.home, s.sessionId) : "(servidor sem sessão)",
-          idleMin: s.eventsMtimeMs ? Math.round((now - s.eventsMtimeMs) / 60000) : null,
-          wsMb: s.wsMb == null ? null : Number(s.wsMb),
-          verdict, icon,
-        };
-      });
-      data = { sessions, cachedAt: new Date(now).toISOString() };
-    } catch (e) {
-      data = { sessions: [], error: String(e?.message || e), cachedAt: new Date(now).toISOString() };
+    // cache guarda o SCAN BRUTO (caro); a marcação por callerPid é aplicada por request (barato).
+    let raw = this._scanCache && (now - this._scanCache.ts) < SCAN_TTL_MS ? this._scanCache.data : null;
+    if (!raw) {
+      try { raw = { servers: await scanServers({ home: this.home }), procMap: await getProcMap(), at: now }; }
+      catch (e) { raw = { servers: [], procMap: new Map(), error: String(e?.message || e), at: now }; }
+      this._scanCache = { data: raw, ts: now };
     }
-    this._scanCache = { data, ts: now };
-    return data;
+    const selfPid = process.pid;
+    const selfAncestors = ancestorsOf(selfPid, raw.procMap);
+    const callerAncestors = callerPid ? ancestorsOf(callerPid, raw.procMap) : new Set();
+    const protectedPids = new Set([...selfAncestors, ...callerAncestors, selfPid]);
+    if (callerPid) protectedPids.add(callerPid);
+    const sessions = raw.servers.map((s) => {
+      const idle = isIdle(s, s.sessionId ? readSnapshot(s.sessionId, { home: this.home }) : null, now);
+      let verdict, icon;
+      if (!s.sessionId) { verdict = "casca (sem sessão)"; icon = "⚪"; }
+      else if (callerPid && callerAncestors.has(s.pid)) { verdict = "esta sessão"; icon = "🟢"; }
+      else if (!idle) { verdict = "ativa"; icon = "🟢"; }
+      else {
+        const g = guardKill(s, { selfPid, selfAncestors: protectedPids, procMap: raw.procMap, pidAlive });
+        if (g.ok) { verdict = "candidata"; icon = "🔴"; }
+        else { verdict = "protegida (" + g.reason + ")"; icon = "🔒"; }
+      }
+      return {
+        pid: s.pid,
+        name: s.sessionId ? sessionName(this.home, s.sessionId) : "(servidor sem sessão)",
+        idleMin: s.eventsMtimeMs ? Math.round((now - s.eventsMtimeMs) / 60000) : null,
+        wsMb: s.wsMb == null ? null : Number(s.wsMb),
+        verdict, icon,
+      };
+    });
+    return { sessions, cachedAt: new Date(raw.at).toISOString(), error: raw.error };
   }
 
   close() {
@@ -198,6 +207,6 @@ function render(d){
   else rk.forEach(function(k){var tr=el("tr");tr.appendChild(el("td",fmtTime(k.ts)));tr.appendChild(el("td",k.sessionId?String(k.sessionId).slice(0,8):"?"));var rm=el("td",(k.wsMb||0)+" MB");rm.className="mono";tr.appendChild(rm);ht.appendChild(tr);});
   document.getElementById("foot").textContent="atualizado "+fmtTime(s.generatedAt)+" · dados: "+((live&&live.cachedAt)?("scan "+fmtTime(live.cachedAt)):"");
 }
-function tick(){fetch("/data").then(function(r){return r.json();}).then(render).catch(function(){document.getElementById("live").style.background="var(--red)";});}
+function tick(){fetch("/data"+window.location.search).then(function(r){return r.json();}).then(render).catch(function(){document.getElementById("live").style.background="var(--red)";});}
 tick();setInterval(tick,10000);
 </script></body></html>`;

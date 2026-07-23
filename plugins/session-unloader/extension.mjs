@@ -54,16 +54,31 @@ export const hooks = {};
 // Entry do host — só junta à sessão fora de modo smoke/teste.
 if (!process.env.SESSION_UNLOADER_SMOKE) {
   const { joinSession, createCanvas } = await import("@github/copilot-sdk/extension");
-  const dashboard = new Dashboard();
+  const { ensureDaemon } = await import("./ensure-daemon.mjs");
+  let fallback = null; // Dashboard in-process, criado só se o daemon único falhar (resiliência)
+  let sessionRef = null;
   const panel = createCanvas({
     id: CANVAS_ID,
     displayName: "Session Unloader",
-    description: "Painel do session-unloader: status, telemetria (descargas e RAM liberada) e as sessões carregadas agora (candidatas × protegidas).",
-    open: async () => { await dashboard.ensureServer(); return { title: CANVAS_TITLE, url: dashboard.url }; },
+    description: "Painel do session-unloader: status, telemetria (descargas e RAM liberada) e as sessões carregadas agora (candidatas × protegidas). Servido por um daemon ÚNICO compartilhado entre as sessões.",
+    open: async () => {
+      try {
+        // THIN-CLIENT: aponta pro DAEMON ÚNICO (1 leitura de processos p/ N sessões). token + callerPid (esta sessão).
+        const { url, token } = await ensureDaemon();
+        return { title: CANVAS_TITLE, url: `${url}?token=${encodeURIComponent(token)}&callerPid=${process.pid}` };
+      } catch (e) {
+        // fallback in-process (comportamento v0.2.0) só se o daemon não subir — usuário nunca vê painel bloqueado
+        try { sessionRef?.log?.("[session-unloader] daemon do painel indisponível; fallback in-process: " + (e?.message || e)); } catch { /* ignore */ }
+        if (!fallback) fallback = new Dashboard();
+        await fallback.ensureServer();
+        return { title: CANVAS_TITLE, url: `${fallback.url}?callerPid=${process.pid}` };
+      }
+    },
   });
   const session = await joinSession({ tools, canvases: [panel], hooks });
-  session.log?.("session-unloader ativo — tool unload_idle + painel canvas + scan automático (SessionStart/UserPromptSubmit).");
-  const closeDash = () => { try { dashboard.close(); } catch { /* ignore */ } };
-  session.on?.("dispose", closeDash);   // fecha o servidor do painel no reload (evita porta presa)
+  sessionRef = session;
+  session.log?.("session-unloader ativo — tool unload_idle + painel (daemon único, cliente fino) + scan automático.");
+  const closeDash = () => { try { fallback?.close(); } catch { /* ignore */ } }; // fecha só o fallback local; o daemon único se auto-encerra por idle
+  session.on?.("dispose", closeDash);
   process.once?.("exit", closeDash);
 }
