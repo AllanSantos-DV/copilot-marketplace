@@ -665,6 +665,30 @@ class _InstallLock:
 # ---------------------------------------------------------------------------
 # Subir o daemon INSTALADO (destacado, sem janela) + esperar o pipe.
 # ---------------------------------------------------------------------------
+def _spawn_daemon_outside_job(args: list) -> bool:
+    """Sobe o daemon FORA do Job do consumidor via WMI ``Win32_Process.Create``.
+
+    Quem cria o processo é o **WmiPrvSE** (serviço do WMI), então o daemon NÃO herda o
+    Job Object do worker efêmero — ele SOBREVIVE ao reload/queda do consumidor. É o
+    escape usado quando ``CREATE_BREAKAWAY_FROM_JOB`` é NEGADO (Job sem
+    ``JOB_OBJECT_LIMIT_BREAKAWAY_OK``, ex.: host de extensão): sem isto, um simples
+    DETACHED deixaria o daemon dentro do Job e o Windows o mataria junto — o clássico
+    loop start↔kill que derruba a voz. Best-effort, Windows-only; devolve ``True`` só se
+    o WMI reportou criação (``ReturnValue == 0`` e ``ProcessId > 0``). O ``--log-file`` do
+    daemon cobre o log; só o boot-log de stdout/stderr não é capturado nesta rota."""
+    try:
+        cmdline = subprocess.list2cmdline(args).replace("'", "''")   # quoting Windows correto
+        ps = ("$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
+              f"-Arguments @{{ CommandLine = '{cmdline}' }}; "
+              "if ($r.ReturnValue -eq 0 -and $r.ProcessId -gt 0) { exit 0 } exit 1")
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                           capture_output=True, text=True, timeout=25,
+                           creationflags=_NO_WINDOW)
+        return r.returncode == 0
+    except Exception:  # noqa: BLE001 — WMI ausente/negado ⇒ o chamador cai no último recurso
+        return False
+
+
 def start_installed_daemon(pipe: str = DEFAULT_PIPE, *, run=None) -> bool:
     """Sobe o daemon INSTALADO destacado (``DETACHED_PROCESS | CREATE_NO_WINDOW``)
     via ``pythonw.exe -m vox_engine``. Devolve ``False`` se o motor não está
@@ -678,8 +702,7 @@ def start_installed_daemon(pipe: str = DEFAULT_PIPE, *, run=None) -> bool:
         # DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB: o motor é um SINGLETON de
         # LONGA VIDA — precisa ROMPER o Job Object do consumidor que o lança (worker/sessão do app),
         # senão o Windows o MATA junto quando esse consumidor EFÊMERO cai (sem shutdown gracioso).
-        # Era o loop start↔kill que derrubava a voz no multi-sessão. Se o Job PROÍBE breakaway
-        # (ERROR_ACCESS_DENIED — sem JOB_OBJECT_LIMIT_BREAKAWAY_OK), CAI para só destacado.
+        # Era o loop start↔kill que derrubava a voz no multi-sessão.
         base = 0x00000008 | 0x08000000
         breakaway = 0x01000000
         bf = open(DAEMON_BOOT_LOG, "ab")   # noqa: SIM115
@@ -689,7 +712,12 @@ def start_installed_daemon(pipe: str = DEFAULT_PIPE, *, run=None) -> bool:
             try:
                 subprocess.Popen(args, creationflags=base | breakaway, **common)
             except OSError:
-                subprocess.Popen(args, creationflags=base, **common)  # job proíbe breakaway
+                # Job PROÍBE breakaway (ERROR_ACCESS_DENIED — sem JOB_OBJECT_LIMIT_BREAKAWAY_OK).
+                # Um DETACHED puro ainda deixaria o daemon DENTRO do Job do worker efêmero ⇒ morre
+                # no reload/queda do consumidor. ESCAPA do Job via WMI (WmiPrvSE cria FORA do Job).
+                # Só se o WMI também falhar caímos no detached (piso: nunca pior que antes).
+                if not _spawn_daemon_outside_job(args):
+                    subprocess.Popen(args, creationflags=base, **common)
         finally:
             bf.close()
         return True
