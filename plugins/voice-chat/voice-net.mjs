@@ -24,7 +24,7 @@ import {
     handleVoiceTranscript, claimVoiceOwnership, setRecordingActive, clearRecordingActive, startMonitor, stopMonitor,
     quiesceClosedPanelCapture, sessionHasClient, checkForUpdate, readUpdateState, micLockHeldByOther,
     writeUpdateState, effectiveVersion, pendingRestartVersion, saveSettings, drainPendingSpeak,
-    sanitizeSettings, settings, setSettings, setLastTtsPreviewSid,
+    sanitizeSettings, settings, setSettings, setLastTtsPreviewSid, readSessionFullRead, writeSessionFullRead,
     session, RUNNING_AS_PLUGIN, log, recordingActiveSid,
 } from "./extension.mjs";
 
@@ -211,6 +211,7 @@ export async function handleRequest(req, res) {
             `data: ${JSON.stringify({
                 type: "hello",
                 settings,
+                fullRead: readSessionFullRead(sid),
                 worker: workerReady ? "ready" : "loading",
                 voices: lastVoices,
                 appFocused: lastAppFocused,
@@ -333,6 +334,15 @@ export async function handleRequest(req, res) {
         const text = (body && body.text ? String(body.text) : "").trim();
         if (text) handleVoiceTranscript(text);
         return sendJson(res, { ok: !!text });
+    }
+
+    if (req.method === "POST" && path === "/full-mode") {
+        // fullRead é POR SESSÃO: grava no arquivo modes/<sid>.json DESTA fork (o servidor é por-fork,
+        // então o sid é o mySid()). NÃO toca no settings.json global nem nas outras sessões.
+        const body = await readBody(req);
+        const on = !!(body && body.fullRead);
+        writeSessionFullRead(mySid(), on);
+        return sendJson(res, { ok: true, fullRead: on });
     }
 
     if (req.method === "POST" && path === "/settings") {

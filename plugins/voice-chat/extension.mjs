@@ -50,7 +50,7 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 
-export const CURRENT_VERSION = "2.3.0";
+export const CURRENT_VERSION = "2.3.1";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -98,7 +98,6 @@ const DEFAULT_SETTINGS = {
     voice: "Microsoft Maria Desktop",
     rate: 0,
     language: "pt",
-    fullRead: false,
     ttsVoice: "",
     ttsSid: 0,
     authorSummary: true,
@@ -228,6 +227,7 @@ async function loadSettings() {
     } catch {
         settings = { ...DEFAULT_SETTINGS };
     }
+    delete settings.fullRead;   // fullRead é POR SESSÃO (modes/<sid>.json) — remove qualquer legado global do settings.json
 }
 
 export async function saveSettings() {
@@ -238,6 +238,14 @@ export async function saveSettings() {
         log("save settings failed: " + e.message);
     }
 }
+
+// fullRead (modo Fala Completa / "Ler resposta completa") é POR SESSÃO — cada painel tem o seu
+// (modes/<sid>.json), ao contrário dos demais toggles (globais no settings.json). Ligar num painel
+// NÃO afeta as outras sessões. Wrappers sobre voice-shared (fonte ÚNICA do path, igual ao hook).
+// Exportados p/ o voice-net (endpoint /full-mode + o hello por-sid). TODO: GC de modes/*.json antigos
+// (mesma dívida de forks/ e hook-state-*).
+export function readSessionFullRead(sid) { return shared.readSessionFullRead(ARTIFACTS, sid); }
+export function writeSessionFullRead(sid, val) { return shared.writeSessionFullRead(ARTIFACTS, sid, val); }
 
 const VOICE_STATE_TTL = 600000; 
 const VOICE_TURNS_FILE = join(ARTIFACTS, "voice-turns.json");
@@ -333,7 +341,6 @@ export function sanitizeSettings(b) {
     if (typeof b.ttsVoice === "string" && b.ttsVoice.trim()) out.ttsVoice = b.ttsVoice.trim();
     if (typeof b.rate === "number" && b.rate >= -10 && b.rate <= 10) out.rate = Math.round(b.rate);
     if (typeof b.language === "string" && /^[a-z]{2}$|^auto$/.test(b.language)) out.language = b.language;
-    if (typeof b.fullRead === "boolean") out.fullRead = b.fullRead;
     if (typeof b.authorSummary === "boolean") out.authorSummary = b.authorSummary;
     if (typeof b.confirmTranscript === "boolean") out.confirmTranscript = b.confirmTranscript;
     if (typeof b.cueStart === "boolean") out.cueStart = b.cueStart;
@@ -939,8 +946,8 @@ const canvas = createCanvas({
                 const text = String(ctx.input?.text || "").trim();
                 if (!text) throw new CanvasError("invalid_input", "O campo 'text' está vazio.");
                 const { spoken, full } = makeSpoken(text);
-                const speakText = settings.fullRead ? full : spoken || text;
                 const sid = String((ctx && ctx.sessionId) || ownSid || mySid());
+                const speakText = readSessionFullRead(sid) ? full : spoken || text;
                 // Motor ainda não pronto -> ENFILEIRA (mesmo padrão do falarTool) em vez de estourar no
                 // routeSpeak sem worker; o drain toca quando o motor liga. Sem isto, um speak precoce
                 // (ex.: logo após o registro do canvas, motor subindo) virava exceção na ação do canvas.
@@ -1039,7 +1046,7 @@ const falarTool = {
         const sid = String((invocation && invocation.sessionId) || ownSid || mySid());
         const text = cleanForSpeech(String((args && (args.texto ?? args.text)) || ""));
         if (!text) return "Nada para falar: o texto veio vazio.";
-        const steer = settings.fullRead ? FALAR_STEER_FULL : FALAR_STEER;   // completo -> continue falando; resumo -> feche
+        const steer = readSessionFullRead(sid) ? FALAR_STEER_FULL : FALAR_STEER;   // completo (por-sessão) -> continue falando; resumo -> feche
         if (!workerReady) { writePendingSpeak(sid, text); ensureWorker(); return "🔊 Enfileirado para falar quando o motor de voz ligar: " + text.slice(0, 90) + steer; }
         let ok = false;
         try { ok = await speakToCanvas(sid, text); } catch { ok = false; }
@@ -1063,7 +1070,7 @@ const _joinCfg = {
             if (!voiceInstructionPending) return undefined;
             voiceInstructionPending = false;
             let ctx = "";
-            if (settings.authorSummary !== false) ctx += settings.fullRead ? VOICE_TOOL_INSTRUCTION_FULL : VOICE_TOOL_INSTRUCTION;
+            if (settings.authorSummary !== false) ctx += readSessionFullRead(mySid()) ? VOICE_TOOL_INSTRUCTION_FULL : VOICE_TOOL_INSTRUCTION;
             if (settings.cueCheckpoints !== false) ctx += (ctx ? " " : "") + CHECKPOINT_INSTRUCTION;
             return ctx ? { additionalContext: ctx } : undefined;
         },

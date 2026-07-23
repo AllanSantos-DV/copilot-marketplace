@@ -13,20 +13,10 @@
 //   2) ADVISOR de canvas caído: heartbeat do fork com PID morto -> avisa o agente a rodar extensions_reload.
 
 const fs = require('fs');
-const path = require('path');
 // Contrato cross-process (data dir, sanitização de sid, paths das filas) — ÚNICA fonte, igual à extensão.
 const shared = require('./voice-shared.cjs');
 
 const DATA_DIR = shared.resolveDataDir();
-// Modo FALA COMPLETA (settings.json fullRead): a resposta é ÁUDIO via `falar`; o texto do chat é só
-// artefato (código/tabela/imagem), que NÃO deve ser cobrado como fala. Lê best-effort; ausência/parse
-// falho -> false (aplica o enforcement de RESUMO, o comportamento de hoje). Mesmo settings.json da extensão.
-function readFullRead() {
-  try {
-    const s = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'settings.json'), 'utf8'));
-    return !!(s && s.fullRead === true);
-  } catch { return false; }
-}
 
 // ---- enforcement da tool `falar`: este turno chamou a tool de fala? ----------------------------
 // Passada ÚNICA para frente, parseando CADA linha como JSON e resetando o escopo a cada evento cujo
@@ -173,7 +163,9 @@ if (require.main === module) {
     // 1) ENFORCEMENT da tool `falar` (cap CONSECUTIVO anti-loop). Pulado se o fork está morto. Fail-open
     //    se não der pra PERSISTIR o contador (sem persistência o cap não segura -> não bloqueia).
     const turn = readTurnSpeak(tp);
-    const fullRead = readFullRead();   // modo FALA COMPLETA: relaxa o enforcement (texto = artefato, não se cobra a cauda)
+    // modo FALA COMPLETA é POR SESSÃO (modes/<sid>.json): a resposta é ÁUDIO via `falar`; o texto do chat
+    // é só artefato (código/tabela/imagem), que NÃO se cobra como fala. Sem sid -> false (enforcement de RESUMO).
+    const fullRead = sid ? shared.readSessionFullRead(DATA_DIR, sid) : false;
     const consec = Number(st.consecBlocks) || 0;
     const enf = forkDead ? 'ok' : decideSpeakEnforcement(turn, consec >= MAX_BLOCKS, fullRead);
     if (enf === 'block') {
@@ -207,4 +199,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { decideSpeakEnforcement, readTurnSpeak, isFalarTool, decideCanvasAdvisor, SUMMARY_MIN_CHARS, speakReasonFor, readFullRead };
+module.exports = { decideSpeakEnforcement, readTurnSpeak, isFalarTool, decideCanvasAdvisor, SUMMARY_MIN_CHARS, speakReasonFor };
