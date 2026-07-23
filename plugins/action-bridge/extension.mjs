@@ -3544,7 +3544,7 @@ var require_schemes = __commonJS({
       urnComponent.nss = (uuidComponent.uuid || "").toLowerCase();
       return urnComponent;
     }
-    var http = (
+    var http2 = (
       /** @type {SchemeHandler} */
       {
         scheme: "http",
@@ -3557,7 +3557,7 @@ var require_schemes = __commonJS({
       /** @type {SchemeHandler} */
       {
         scheme: "https",
-        domainHost: http.domainHost,
+        domainHost: http2.domainHost,
         parse: httpParse,
         serialize: httpSerialize
       }
@@ -3601,7 +3601,7 @@ var require_schemes = __commonJS({
     var SCHEMES = (
       /** @type {Record<SchemeName, SchemeHandler>} */
       {
-        http,
+        http: http2,
         https,
         ws,
         wss,
@@ -3771,6 +3771,7 @@ var require_fast_uri = __commonJS({
       return uriTokens.join("");
     }
     var URI_PARSE = /^(?:([^#/:?]+):)?(?:\/\/((?:([^#/?@]*)@)?(\[[^#/?\]]+\]|[^#/:?]*)(?::(\d*))?))?([^#?]*)(?:\?([^#]*))?(?:#((?:.|[\n\r])*))?/u;
+    var AUTHORITY_PREFIX = /^(?:[^#/:?]+:)?\/\/([^/?#]*)/;
     function getParseError(parsed, matches) {
       if (matches[2] !== void 0 && parsed.path && parsed.path[0] !== "/") {
         return 'URI path must start with "/" when authority is present.';
@@ -3799,6 +3800,11 @@ var require_fast_uri = __commonJS({
         } else {
           uri = "//" + uri;
         }
+      }
+      const authorityMatch = uri.match(AUTHORITY_PREFIX);
+      if (authorityMatch !== null && authorityMatch[1].indexOf("\\") !== -1) {
+        parsed.error = "URI authority must not contain a literal backslash.";
+        malformedAuthorityOrPort = true;
       }
       const matches = uri.match(URI_PARSE);
       if (matches) {
@@ -3843,7 +3849,7 @@ var require_fast_uri = __commonJS({
         if (!options.unicodeSupport && (!schemeHandler || !schemeHandler.unicodeSupport)) {
           if (parsed.host && (options.domainHost || schemeHandler && schemeHandler.domainHost) && isIP === false && nonSimpleDomain(parsed.host)) {
             try {
-              parsed.host = URL.domainToASCII(parsed.host.toLowerCase());
+              parsed.host = new URL("http://" + parsed.host).hostname;
             } catch (e) {
               parsed.error = parsed.error || "Host's domain name can not be converted to ASCII: " + e;
             }
@@ -7368,7 +7374,7 @@ var require_cross_spawn = __commonJS({
     var cp = __require("child_process");
     var parse3 = require_parse();
     var enoent = require_enoent();
-    function spawn4(command, args, options) {
+    function spawn5(command, args, options) {
       const parsed = parse3(command, args, options);
       const spawned = cp.spawn(parsed.command, parsed.args, parsed.options);
       enoent.hookChildProcess(spawned, parsed);
@@ -7380,8 +7386,8 @@ var require_cross_spawn = __commonJS({
       result.error = result.error || enoent.verifyENOENTSync(result.status, parsed);
       return result;
     }
-    module.exports = spawn4;
-    module.exports.spawn = spawn4;
+    module.exports = spawn5;
+    module.exports.spawn = spawn5;
     module.exports.sync = spawnSync;
     module.exports._parse = parse3;
     module.exports._enoent = enoent;
@@ -16145,10 +16151,10 @@ var StdioClientTransport = class {
 };
 
 // extension.mjs
-import { spawn as spawn3 } from "node:child_process";
-import { existsSync as existsSync2, readFileSync } from "node:fs";
+import { spawn as spawn4 } from "node:child_process";
+import { existsSync as existsSync3, readFileSync as readFileSync2 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
-import { join as join2 } from "node:path";
+import { join as join3 } from "node:path";
 
 // bootstrap.mjs
 import { spawn as spawn2 } from "node:child_process";
@@ -16282,32 +16288,229 @@ async function bootstrap({ fetchImpl = fetch, log = () => {
   }
 }
 
+// daemon-client.mjs
+import http from "node:http";
+import { spawn as spawn3 } from "node:child_process";
+import { existsSync as existsSync2, openSync, closeSync, writeSync, readFileSync, unlinkSync } from "node:fs";
+import { join as join2 } from "node:path";
+import { tmpdir as tmpdir2 } from "node:os";
+var HOST = "127.0.0.1";
+var PORT = Number(process.env.ACTION_MCP_PORT || 8931);
+var PATH = "/mcp";
+var IDLE_SECONDS = process.env.ACTION_IDLE_SECONDS || "600";
+var READY_MS = 25e3;
+var LOCK = join2(tmpdir2(), "action-mcp-daemon.lock");
+var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function rpc(method, params, { timeoutMs = 6e4 } = {}) {
+  const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: params || {} });
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: HOST,
+        port: PORT,
+        path: PATH,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          "Content-Length": Buffer.byteLength(body)
+        },
+        timeout: timeoutMs
+      },
+      (res) => {
+        let data = "";
+        res.setEncoding("utf8");
+        res.on("data", (c) => {
+          data += c;
+        });
+        res.on("end", () => {
+          try {
+            let payload = data;
+            if ((res.headers["content-type"] || "").includes("text/event-stream")) {
+              const evts = data.split(/\r?\n/).filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim());
+              payload = evts[evts.length - 1] || "{}";
+            }
+            const m = JSON.parse(payload);
+            if (m.error) reject(new Error(m.error.message || JSON.stringify(m.error)));
+            else resolve(m.result);
+          } catch {
+            reject(new Error(`resposta inv\xE1lida (${res.statusCode}): ${String(data).slice(0, 160)}`));
+          }
+        });
+      }
+    );
+    req.on("error", reject);
+    req.on("timeout", () => {
+      req.destroy();
+      reject(new Error(`timeout em ${method}`));
+    });
+    req.write(body);
+    req.end();
+  });
+}
+function ping(timeout = 1500) {
+  const body = '{"jsonrpc":"2.0","id":0,"method":"tools/list","params":{}}';
+  return new Promise((resolve) => {
+    const req = http.request(
+      {
+        hostname: HOST,
+        port: PORT,
+        path: PATH,
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", "Content-Length": Buffer.byteLength(body) },
+        timeout
+      },
+      (res) => {
+        res.resume();
+        resolve(res.statusCode === 200);
+      }
+    );
+    req.on("error", () => resolve(false));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(false);
+    });
+    req.write(body);
+    req.end();
+  });
+}
+function acquireSpawnLock() {
+  try {
+    const fd = openSync(LOCK, "wx");
+    writeSync(fd, String(process.pid));
+    closeSync(fd);
+    return true;
+  } catch {
+    try {
+      const owner = Number(readFileSync(LOCK, "utf8").trim());
+      if (owner && owner !== process.pid) {
+        try {
+          process.kill(owner, 0);
+          return false;
+        } catch {
+          unlinkSync(LOCK);
+          return acquireSpawnLock();
+        }
+      }
+    } catch {
+    }
+    return false;
+  }
+}
+function releaseSpawnLock() {
+  try {
+    unlinkSync(LOCK);
+  } catch {
+  }
+}
+async function ensureDaemon(mcpCommand, env, allowSpawn) {
+  if (await ping()) return true;
+  if (!allowSpawn) return false;
+  const iAmSpawner = acquireSpawnLock();
+  if (!iAmSpawner) {
+    const deadline = Date.now() + READY_MS;
+    while (Date.now() < deadline) {
+      await sleep(300);
+      if (await ping()) return true;
+    }
+    return await ping();
+  }
+  try {
+    const [cmd, ...args] = mcpCommand;
+    const child = spawn3(cmd, args, {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+      env: {
+        ...process.env,
+        ...env,
+        ACTION_MCP_TRANSPORT: "http-idle",
+        ACTION_MCP_PORT: String(PORT),
+        ACTION_IDLE_SECONDS: String(IDLE_SECONDS)
+      }
+    });
+    child.unref();
+    const deadline = Date.now() + READY_MS;
+    while (Date.now() < deadline) {
+      await sleep(300);
+      if (await ping()) return true;
+    }
+    return false;
+  } finally {
+    releaseSpawnLock();
+  }
+}
+function makeHttpClient() {
+  const withRetry = async (fn) => {
+    let lastErr;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await fn();
+      } catch (e) {
+        lastErr = e;
+        await sleep(200 * 2 ** attempt);
+      }
+    }
+    throw lastErr;
+  };
+  return {
+    transport: "http",
+    listTools: () => withRetry(() => rpc("tools/list", {})),
+    callTool: ({ name, arguments: args }) => withRetry(() => rpc("tools/call", { name, arguments: args || {} })),
+    close() {
+    }
+  };
+}
+async function tryConnectDaemon(mcpCommand, env, { allowSpawn = false } = {}) {
+  try {
+    if (!Array.isArray(mcpCommand) || mcpCommand.length === 0) return null;
+    const up = await ensureDaemon(mcpCommand, env || {}, allowSpawn);
+    if (!up) return null;
+    const client = makeHttpClient();
+    await client.listTools();
+    return client;
+  } catch {
+    return null;
+  }
+}
+
 // extension.mjs
 var TOOL_PREFIX = "action_";
-var RUNTIME_PATH2 = join2(homedir2(), ".action", "runtime.json");
+var RUNTIME_PATH2 = join3(homedir2(), ".action", "runtime.json");
 function elog(...parts) {
   process.stderr.write(`[action-bridge] ${parts.join(" ")}
 `);
 }
 function discover() {
   try {
-    if (!existsSync2(RUNTIME_PATH2)) return null;
-    const m = JSON.parse(readFileSync(RUNTIME_PATH2, "utf8"));
+    if (!existsSync3(RUNTIME_PATH2)) return null;
+    const m = JSON.parse(readFileSync2(RUNTIME_PATH2, "utf8"));
     if (!Array.isArray(m.mcp_command) || m.mcp_command.length === 0) return null;
     return {
       mcp: m.mcp_command,
       gui: Array.isArray(m.gui_command) ? m.gui_command : null,
       env: m.env && typeof m.env === "object" ? m.env : {},
       version: m.version || "?",
-      outputDir: m.output_dir || "?"
+      outputDir: m.output_dir || "?",
+      mcpHttp: m.mcp_http === true
+      // release nova sinaliza suporte a http-idle
     };
   } catch (e) {
     elog("discover failed:", e.message);
     return null;
   }
 }
-var state = { disc: null, client: null, transport: null, connecting: null };
+var state = { disc: null, client: null, transport: null, connecting: null, mode: "stdio" };
 async function doConnect() {
+  const allowSpawn = process.env.ACTION_MCP_DAEMON === "1" || state.disc.mcpHttp === true;
+  const daemon = await tryConnectDaemon(state.disc.mcp, state.disc.env, { allowSpawn });
+  if (daemon) {
+    state.client = daemon;
+    state.transport = null;
+    state.mode = "http-daemon";
+    elog("conectado via daemon HTTP compartilhado (:8931).");
+    return daemon;
+  }
   const [command, ...args] = state.disc.mcp;
   const transport = new StdioClientTransport({
     command,
@@ -16327,6 +16530,8 @@ async function doConnect() {
   await client.connect(transport);
   state.client = client;
   state.transport = transport;
+  state.mode = "stdio";
+  elog("conectado via stdio (fallback \u2014 daemon indispon\xEDvel).");
   return client;
 }
 async function ensureClient() {
@@ -16339,8 +16544,17 @@ async function ensureClient() {
   return state.connecting;
 }
 async function callMcp(name, args) {
-  const client = await ensureClient();
-  return await client.callTool({ name, arguments: args || {} });
+  try {
+    const client = await ensureClient();
+    return await client.callTool({ name, arguments: args || {} });
+  } catch (e) {
+    elog("callMcp falhou, reconectando:", e.message);
+    state.client = null;
+    state.transport = null;
+    state.connecting = null;
+    const client = await ensureClient();
+    return await client.callTool({ name, arguments: args || {} });
+  }
 }
 function formatResult(res) {
   if (!res) return "(sem conte\xFAdo)";
@@ -16379,7 +16593,7 @@ function openTool() {
       }
       try {
         const [cmd, ...args] = state.disc.gui;
-        const child = spawn3(cmd, args, {
+        const child = spawn4(cmd, args, {
           detached: true,
           stdio: "ignore",
           env: { ...process.env, ...state.disc.env }
@@ -16466,8 +16680,9 @@ async function buildTools() {
       (t) => bridgedTool(t.name, t.description, t.inputSchema)
     );
     elog(`conectado ao Action v${state.disc.version}: ${bridged.length} tools`);
+    const modeLabel = state.mode === "http-daemon" ? "daemon HTTP \xFAnico" : "stdio (fallback)";
     return [
-      statusTool(`ativa \u2014 ${bridged.length} tools`),
+      statusTool(`ativa (${modeLabel}) \u2014 ${bridged.length} tools`),
       openTool(),
       installTool(),
       ...bridged
