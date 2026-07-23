@@ -39,7 +39,7 @@
       <p class="eyebrow">infrastructure</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">vox-engine</h1>
-        <span class="chip" title="versão publicada">v0.22.3</span>
+        <span class="chip" title="versão publicada">v0.22.4</span>
       </div>
       <p class="doc-hero__lede">O <strong>vox-engine</strong> é a sala de máquinas da voz no Windows. Um <strong>daemon único</strong> que carrega o modelo de fala <strong>uma vez</strong> e serve <strong>STT</strong>, <strong>TTS</strong> e <strong>tradução</strong> a todos os apps por uma named pipe (<code>\\.\pipe\vox</code>). Sem ele, cada app — o <strong>voice-chat</strong>, o <strong>visual-explainer</strong> — subiria o próprio Whisper na RAM, e cada sessão pagaria essa conta de novo. Com ele, o modelo mora <strong>residente</strong>: carregado uma vez, servindo N sessões. Um motor, N consumidores — a RAM do modelo não multiplica. Dois apps ou dez sessões, é um motor só.</p>
       <div class="doc-hero__cta">
@@ -63,7 +63,11 @@
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Dono único do microfone</h3>
-          <p class="hl__body">O daemon é o <strong>dono físico</strong> do mic; o app <strong>nunca</strong> o abre sozinho — <strong>delega</strong>. Um <code>mic.lock</code> coordena entre processos e cede só ao ditado. (Contrato endurecido na <strong>0.22.3</strong>.)</p>
+          <p class="hl__body">O daemon é o <strong>dono físico</strong> do mic; o app <strong>nunca</strong> o abre sozinho — <strong>delega</strong>. Um <code>mic.lock</code>     coordena entre processos e cede só ao ditado. (Contrato endurecido na <strong>0.22.3</strong>.)</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">O mic morre? Você fica sabendo</h3>
+          <p class="hl__body">Se o microfone cai no meio da captura (desconexão, driver, WASAPI), o motor detecta em <strong>&lt;5s</strong>, <strong>libera o mic</strong> e entrega o <strong>parcial transcrito</strong> com <code>truncated=True</code> — nunca trava calado nem perde o fim sem avisar. (<strong>0.22.4</strong>)</p>
         </li>
       </ul>
     </header>
@@ -97,7 +101,7 @@
         <section class="doc-section" id="distribuicao">
           <h2 class="doc-h2"><a class="doc-anchor" href="#distribuicao" aria-label="Link para Como o motor chega até você">#</a>Como o motor chega até você</h2>
           <p>O vox-engine é o <strong>original</strong> do padrão que a <strong>embed-house</strong> copiou: o <strong>código-fonte e os testes</strong> ficam num repositório <strong>privado</strong> (<code>AllanSantos-DV/vox-engine</code>); o que <strong>roda na sua máquina</strong> vem de um <strong>release público</strong> assinado.</p>
-          <ul class="doc-list"><li><strong>Installer assinado (Ed25519).</strong> Antes de executar qualquer coisa, o app <strong>verifica a assinatura</strong> do installer contra a <strong>chave pública embutida</strong>. Assinatura que não confere → <strong>não roda</strong> (fail-closed). Um installer é código; a prova vem <strong>antes</strong> da execução.</li><li><strong>Auto-update on-use.</strong> O daemon se atualiza sozinho por um <strong>contrato seguro</strong> — <strong>só quando está ocioso</strong>, sem interromper uma captura em voo. Os consumidores disparam a checagem pelo SDK; você nunca roda um update à mão.</li><li><strong>Release público.</strong> <code>AllanSantos-DV/copilot-marketplace</code>, tag <code>vox-engine-v0.22.3</code> — os pacotes assinados moram nas releases.</li></ul>
+          <ul class="doc-list"><li><strong>Installer assinado (Ed25519).</strong> Antes de executar qualquer coisa, o app <strong>verifica a assinatura</strong> do installer contra a <strong>chave pública embutida</strong>. Assinatura que não confere → <strong>não roda</strong> (fail-closed). Um installer é código; a prova vem <strong>antes</strong> da execução.</li><li><strong>Auto-update on-use.</strong> O daemon se atualiza sozinho por um <strong>contrato seguro</strong> — <strong>só quando está ocioso</strong>, sem interromper uma captura em voo. Os consumidores disparam a checagem pelo SDK; você nunca roda um update à mão.</li><li><strong>Release público.</strong> <code>AllanSantos-DV/copilot-marketplace</code>, tag <code>vox-engine-v0.22.4</code> — os pacotes assinados moram nas releases.</li></ul>
           <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>A prova é a <strong>assinatura</strong>, não o transporte: mesmo numa rede que reassina o TLS (proxy corporativo com CA própria), nada forjado roda — a checagem Ed25519 acontece <strong>antes</strong> de qualquer byte executar.</p></aside>
         </section>
 
@@ -139,7 +143,7 @@ vox.tts(&quot;Transcrição pronta.&quot;)  # texto -&gt; fala, normalizado na f
 
         <section class="doc-section" id="instalar">
           <h2 class="doc-h2"><a class="doc-anchor" href="#instalar" aria-label="Link para Instalar">#</a>Instalar</h2>
-          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Você <strong>não instala</strong> o vox-engine à mão — não existe <code>copilot plugin install vox-engine</code>. Ele é <strong>instalado e atualizado automaticamente</strong> pelos apps que o usam (o <strong>voice-chat</strong> e o <strong>visual-explainer</strong>): na primeira vez, o app baixa o <strong>installer assinado</strong> do release público, <strong>verifica a assinatura Ed25519</strong> contra a chave embutida (fail-closed) e sobe o daemon sozinho. Release público: <code>AllanSantos-DV/copilot-marketplace</code>, tag <code>vox-engine-v0.22.3</code> — <code>https://github.com/AllanSantos-DV/copilot-marketplace/releases</code>.</p></aside>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Você <strong>não instala</strong> o vox-engine à mão — não existe <code>copilot plugin install vox-engine</code>. Ele é <strong>instalado e atualizado automaticamente</strong> pelos apps que o usam (o <strong>voice-chat</strong> e o <strong>visual-explainer</strong>): na primeira vez, o app baixa o <strong>installer assinado</strong> do release público, <strong>verifica a assinatura Ed25519</strong> contra a chave embutida (fail-closed) e sobe o daemon sozinho. Release público: <code>AllanSantos-DV/copilot-marketplace</code>, tag <code>vox-engine-v0.22.4</code> — <code>https://github.com/AllanSantos-DV/copilot-marketplace/releases</code>.</p></aside>
         </section>
 
         <section class="doc-section" id="faq">
@@ -159,6 +163,10 @@ vox.tts(&quot;Transcrição pronta.&quot;)  # texto -&gt; fala, normalizado na f
           <details class="faq">
             <summary>Quem é o dono do microfone?</summary>
             <p>O daemon. Ele é o <strong>dono físico</strong> do mic; os apps <strong>delegam</strong> a captura (<code>capture_open</code>) e recebem os trechos transcritos ao vivo — nunca abrem o microfone sozinhos. Um <code>mic.lock</code> coordena entre processos: o motor reivindica qualquer trava de consumidor e cede <strong>só</strong> ao ditado. Esse contrato foi endurecido na <strong>0.22.3</strong>.</p>
+          </details>
+          <details class="faq">
+            <summary>E se o microfone morrer no meio da gravação?</summary>
+            <p>O motor <strong>não fica calado</strong>. Um watchdog de liveness detecta a morte do device (desconexão física, crash de driver, WASAPI reiniciando o serviço de áudio) em <strong>menos de 5s</strong>, faz o teardown, <strong>libera o mic</strong> e entrega o texto transcrito <strong>até o momento da falha</strong> com <code>truncated=True</code> — em vez de travar em &#39;gravando&#39; e perder o fim sem aviso. Correção da <strong>0.22.4</strong>.</p>
           </details>
           <details class="faq">
             <summary>Precisa de GPU?</summary>
@@ -185,7 +193,7 @@ vox.tts(&quot;Transcrição pronta.&quot;)  # texto -&gt; fala, normalizado na f
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.22.3</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.22.4</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>infrastructure</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
