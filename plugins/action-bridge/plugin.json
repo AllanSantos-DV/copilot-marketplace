@@ -1,7 +1,7 @@
 {
   "name": "action-bridge",
   "version": "1.2.0",
-  "description": "Controla o app Action (captura e memória de reuniões, 100% local no Windows) pelo agente do GitHub Copilot: reuniões, transcrição, memória semântica cruzada, curadoria e grafo — e instala o Action automaticamente quando ele ainda não existe.",
+  "description": "Controla o app Action (captura e memória de reuniões, 100% local no Windows) pelo agente: reuniões, transcrição, memória semântica cruzada, curadoria e grafo — e instala o Action automaticamente quando ele ainda não existe.",
   "author": {
     "name": "Allan Santos",
     "url": "https://github.com/AllanSantos-DV"

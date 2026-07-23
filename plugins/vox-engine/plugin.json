@@ -2,7 +2,7 @@
   "name": "vox-engine",
   "version": "0.22.4",
   "kind": "daemon",
-  "description": "Motor único de fala local para Windows (STT + TTS + tradução): um daemon via named pipe serve modelos residentes a vários apps e sessões. Instalado e atualizado automaticamente pelos apps que o usam — não é um plugin instalável.",
+  "description": "Motor único de fala local para Windows (STT + TTS + tradução): um daemon via named pipe serve modelos residentes (Whisper) a vários apps e sessões, com GPU CUDA automática e sem admin. Distribuído por release público assinado (Ed25519, fail-closed) e instalado/atualizado automaticamente pelos apps que o usam (voice-chat, visual-explainer). Não é um plugin instalável.",
   "extensions": false,
   "hooks": false
 }

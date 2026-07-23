@@ -10,7 +10,7 @@
     "plugins":  [
                     {
                         "name":  "copilot-memory",
-                        "description":  "Memória persistente por projeto para o Copilot (pt-BR): guarda decisões, conhecimento e lições e as recupera por busca semântica, isoladas no projeto certo, com recall automático no contexto. Um curador destila os aprendizados da sessão em skills reutilizáveis, e um grafo semântico do código — símbolos, chamadas, imports — ajuda a navegar repositórios grandes sem garimpar arquivo por arquivo. Sobe um daemon local sozinho, com painel de saúde, escopo e skills.",
+                        "description":  "Memória persistente por projeto para o Copilot (pt-BR): guarda decisões, conhecimento e lições e as recupera por busca semântica, isoladas no projeto certo, com recall automático. Um curador destila os aprendizados da sessão em skills, e um grafo semântico do código (símbolos, chamadas, imports) ajuda a navegar repositórios grandes sem garimpar. Traz um painel de saúde, escopo e skills.",
                         "version":  "1.14.0",
                         "source":  "./plugins/copilot-memory",
                         "author":  {
@@ -116,7 +116,7 @@
                     },
                     {
                         "name":  "voice-chat",
-                        "description":  "Converse por voz com o Copilot (pt-BR): fale e ouça um resumo falado. STT e TTS pelo motor único vox-engine, que a extensão instala, atualiza e usa sozinha no Windows — agora verificando a assinatura Ed25519 do instalador antes de executá-lo.",
+                        "description":  "Converse por voz com o Copilot (pt-BR): fale e ouça um resumo falado. STT e TTS pelo motor único local vox-engine, que a extensão instala e atualiza sozinha no Windows, verificando a assinatura Ed25519 do instalador antes de executá-lo.",
                         "version":  "2.2.5",
                         "source":  "./plugins/voice-chat",
                         "author":  {
