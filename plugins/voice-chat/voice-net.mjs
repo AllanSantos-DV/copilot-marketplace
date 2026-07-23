@@ -342,7 +342,31 @@ export async function handleRequest(req, res) {
         const body = await readBody(req);
         const on = !!(body && body.fullRead);
         writeSessionFullRead(mySid(), on);
-        return sendJson(res, { ok: true, fullRead: on });
+        sendJson(res, { ok: true, fullRead: on });
+        // avisa o(s) painel(éis) DESTA sessão por SSE p/ o banner "Fala Completa" reagir na hora,
+        // sem reload. DEPOIS do sendJson (erro no broadcast nunca impede a resposta HTTP).
+        try { broadcastTo(mySid(), { type: "fullReadChange", fullRead: on }); } catch { }
+        return;
+    }
+
+    if (req.method === "POST" && path === "/reload-extension") {
+        // Botão "Recarregar voz" do painel: dispara o reload da PRÓPRIA extensão via a API oficial do
+        // SDK (session.rpc.extensions.reload) — recarrega definições+processos das extensões DESTA
+        // sessão e re-registra o canvas, SEM process.exit (o host relança). Cura o caso em que a
+        // conexão fork↔sessão quebrou, sem depender do agente rodar extensions_reload à mão.
+        // OBS: reinicia TODAS as extensões da sessão, não só a voice-chat.
+        if (!(session && session.rpc && session.rpc.extensions && typeof session.rpc.extensions.reload === "function")) {
+            // FAIL-LOUD: API ausente (SDK/host antigo) -> 503 honesto, sem fingir sucesso. O painel
+            // trata o ok:false e instrui o fallback manual (extensions_reload pelo agente).
+            return sendJson(res, { ok: false, error: "reload-api-unavailable" }, 503);
+        }
+        // Agenda o reload SÓ quando a resposta HTTP terminou de sair (res 'finish'): o relaunch do
+        // processo mata a conexão, então responder antes garante que o cliente recebe o {ok:true}.
+        res.on("finish", () => {
+            try { session.rpc.extensions.reload(); }
+            catch (e) { console.error("[voice] extensions.reload falhou: " + (e && e.message)); }
+        });
+        return sendJson(res, { ok: true, scheduled: true });
     }
 
     if (req.method === "POST" && path === "/settings") {
