@@ -13,10 +13,20 @@
 //   2) ADVISOR de canvas caído: heartbeat do fork com PID morto -> avisa o agente a rodar extensions_reload.
 
 const fs = require('fs');
+const path = require('path');
 // Contrato cross-process (data dir, sanitização de sid, paths das filas) — ÚNICA fonte, igual à extensão.
 const shared = require('./voice-shared.cjs');
 
 const DATA_DIR = shared.resolveDataDir();
+// Modo FALA COMPLETA (settings.json fullRead): a resposta é ÁUDIO via `falar`; o texto do chat é só
+// artefato (código/tabela/imagem), que NÃO deve ser cobrado como fala. Lê best-effort; ausência/parse
+// falho -> false (aplica o enforcement de RESUMO, o comportamento de hoje). Mesmo settings.json da extensão.
+function readFullRead() {
+  try {
+    const s = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'settings.json'), 'utf8'));
+    return !!(s && s.fullRead === true);
+  } catch { return false; }
+}
 
 // ---- enforcement da tool `falar`: este turno chamou a tool de fala? ----------------------------
 // Passada ÚNICA para frente, parseando CADA linha como JSON e resetando o escopo a cada evento cujo
@@ -54,11 +64,18 @@ const SUMMARY_MIN_CHARS = (() => {
   const n = parseInt(process.env.VOICE_SUMMARY_MIN_CHARS || '', 10);
   return Number.isFinite(n) && n > 0 ? n : 200;
 })();
-// PURO (testável): 'ok' | 'block'. Bloqueia só quando há texto SUBSTANCIAL não-falado no FIM do turno
-// (mede `unspokenTail`, não "chamou falar em algum lugar") — corrige o furo do cue inicial.
-function decideSpeakEnforcement(state, suppressBlock) {
+// PURO (testável): 'ok' | 'block'. Em modo RESUMO (fullRead=false) bloqueia só quando há texto
+// SUBSTANCIAL não-falado no FIM do turno (mede `unspokenTail`). Em modo FALA COMPLETA (fullRead=true) a
+// resposta É áudio via `falar` e o texto é só artefato — então NÃO cobra a cauda; só cobra se o turno
+// produziu texto mas NÃO chamou `falar` NENHUMA vez (nada virou áudio).
+function decideSpeakEnforcement(state, suppressBlock, fullRead) {
   if (!state || !state.readable) return 'ok';                              // sem transcript legível -> não trava o turno
   if (!state.sawUser || !state.hadText) return 'ok';                       // turno sem resposta textual -> nada a falar
+  if (fullRead) {
+    if (state.spoke) return 'ok';                                          // completo: houve `falar` -> ok (texto = artefato)
+    if (suppressBlock) return 'ok';                                        // cap consecutivo estourou -> desiste (anti-loop)
+    return 'block';                                                        // completo: produziu texto e NÃO falou nada
+  }
   if ((Number(state.unspokenTail) || 0) < SUMMARY_MIN_CHARS) return 'ok';  // resumo final já falado, ou só fecho trivial
   if (suppressBlock) return 'ok';                                          // cap consecutivo estourou -> desiste (anti-loop)
   return 'block';
@@ -156,17 +173,20 @@ if (require.main === module) {
     // 1) ENFORCEMENT da tool `falar` (cap CONSECUTIVO anti-loop). Pulado se o fork está morto. Fail-open
     //    se não der pra PERSISTIR o contador (sem persistência o cap não segura -> não bloqueia).
     const turn = readTurnSpeak(tp);
+    const fullRead = readFullRead();   // modo FALA COMPLETA: relaxa o enforcement (texto = artefato, não se cobra a cauda)
     const consec = Number(st.consecBlocks) || 0;
-    const enf = forkDead ? 'ok' : decideSpeakEnforcement(turn, consec >= MAX_BLOCKS);
+    const enf = forkDead ? 'ok' : decideSpeakEnforcement(turn, consec >= MAX_BLOCKS, fullRead);
     if (enf === 'block') {
       if (!sid || !writeState(sid, { ...st, consecBlocks: consec + 1 })) process.exit(0);
       emitBlock(speakReasonFor(turn));   // Caso B (já falou, sobrou texto) -> fala SÓ o delta; Caso A -> fala a resposta
       process.exit(0);
     }
-    // Zera o contador só quando o turno CUMPRIU: teve texto E nada substancial ficou não-falado no fim
-    // (resumo falado, ou tail trivial). NÃO no suppress (unspokenTail ainda alto -> compliant=false),
-    // senão re-arma o storm; nem em turno sem texto (não é vitória de fala).
-    const compliant = !!(turn && turn.hadText && (Number(turn.unspokenTail) || 0) < SUMMARY_MIN_CHARS);
+    // Zera o contador só quando o turno CUMPRIU. Em RESUMO: teve texto E nada substancial ficou não-falado
+    // no fim. Em FALA COMPLETA: houve ao menos um `falar` (a resposta virou áudio; o texto é artefato).
+    // NÃO no suppress (senão re-arma o storm); nem em turno sem texto (não é vitória de fala).
+    const compliant = fullRead
+      ? !!(turn && turn.spoke)
+      : !!(turn && turn.hadText && (Number(turn.unspokenTail) || 0) < SUMMARY_MIN_CHARS);
     if (compliant && consec !== 0) st.consecBlocks = 0;
 
     // 2) ADVISOR determinístico de canvas caído (independente). Deduplicado por queda + teto ABSOLUTO
@@ -187,4 +207,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { decideSpeakEnforcement, readTurnSpeak, isFalarTool, decideCanvasAdvisor, SUMMARY_MIN_CHARS, speakReasonFor };
+module.exports = { decideSpeakEnforcement, readTurnSpeak, isFalarTool, decideCanvasAdvisor, SUMMARY_MIN_CHARS, speakReasonFor, readFullRead };

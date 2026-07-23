@@ -117,7 +117,7 @@
                     {
                         "name":  "voice-chat",
                         "description":  "Converse por voz com o Copilot (pt-BR): fale e ouça um resumo falado. STT e TTS pelo motor único local vox-engine, que a extensão instala e atualiza sozinha no Windows, verificando a assinatura Ed25519 do instalador antes de executá-lo.",
-                        "version":  "2.2.7",
+                        "version":  "2.3.0",
                         "source": "./plugins/voice-chat",
                         "author":  {
                                        "name":  "Allan Santos"
