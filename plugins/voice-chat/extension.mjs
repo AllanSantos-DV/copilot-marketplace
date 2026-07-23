@@ -50,7 +50,7 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 
-export const CURRENT_VERSION = "2.2.7";
+export const CURRENT_VERSION = "2.3.0";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -129,6 +129,18 @@ const VOICE_TOOL_INSTRUCTION =
     "turno com um resumo do essencial da sua resposta, e PODE chamá-la quantas vezes quiser — inclusive " +
     "ANTES de fazer uma pergunta, para que o áudio saia na hora certa. Não escreva a linha 🔊 no chat; " +
     "quem fala é a tool `falar`.";
+
+// Modo FALA COMPLETA (fullRead=ON): a resposta é entregue como ÁUDIO pela tool `falar`, SEM duplicar em
+// texto (não gasta o dobro de tokens). Só artefatos não-faláveis (código/tabela/imagem/diagrama) vão ao
+// chat, e SEMPRE FORA do `falar`. É o modo mãos-livres/conversação — foca em falar tudo pela ferramenta.
+const VOICE_TOOL_INSTRUCTION_FULL =
+    "A mensagem anterior do usuário foi capturada por VOZ e o modo FALA COMPLETA está ATIVO. Responda a " +
+    "resposta INTEIRA pela ferramenta (tool) `falar`, como conversa natural em português do Brasil — todos " +
+    "os pontos, curada para ser OUVIDA (sem markdown, listas, código ou emojis dentro do `falar`). Pode " +
+    "chamar `falar` VÁRIAS vezes para cobrir a resposta toda. NÃO reescreva a resposta como texto no chat: " +
+    "o áudio É a entrega (evita duplicar e gastar o dobro de tokens). SOMENTE artefatos que não dá para " +
+    "falar — blocos de código, tabelas, imagens, diagramas — vão para o texto do chat, SEMPRE FORA da " +
+    "chamada `falar`. Não escreva a linha 🔊 no chat. Priorize a conversa pela ferramenta em vez de escrever.";
 
 const CHECKPOINT_INSTRUCTION =
     "Se ESTE turno envolver uma tarefa LONGA ou COMPLEXA (montar uma feature inteira, um fluxo " +
@@ -1002,15 +1014,19 @@ const canvas = createCanvas({
 // texto + invocation.sessionId (sid CONFIÁVEL). Motor ON -> speakToCanvas (toca/enfileira durável);
 // motor OFF -> writePendingSpeak (fila de texto, drenada quando o motor ligar). Retorna tool_result.
 const FALAR_STEER = " · [Entregue como ÁUDIO ao usuário — NÃO reescreva em texto o que acabou de falar; encerre o turno com texto mínimo (ou nenhum). Para seguir agindo, faça outras tool calls direto.]";
+// Steer do modo FALA COMPLETA: a resposta INTEIRA é áudio, então NÃO pede "texto mínimo/1 frase" —
+// reforça continuar com mais `falar` até cobrir tudo; só artefato (código/tabela/imagem) vai ao texto.
+const FALAR_STEER_FULL = " · [Entregue como ÁUDIO — esta É a resposta ao usuário; NÃO reescreva em texto (evita duplicar). Continue a resposta com mais chamadas `falar` até cobrir TUDO; só código/tabela/imagem vão ao texto, FORA do `falar`.]";
 const falarTool = {
     name: "falar",
     description:
-        "Fala em voz alta para o usuário no painel de Voz (pt-BR). Passe um texto natural, curto (1 a 3 " +
-        "frases), sem markdown, sem código e sem emojis. Use SEMPRE que quiser que algo seja OUVIDO — " +
-        "inclusive ANTES de fazer uma pergunta e várias vezes por turno. O áudio sai na hora (ou entra na " +
-        "fila e toca quando o painel/motor de voz ligar). IMPORTANTE: o que você falar aqui JÁ chega ao " +
-        "usuário como áudio — NÃO reescreva a mesma coisa em texto depois; encerre o turno com texto mínimo " +
-        "(ou nenhum). Para continuar agindo, faça outras tool calls direto.",
+        "Fala em voz alta para o usuário no painel de Voz (pt-BR). Passe um texto natural, sem markdown, " +
+        "sem código e sem emojis. Use SEMPRE que quiser que algo seja OUVIDO — inclusive ANTES de fazer " +
+        "uma pergunta e várias vezes por turno. O QUANTO falar (um resumo curto ou a resposta completa) " +
+        "segue a instrução do turno / a configuração do painel. O áudio sai na hora (ou entra na fila e " +
+        "toca quando o painel/motor de voz ligar). IMPORTANTE: o que você falar aqui JÁ chega ao usuário " +
+        "como áudio — NÃO reescreva a mesma coisa em texto depois (evita duplicar). Para continuar agindo, " +
+        "faça outras tool calls direto.",
     parameters: {
         type: "object",
         properties: {
@@ -1023,13 +1039,14 @@ const falarTool = {
         const sid = String((invocation && invocation.sessionId) || ownSid || mySid());
         const text = cleanForSpeech(String((args && (args.texto ?? args.text)) || ""));
         if (!text) return "Nada para falar: o texto veio vazio.";
-        if (!workerReady) { writePendingSpeak(sid, text); ensureWorker(); return "🔊 Enfileirado para falar quando o motor de voz ligar: " + text.slice(0, 90) + FALAR_STEER; }
+        const steer = settings.fullRead ? FALAR_STEER_FULL : FALAR_STEER;   // completo -> continue falando; resumo -> feche
+        if (!workerReady) { writePendingSpeak(sid, text); ensureWorker(); return "🔊 Enfileirado para falar quando o motor de voz ligar: " + text.slice(0, 90) + steer; }
         let ok = false;
         try { ok = await speakToCanvas(sid, text); } catch { ok = false; }
-        if (ok) return "🔊 Falado: " + text.slice(0, 120) + FALAR_STEER;
+        if (ok) return "🔊 Falado: " + text.slice(0, 120) + steer;
         // synth falhou agora: re-enfileira (o drain re-tenta quando o motor voltar) e reporta HONESTO.
         writePendingSpeak(sid, text); ensureWorker();
-        return "🔊 Enfileirado (falha ao sintetizar agora, re-tenta quando o motor voltar): " + text.slice(0, 90) + FALAR_STEER;
+        return "🔊 Enfileirado (falha ao sintetizar agora, re-tenta quando o motor voltar): " + text.slice(0, 90) + steer;
     },
 };
 
@@ -1046,7 +1063,7 @@ const _joinCfg = {
             if (!voiceInstructionPending) return undefined;
             voiceInstructionPending = false;
             let ctx = "";
-            if (settings.authorSummary !== false) ctx += VOICE_TOOL_INSTRUCTION;
+            if (settings.authorSummary !== false) ctx += settings.fullRead ? VOICE_TOOL_INSTRUCTION_FULL : VOICE_TOOL_INSTRUCTION;
             if (settings.cueCheckpoints !== false) ctx += (ctx ? " " : "") + CHECKPOINT_INSTRUCTION;
             return ctx ? { additionalContext: ctx } : undefined;
         },
