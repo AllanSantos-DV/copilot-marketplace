@@ -28,6 +28,14 @@ base (protege contra PID reciclado).
   `force: true` para descarregar. Opcional `sessionId` para uma sessão específica.
 - **Log:** `~/.copilot/logs/unloader.log` (JSON-line: `killed` / `skipped` / `dry-run` + motivo).
 
+## Painel (canvas)
+Um **daemon único** (singleton por porta — `server-daemon.mjs`) faz o scan e a telemetria e serve o painel; o
+canvas de **cada sessão é um cliente fino** que só aponta pra URL do daemon — **1 leitura de processos para N
+sessões**, o próprio preceito do plugin. Mostra status, telemetria (descargas + RAM liberada) e as sessões
+carregadas agora (🟢 esta sessão/ativa · 🔴 candidata · 🔒 protegida · ⚪ casca). Read-only, token loopback; o
+daemon **se auto-encerra após 10 min ocioso** (não vira o processo órfão que o plugin combate). Se o daemon
+não subir, o canvas cai para um servidor in-process (fallback, zero painel bloqueado).
+
 ## Reversibilidade
 Descarregar **não apaga** a sessão. Reabra-a no app: o lazy-load restaura chat e histórico; rode
 `reload extension` para as extensões. Estado de runtime não persistido (shells, conexões MCP, contexto em
@@ -42,7 +50,9 @@ memória) **não** volta — aceitável após 10 min de inatividade total.
 ## Estrutura
 - `boot.mjs` — bootstrap do canvas-sync (garante o espelhamento do plugin para `~/.copilot/extensions/`).
 - `scan-hook.mjs` — runner do scan/descarga nos command hooks (SessionStart + UserPromptSubmit).
-- `extension.mjs` — a tool `unload_idle`.
+- `extension.mjs` — a tool `unload_idle` + o canvas (cliente fino → aponta pro daemon do painel).
+- `server-daemon.mjs` — o DAEMON ÚNICO do painel (singleton por porta): scan/telemetria + serve o painel; idle-timeout 10 min.
+- `ensure-daemon.mjs` + `lib/daemon-lock.mjs` — find-or-start do daemon e o lockfile de descoberta.
 - `lib/` — `scan` (CIM), `snapshot`+`isIdle` (sinal duplo), `guards`, `lock`, `throttle`, `unload` (orquestra), `procmap`, `deps`, `log`, `home`.
 - Reúso: `~/.copilot/pkg/universal/process-utils.mjs` (`treeKill` de modo-auto, `pidAlive` de voice-chat).
 - Testes (sem framework): `test.mjs`, `test-unload.mjs`, `test-integration.mjs`.
