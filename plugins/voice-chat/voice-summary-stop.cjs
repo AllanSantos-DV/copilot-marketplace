@@ -65,8 +65,20 @@ function decideSpeakEnforcement(state, suppressBlock) {
 }
 // Agente-facing -> INGLÊS e ENXUTO (o contrato de FORMATO vive na tool `falar`, não aqui; aqui só a
 // regra de fim-de-turno). Rotulado `[voice-chat hook]` para o usuário ver que é o hook e não ele
-// digitando (o CLI re-injeta este `reason` como um novo prompt — canal inevitável do agentStop).
-const SPEAK_REASON = '[voice-chat hook] Voice session — every turn MUST end with a short spoken summary via the `falar` tool, then stop. This turn produced text but never called `falar`, so the user heard nothing. Call `falar` now to speak your reply, then write NO further assistant text: any text after `falar` re-fires this hook. (Speaking format is defined in the `falar` tool description.)';
+// digitando. NOTA (pesquisa oficial Copilot CLI hooks-reference): p/ o agentStop FAZER o agente agir,
+// o ÚNICO canal é decision:block + reason — que o CLI injeta como CONTINUAÇÃO do turno. NÃO há
+// `additionalContext` no agentStop, e o "auto-submit como se o usuário tivesse digitado" é EXCLUSIVO do
+// tipo de hook `prompt` no sessionStart. Logo a injeção visível é inevitável p/ enforcement de fim de
+// turno; o que dá é (a) ser RARO (o caminho ideal chama `falar` por último e não dispara nada) e
+// (b) no reblock, mandar falar SÓ o delta — nunca "refala tudo".
+// Caso A — NENHUM `falar` no turno (resposta totalmente muda): fale a resposta.
+const SPEAK_REASON_NONE = '[voice-chat hook] Voice session — every turn MUST end with a short spoken summary via the `falar` tool, then stop. This turn produced text but never called `falar`, so the user heard nothing. Call `falar` now to speak your reply, then write NO further assistant text. (Speaking format is in the `falar` tool description.)';
+// Caso B — JÁ houve `falar`, mas você escreveu texto NOVO depois dele (o usuário NÃO ouviu esse trecho):
+// fale SÓ o delta, sem repetir o que já foi falado. Corrige o "refala tudo de novo" que o dono relatou.
+const SPEAK_REASON_TAIL = '[voice-chat hook] Voice session — you ALREADY spoke via `falar`, but then wrote NEW text AFTER your last `falar` that the user did not hear. Call `falar` now to speak ONLY that new part — a short spoken version of just what you added AFTER the last `falar`. Do NOT repeat what you already spoke. Then write NO further assistant text. Tip: next time put the final note INSIDE the `falar` call so nothing trails after it.';
+// PURO (testável): escolhe o aviso conforme JÁ houve fala no turno. spoke=true -> houve `falar` e sobrou
+// texto novo depois (fale só o delta); spoke=false -> turno mudo (fale a resposta).
+function speakReasonFor(turn) { return (turn && turn.spoke) ? SPEAK_REASON_TAIL : SPEAK_REASON_NONE; }
 
 // ---- advisor DETERMINÍSTICO de canvas caído (caminho A->B->C: hook detecta -> avisa -> agente recarrega)
 // O canvas é registrado pelo joinSession do fork da extensão e MORRE com o processo. Logo
@@ -148,7 +160,7 @@ if (require.main === module) {
     const enf = forkDead ? 'ok' : decideSpeakEnforcement(turn, consec >= MAX_BLOCKS);
     if (enf === 'block') {
       if (!sid || !writeState(sid, { ...st, consecBlocks: consec + 1 })) process.exit(0);
-      emitBlock(SPEAK_REASON);
+      emitBlock(speakReasonFor(turn));   // Caso B (já falou, sobrou texto) -> fala SÓ o delta; Caso A -> fala a resposta
       process.exit(0);
     }
     // Zera o contador só quando o turno CUMPRIU: teve texto E nada substancial ficou não-falado no fim
@@ -175,4 +187,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { decideSpeakEnforcement, readTurnSpeak, isFalarTool, decideCanvasAdvisor, SUMMARY_MIN_CHARS };
+module.exports = { decideSpeakEnforcement, readTurnSpeak, isFalarTool, decideCanvasAdvisor, SUMMARY_MIN_CHARS, speakReasonFor };
