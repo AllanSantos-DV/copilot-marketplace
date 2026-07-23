@@ -1,0 +1,126 @@
+{
+  "tagline": "Você para uma sessão do Copilot, mas o servidor dela continua vivo comendo RAM. Descarrega da memória as sessões ociosas — sem apagar nada: o app reabre com chat e histórico.",
+  "lede": "O app do Copilot **não tem** \"fechar sessão\": quando você aperta stop, o processo-servidor daquela sessão fica **carregado na memória**, e as paradas se empilham — nesta máquina chegaram a **~100 processos `copilot.exe`** somando **~9 GB**, com várias sessões \"paradas\" ainda vivas à toa. O **session-unloader** recolhe as ociosas da memória: mata a **árvore do processo-servidor** sem tocar no disco, e o **lazy-load** do app reabre a sessão depois, com chat e histórico intactos. E só descarrega o que está **comprovadamente** parado — **sinal duplo**: sem eventos há mais de 10 min **e** com CPU zerada.",
+  "highlights": [
+    { "title": "Reversível de verdade", "body": "Descarregar **não apaga** a sessão — mata só o processo na RAM. O lazy-load do app a reabre com chat e histórico intactos; as extensões voltam com um `reload extension`." },
+    { "title": "Sinal duplo que protege o que importa", "body": "Só recolhe quem está **sem eventos há +10 min** e **com CPU zerada**. Assim a sessão ativa, um subagente rodando e uma mesa de ADR ficam de pé — sozinho, nenhum sinal basta." },
+    { "title": "Guardas antes de todo kill", "body": "Nunca a própria sessão nem seus ancestrais; revalida que o PID ainda é um servidor (anti-TOCTOU); e jamais derruba daemons compartilhados como memória, `embed-house` e `Action-mcp`." },
+    { "title": "Sozinho ou sob comando", "body": "Roda por hooks no início da sessão (e a cada ~1 h nas longas) e sob demanda pela tool `unload_idle` — **dry-run por padrão**: lista antes, descarrega só com `force`." }
+  ],
+  "sections": [
+    {
+      "id": "o-que-e",
+      "title": "O que é",
+      "blocks": [
+        { "type": "p", "text": "O app do Copilot para uma sessão, mas **não a descarrega**: o processo-servidor dela segue vivo na memória. Sessão após sessão, isso se acumula — várias \"paradas\" continuam ocupando RAM sem você perceber." },
+        { "type": "p", "text": "Este plugin faz o passo que falta: **recolhe da memória** as sessões ociosas. Ele mata a **árvore do processo-servidor** — e só isso; a sessão **continua no disco**. Quando você reabre, o **lazy-load** do app monta tudo de novo, com chat e histórico no lugar (as extensões voltam com um `reload extension`). É **100% reversível**." },
+        { "type": "note", "tone": "info", "text": "Funciona de dois jeitos: **sozinho**, por hooks de sessão, e **sob comando**, pela tool `unload_idle` (com `dry-run` por padrão). Windows-only nesta versão — a varredura usa WMI/CIM." }
+      ]
+    },
+    {
+      "id": "como-usar",
+      "title": "Como usar",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            { "title": "Instale o plugin", "text": "Pelo marketplace (comando na seção Instalar). Precisa de Windows e Node." },
+            { "title": "Reinicie o app uma vez", "text": "Para os hooks de sessão e a tool `unload_idle` entrarem." },
+            { "title": "Deixe rodar sozinho", "text": "Os hooks varrem no início de cada sessão e, para quem fica horas numa só, a cada ~1 h. É fire-and-forget: nunca trava o chat." },
+            { "title": "Confira antes, sem risco", "text": "Chame `unload_idle`: por padrão é **dry-run** e só lista as sessões ociosas candidatas." },
+            { "title": "Descarregue quando quiser", "text": "Rode `unload_idle` com `force: true` para recolher de verdade — ou passe `sessionId` para uma sessão específica." },
+            { "title": "Acompanhe pelo log", "text": "Cada passada grava em `~/.copilot/logs/unloader.log`: o que caiu, o que foi preservado e por quê." }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sinal-duplo",
+      "title": "Ociosidade por sinal duplo",
+      "blocks": [
+        { "type": "p", "text": "Descarregar a sessão errada seria péssimo — por isso a régua é **dupla**. Uma sessão só é recolhida quando **os dois** sinais confirmam que ela está parada:" },
+        {
+          "type": "list",
+          "items": [
+            "**Sem eventos há mais de 10 min** — o `events.jsonl` da sessão não recebe escrita há mais de dez minutos (nenhum turno nem subagente recente).",
+            "**CPU zerada na janela** — o processo não queimou CPU desde a última fotografia."
+          ]
+        },
+        { "type": "p", "text": "Nenhum sinal sozinho basta — é a **combinação** que torna seguro. Assim ficam protegidos, sem você configurar nada: a **sessão ativa**, um **subagente** em execução (mantém o `events.jsonl` quente) e uma **mesa de deliberação/ADR** (queima CPU mesmo sem escrever eventos)." },
+        { "type": "note", "tone": "info", "text": "**Cold-start nunca mata:** sem uma fotografia anterior para comparar, a primeira passada só grava a linha de base — o que também protege contra um PID reciclado." }
+      ]
+    },
+    {
+      "id": "guardas",
+      "title": "Guardas antes de descarregar",
+      "blocks": [
+        { "type": "p", "text": "Passado o sinal duplo, ainda há um pente-fino antes de qualquer kill. **Todas** as guardas têm de passar:" },
+        {
+          "type": "list",
+          "items": [
+            "**Auto-preservação** — nunca encerra a própria sessão nem seus processos ancestrais.",
+            "**Anti-TOCTOU** — revalida na hora que o PID ainda é um servidor de sessão; se foi reciclado, aborta.",
+            "**Daemons compartilhados intocáveis** — nunca derruba singletons que servem todas as sessões (memória, `embed-house`, `Action-mcp`).",
+            "**Lock anti-race** — dois hooks disparando juntos não colidem: um executa, o outro sai quieto."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "como-funciona",
+      "title": "Como funciona",
+      "blocks": [
+        { "type": "p", "text": "Cada passada roda em **processo separado**, fire-and-forget, e segue sempre o mesmo caminho:" },
+        {
+          "type": "steps",
+          "items": [
+            { "title": "Trava", "text": "Um lock garante que dois hooks simultâneos não rodem juntos." },
+            { "title": "Fotografa", "text": "Lista os servidores de sessão vivos (CIM) com PID, sessão, CPU e a hora do último evento." },
+            { "title": "Decide", "text": "Aplica o sinal duplo e, nas candidatas, o pente-fino das guardas." },
+            { "title": "Descarrega", "text": "Mata a árvore do processo-servidor e remove o snapshot — a sessão continua no disco." },
+            { "title": "Registra", "text": "Anota no log o que caiu, o que foi preservado e o motivo." }
+          ]
+        },
+        { "type": "p", "text": "O log conta a história de cada passada — o que caiu, o que foi poupado e por quê:" },
+        {
+          "type": "code",
+          "lang": "json",
+          "copy": true,
+          "code": "{\"ts\":\"2026-07-23T14:02:10Z\",\"evento\":\"session-start\",\"action\":\"scan\",\"killed\":4,\"candidates\":4,\"skipped\":7}\n{\"ts\":\"2026-07-23T14:02:10Z\",\"action\":\"killed\",\"sessionId\":\"a1c9b2…\",\"pid\":24680,\"reason\":\"idle: sem eventos há 18min + cpuΔ≈0\"}\n{\"ts\":\"2026-07-23T14:02:10Z\",\"action\":\"skipped\",\"pid\":13372,\"reason\":\"self: ancestral do scan\"}"
+        },
+        { "type": "note", "tone": "info", "text": "Só a varredura é Windows-only (WMI/CIM). A interface interna `{ scan, procMap, treeKill }` já isola o SO, então outros backends entram sem mexer na lógica de decisão." }
+      ]
+    }
+  ],
+  "requirements": [
+    "Windows 10/11 (a varredura usa WMI/CIM)",
+    "App do GitHub Copilot (CLI) com suporte a plugins",
+    "Node 18+ (runtime dos hooks e da tool)",
+    "PowerShell disponível (`Get-CimInstance`)"
+  ],
+  "faq": [
+    { "q": "Perco a conversa quando descarrega?", "a": "Não. Descarregar mata só o processo na memória; a sessão fica no disco. Ao reabri-la, o lazy-load restaura chat e histórico, e um `reload extension` traz as extensões de volta. O que não persiste em disco — shells abertos, conexões MCP, contexto só em memória — não volta, uma troca aceitável depois de 10 min de inatividade total." },
+    { "q": "Ele pode matar a sessão em que estou trabalhando?", "a": "Não. A guarda de auto-preservação nunca encerra a sessão atual nem seus processos ancestrais, e o sinal duplo mantém de pé qualquer sessão com eventos recentes ou CPU em uso." },
+    { "q": "E um subagente ou uma mesa de ADR rodando?", "a": "Ficam protegidos. O subagente mantém o `events.jsonl` quente (falha o sinal de tempo) e a mesa de deliberação queima CPU (falha o sinal de CPU) — como os dois sinais são exigidos juntos, nenhuma das duas é recolhida." },
+    { "q": "Como testo sem risco?", "a": "A tool `unload_idle` é dry-run por padrão: ela só lista as sessões ociosas candidatas. Você só descarrega de fato ao passar `force: true`." },
+    { "q": "Funciona no macOS ou Linux?", "a": "Ainda não — esta versão é Windows-only (WMI/CIM). A interface interna de scan e kill já está isolada para receber outros sistemas depois." }
+  ],
+  "files": {
+    "boot.mjs": "Runner dos hooks de sessão: varre e descarrega as ociosas em processo separado (fire-and-forget).",
+    "extension.mjs": "Expõe a tool `unload_idle` ao agente (dry-run por padrão; `force` descarrega).",
+    "hooks.json": "Liga os gatilhos automáticos: `SessionStart` e `UserPromptSubmit` (com throttle).",
+    "plugin.json": "Metadados do plugin + marcadores (extension + hooks).",
+    "README.md": "Documentação vinda do repositório de origem.",
+    "lib/unload.mjs": "Orquestra a descarga: lock → scan → decide ocioso → guardas → mata a árvore → log.",
+    "lib/scan.mjs": "Enumera os servidores de sessão vivos (CIM) com PID, sessão, CPU e última atividade.",
+    "lib/snapshot.mjs": "O sinal duplo: compara CPU e o `events.jsonl` para decidir o que está ocioso.",
+    "lib/guards.mjs": "As travas antes do kill: auto-preservação, anti-TOCTOU e daemons intocáveis.",
+    "lib/lock.mjs": "Lock anti-race: dois hooks simultâneos não colidem.",
+    "lib/throttle.mjs": "Cadência do scan no `UserPromptSubmit` (throttle de ~1 h).",
+    "lib/procmap.mjs": "Fotografia de todos os processos (`pid → ppid`) que as guardas consultam.",
+    "lib/process-utils.mjs": "Utilitários compartilhados: mata a árvore do processo e sonda se um PID está vivo.",
+    "lib/pwsh.mjs": "Executa o PowerShell da varredura com timeout — nunca trava o hook.",
+    "lib/home.mjs": "Resolve a raiz do Copilot (`~/.copilot`).",
+    "lib/log.mjs": "Log append-only em `~/.copilot/logs/unloader.log`."
+  }
+}

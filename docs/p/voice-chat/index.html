@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">voice-chat</h1>
-        <span class="chip" title="versão publicada">v2.2.5</span>
+        <span class="chip" title="versão publicada">v2.3.0</span>
       </div>
       <p class="doc-hero__lede">O <strong>voice-chat</strong> transforma o terminal numa conversa: você segura para falar, o motor único local <strong><code>vox-engine</code></strong> transcreve na sua máquina, o texto vira um turno normal do Copilot e uma voz neural em pt-BR lê o resumo de volta. Fala e voz — <strong>STT e TTS</strong> — passam pelo <strong>mesmo</strong> motor, e <strong>nenhum áudio sai do computador</strong>. A <strong>2.0.0</strong> deixou a extensão <strong>fina</strong>: cada sessão do Copilot agora grava, transcreve, injeta a fala e toca o áudio <strong>na própria sessão</strong>, direto com o motor — sem a antiga camada de roteamento entre sessões que fazia a fala se perder ou duplicar depois de um <strong>Stop</strong>. A <strong>2.0.1</strong> fecha a última corrida entre sessões: como o microfone é <strong>um só</strong> na máquina, agora <strong>só uma sessão grava por vez</strong> — as outras são avisadas na hora, e uma sessão inativa <strong>libera o microfone sozinha</strong>.</p>
       <div class="doc-hero__cta">
@@ -173,7 +173,7 @@
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
               <span class="tree__role">Coração da extensão in-app: painel Voz, a tool <code>falar</code> e a orquestração STT → agente → TTS, tudo na própria sessão — e o <strong>lock de gravação</strong> compartilhado que mantém <strong>uma sessão por microfone</strong>.</span>
-              <span class="tree__size">62 KB</span>
+              <span class="tree__size">64 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">hooks.json</code>
@@ -183,12 +183,12 @@
             <li class="tree__row">
               <code class="tree__name">iframe.html</code>
               <span class="tree__role">O painel <strong>Voz</strong> em si — a interface do canvas: microfone, barra de intensidade, histórico (anterior/repetir/pausar/próximo) e os modos mãos-livres e interromper.</span>
-              <span class="tree__size">72 KB</span>
+              <span class="tree__size">74 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
               <span class="tree__role">Metadados do plugin + marcadores do canvas (o painel Voz) e dos hooks.</span>
-              <span class="tree__size">685 B</span>
+              <span class="tree__size">632 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">requirements.txt</code>
@@ -238,7 +238,7 @@
             <li class="tree__row">
               <code class="tree__name">voice-summary-stop.cjs</code>
               <span class="tree__role">Hook de fim de turno (<code>agentStop</code>): garante que a resposta seja <strong>falada</strong> e avisa se o painel caiu.</span>
-              <span class="tree__size">12 KB</span>
+              <span class="tree__size">15 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice-text.mjs</code>
@@ -357,7 +357,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v2.2.5</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v2.3.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
