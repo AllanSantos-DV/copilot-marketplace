@@ -2,6 +2,7 @@
 // feito pelos command hooks (hooks.json → boot.mjs); aqui NÃO há hooks programáticos (evita duplicar).
 // Import do SDK é dinâmico e guardado por SESSION_UNLOADER_SMOKE (permite importar { tools } em teste).
 import { unloadIdle } from "./lib/unload.mjs";
+import { Dashboard, CANVAS_ID, CANVAS_TITLE } from "./lib/dashboard.mjs";
 
 function fmtList(items) {
   if (!items || !items.length) return "  (nenhuma)";
@@ -52,7 +53,17 @@ export const hooks = {};
 
 // Entry do host — só junta à sessão fora de modo smoke/teste.
 if (!process.env.SESSION_UNLOADER_SMOKE) {
-  const { joinSession } = await import("@github/copilot-sdk/extension");
-  const session = await joinSession({ tools, hooks });
-  session.log?.("session-unloader ativo — tool unload_idle + scan automático (SessionStart/UserPromptSubmit).");
+  const { joinSession, createCanvas } = await import("@github/copilot-sdk/extension");
+  const dashboard = new Dashboard();
+  const panel = createCanvas({
+    id: CANVAS_ID,
+    displayName: "Session Unloader",
+    description: "Painel do session-unloader: status, telemetria (descargas e RAM liberada) e as sessões carregadas agora (candidatas × protegidas).",
+    open: async () => { await dashboard.ensureServer(); return { title: CANVAS_TITLE, url: dashboard.url }; },
+  });
+  const session = await joinSession({ tools, canvases: [panel], hooks });
+  session.log?.("session-unloader ativo — tool unload_idle + painel canvas + scan automático (SessionStart/UserPromptSubmit).");
+  const closeDash = () => { try { dashboard.close(); } catch { /* ignore */ } };
+  session.on?.("dispose", closeDash);   // fecha o servidor do painel no reload (evita porta presa)
+  process.once?.("exit", closeDash);
 }

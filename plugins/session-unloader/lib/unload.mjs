@@ -55,7 +55,7 @@ export async function unloadIdle({
       }
       const r = await kill(s.pid);
       const ok = r && r.ok !== false;
-      log({ action: ok ? "killed" : "kill-fail", sessionId: s.sessionId, pid: s.pid, commandLine: s.commandLine, reason: ok ? "idle-10min+cpu0" : (r && r.reason) });
+      log({ action: ok ? "killed" : "kill-fail", sessionId: s.sessionId, pid: s.pid, commandLine: s.commandLine, wsMb: s.wsMb, reason: ok ? "idle-10min+cpu0" : (r && r.reason) });
       if (ok) { killed.push({ sessionId: s.sessionId, pid: s.pid }); if (s.sessionId) removeSnapshot(s.sessionId, { home }); }
       else { skipped.push({ sessionId: s.sessionId, pid: s.pid, reason: "kill-fail" }); }
     }

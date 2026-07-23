@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">session-unloader</h1>
-        <span class="chip" title="versão publicada">v0.1.0</span>
+        <span class="chip" title="versão publicada">v0.2.0</span>
       </div>
       <p class="doc-hero__lede">O app do Copilot <strong>não tem</strong> &quot;fechar sessão&quot;: quando você aperta stop, o processo-servidor daquela sessão fica <strong>carregado na memória</strong>, e as paradas se empilham — nesta máquina chegaram a <strong>~100 processos <code>copilot.exe</code></strong> somando <strong>~9 GB</strong>, com várias sessões &quot;paradas&quot; ainda vivas à toa. O <strong>session-unloader</strong> recolhe as ociosas da memória: mata a <strong>árvore do processo-servidor</strong> sem tocar no disco, e o <strong>lazy-load</strong> do app reabre a sessão depois, com chat e histórico intactos. E só descarrega o que está <strong>comprovadamente</strong> parado — <strong>sinal duplo</strong>: sem eventos há mais de 10 min <strong>e</strong> com CPU zerada.</p>
       <div class="doc-hero__cta">
@@ -150,7 +150,7 @@
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
               <span class="tree__role">Expõe a tool <code>unload_idle</code> ao agente (dry-run por padrão; <code>force</code> descarrega).</span>
-              <span class="tree__size">3.0 KB</span>
+              <span class="tree__size">3.7 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">hooks.json</code>
@@ -171,6 +171,11 @@
               <code class="tree__name">scan-hook.mjs</code>
               <span class="tree__role"></span>
               <span class="tree__size">1.5 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/dashboard.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">11 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/guards.mjs</code>
@@ -216,6 +221,11 @@
               <code class="tree__name">lib/snapshot.mjs</code>
               <span class="tree__role">O sinal duplo: compara CPU e o <code>events.jsonl</code> para decidir o que está ocioso.</span>
               <span class="tree__size">2.9 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/telemetry.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.4 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/throttle.mjs</code>
@@ -271,7 +281,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.1.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.2.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
