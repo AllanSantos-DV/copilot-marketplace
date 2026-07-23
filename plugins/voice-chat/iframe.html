@@ -194,6 +194,10 @@
     border: 1px solid color-mix(in srgb, var(--true-color-red,#f85149) 40%, transparent);
   }
   .banner.show { display: block; }
+  #fullBanner { display:none; margin:0 12px 8px; padding:6px 10px; border-radius:6px; font-size:12px; font-weight:600;
+    background: color-mix(in srgb, var(--true-color-blue,#58a6ff) 22%, transparent);
+    color: var(--text-color-default,#e6edf3); border:1px solid color-mix(in srgb, var(--true-color-blue,#58a6ff) 55%, transparent); }
+  #fullBanner.show { display:block; }
   .progress { height: 4px; border-radius: 4px; background: color-mix(in srgb,var(--text-color-muted,#8b949e) 25%, transparent); overflow:hidden; margin-top:6px; display:none; }
   .progress.show { display:block; }
   .progress i { display:block; height:100%; width:100%; transform: scaleX(0); transform-origin: left; background: var(--true-color-blue,#58a6ff); transition: transform .3s; }
@@ -212,6 +216,8 @@
   </button>
 </header>
 
+<div id="fullBanner" title="Modo Fala Completa ativo nesta sessão: a resposta inteira sai em áudio pela ferramenta de voz.">🔊 Fala Completa ativa — a resposta sai em áudio</div>
+
 <div class="quickbar">
   <span class="qlabel">Atalhos</span>
   <button id="hfBtn" class="toggle-chip" type="button" aria-pressed="false"
@@ -225,6 +231,10 @@
   <button id="focusBtn" class="toggle-chip" type="button" aria-pressed="false"
           title="Foco: só fala quando o app GitHub Copilot está em foco. Fora de foco, o áudio ESPERA e toca quando você volta ao app. Atalho: Alt+F.">
     <span class="ic">🎯</span><span>Foco</span>
+  </button>
+  <button id="reloadBtn" class="toggle-chip" type="button"
+          title="Recarregar a voz desta sessão: recarrega a extensão e reconecta o painel. Use se a voz travar ou parar de responder.">
+    <span class="ic">🔄</span><span>Recarregar voz</span>
   </button>
 </div>
 
@@ -487,6 +497,12 @@ function reflectPhase() {
 }
 function showBanner(msg) { banner.textContent = msg; banner.classList.add("show"); }
 function hideBanner() { banner.classList.remove("show"); }
+function applyFullBanner(on) { document.getElementById("fullBanner").classList.toggle("show", !!on); }
+function showReloadFallback() {
+  // não reconectou -> instrução honesta com o comando SELECIONÁVEL (sem onclick/fetch).
+  banner.innerHTML = 'Não consegui recarregar a voz sozinho. Peça ao agente: <code>extensions_reload</code>';
+  banner.classList.add("show");
+}
 
 let loadTimer = null, loadStartAt = 0, loadBaseMsg = "";
 function fmtLoad() {
@@ -1030,7 +1046,7 @@ function pushSettings() {
   .forEach((id) => $(id).addEventListener("change", pushSettings));
 // fullRead (Ler resposta completa) é POR SESSÃO — vai num endpoint dedicado (modes/<sid>.json), FORA do
 // pushSettings global. Ligar aqui NÃO afeta as outras sessões.
-$("setFull").addEventListener("change", () => post("/full-mode", { fullRead: $("setFull").checked }));
+$("setFull").addEventListener("change", () => { post("/full-mode", { fullRead: $("setFull").checked }); applyFullBanner($("setFull").checked); });
 
 (function initVolume() {
   try { const v = parseFloat(localStorage.getItem("voiceGain2")); if (!isNaN(v)) currentGain = Math.max(0, Math.min(3, v)); } catch (e) {}
@@ -1098,6 +1114,7 @@ confirmText.addEventListener("keydown", (e) => {
 });
 
 let sseDown = false, sseFails = 0, _sseDownSince = 0, _sseRetryTimer = null, _es = null;
+let _expectingReload = false, _reloadTimer = null;   // botão "Recarregar voz": aguardando o host relançar?
 // Decisão PURA (testável) da reconexão do SSE: dado quantas falhas houve e HÁ QUANTO TEMPO o canal
 // está caído, decide o atraso do próximo retry (backoff CURTO — bem mais rápido que o auto-retry
 // ~3s do browser) e se já mostra o aviso. O aviso é por TEMPO de queda, NÃO por contagem: um blip
@@ -1109,7 +1126,14 @@ function sseFailDecision(fails, downSinceMs, nowMs, bannerAfterMs) {
 }
 function sseBackUp() {
   if (_sseRetryTimer) { clearTimeout(_sseRetryTimer); _sseRetryTimer = null; }
-  if (sseDown) { sseDown = false; sseFails = 0; _sseDownSince = 0; hideBanner(); reflectPhase(); }
+  if (sseDown) {
+    sseDown = false; sseFails = 0; _sseDownSince = 0; hideBanner(); reflectPhase();
+    if (_expectingReload) {   // SSE voltou depois do reload -> limpa o estado do botão "Recarregar voz"
+      _expectingReload = false;
+      if (_reloadTimer) { clearTimeout(_reloadTimer); _reloadTimer = null; }
+      $("reloadBtn").disabled = false;
+    }
+  }
 }
 let micList = [], micCurrent = null;
 function requestMics() {
@@ -1289,6 +1313,27 @@ $("restartBtn").addEventListener("click", async () => {
   await post("/restart-worker");
   setTimeout(() => { $("restartBtn").disabled = false; }, 4000);
 });
+$("reloadBtn").addEventListener("click", async () => {
+  // Recarrega a extensão de voz DESTA sessão (session.rpc.extensions.reload no servidor) e reconecta
+  // o painel sozinho. confirm() evita disparo acidental (recarrega todas as extensões da sessão).
+  if (!confirm("Recarregar a voz desta sessão? O painel vai reconectar em alguns segundos.")) return;
+  $("reloadBtn").disabled = true;
+  _expectingReload = true;
+  setPill("Recarregando…", "busy");
+  showBanner("Recarregando a extensão de voz… o painel reconecta sozinho.");
+  const r = await post("/reload-extension", {}, true);
+  if (r && r.ok === false) {   // API de reload ausente no host -> fallback honesto, sem esperar 15s
+    _expectingReload = false;
+    if (_reloadTimer) { clearTimeout(_reloadTimer); _reloadTimer = null; }
+    $("reloadBtn").disabled = false;
+    showReloadFallback();
+    return;
+  }
+  if (_reloadTimer) clearTimeout(_reloadTimer);
+  _reloadTimer = setTimeout(() => {   // não reconectou a tempo -> instrui o fallback manual
+    if (_expectingReload) { showReloadFallback(); $("reloadBtn").disabled = false; }
+  }, 15000);
+});
 document.addEventListener("visibilitychange", reportFocus);
 window.addEventListener("focus", reportFocus);
 window.addEventListener("pointerdown", reportFocus, true);  
@@ -1356,6 +1401,7 @@ function handle(m) {
     case "hello":
       applySettings(m.settings);
       $("setFull").checked = !!m.fullRead;   // fullRead é POR SESSÃO (raiz do hello), não vem em m.settings
+      applyFullBanner(!!m.fullRead);
       if (typeof m.appFocused === "boolean") onAppFocus(m.appFocused);
       if (m.version) { appVersion = m.version; setUpdateVersionLabel(); }
       if (m.pluginManaged) {
@@ -1368,6 +1414,12 @@ function handle(m) {
       requestMics();
       requestVoices();
       reflectPhase();
+      break;
+    case "fullReadChange":
+      // eco por SSE do POST /full-mode (por sessão): mantém o switch e o banner em sincronia em
+      // qualquer painel aberto desta sessão, sem reload.
+      $("setFull").checked = !!m.fullRead;
+      applyFullBanner(!!m.fullRead);
       break;
     case "worker":      if (m.state === "ready") {
         workerReady = true; hideBanner(); hideLoading();
