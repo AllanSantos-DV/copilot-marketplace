@@ -134,6 +134,13 @@ CHUNK_TARGET_S = 8.0
 # pywin32, então funciona no python do worker (3.14) mesmo o motor sendo 3.13.
 VOX_PIPE = os.environ.get("VOX_PIPE", r"\\.\pipe\vox")
 VOX_PROFILE = os.environ.get("VOICE_VOX_PROFILE", "dictation").strip() or "dictation"
+# Quanto o stop ESPERA o daemon transcrever a CAUDA antes de fechar a captura. Generoso de
+# propósito (default 300s): o fim da fala NUNCA é descartado por um prazo curto. Configurável
+# p/ quem quiser afrouxar/apertar. (Ver CaptureSession.close_timeout — era o bug do corte do fim.)
+try:
+    VOX_CAPTURE_CLOSE_TIMEOUT_S = float(os.environ.get("VOICE_CAPTURE_CLOSE_TIMEOUT_S", "300") or "300")
+except ValueError:
+    VOX_CAPTURE_CLOSE_TIMEOUT_S = 300.0
 # Teto de sanidade p/ o tamanho de um frame vindo do motor: um header gigante
 # (stream desincronizado / peer hostil) é rejeitado ALTO em vez de tentar ler GBs
 # (evita OOM/wedge). E um timeout no request evita travar o loop de comandos.
@@ -1121,7 +1128,14 @@ def main():
     # Worker FINO: a captura vai pro DAEMON (CapturePort) — sem InputStream/wake/monitor
     # local. decode_seg fica só p/ transcribe_file (WAV offline). PTT e mãos-livres usam o
     # MESMO fluxo start/stop/cancel; a diferença hold-vs-tap é só no iframe.
-    capture = CaptureSession(VoxPipeCaptureAdapter(vox, input_device=lambda: SELECTED_MIC), emit)
+    #   profile=VOX_PROFILE ("dictation"): a captura ao vivo usa o MESMO perfil/modelo RÁPIDO do
+    #     ditado (não o large-v3 default do daemon) — regra: nunca modelo pesado p/ ditar.
+    #   close_timeout: o stop ESPERA a cauda transcrever em vez de descartá-la num prazo curto.
+    capture = CaptureSession(
+        VoxPipeCaptureAdapter(vox, profile=VOX_PROFILE, input_device=lambda: SELECTED_MIC),
+        emit,
+        close_timeout=VOX_CAPTURE_CLOSE_TIMEOUT_S,
+    )
     capture_sid = [""]   # sid da captura atual (p/ carimbar build_stop_events no stop)
 
     for raw in sys.stdin:

@@ -112,7 +112,7 @@ class CaptureStream(Protocol):
 
     def cancel(self) -> None: ...
 
-    def close(self) -> None: ...
+    def close(self, timeout: float | None = None) -> None: ...
 
 
 @runtime_checkable
@@ -177,7 +177,11 @@ class QueueCaptureStream:
             self._closed = True
         self._q.put(_SENTINEL)
 
-    def close(self) -> None:
+    def close(self, timeout: float | None = None) -> None:
+        # ``timeout`` é IGNORADO aqui (a fila fecha na hora, sem esperar rede): existe só p/ a
+        # assinatura casar com ``VoxPipeCaptureStream.close(timeout)`` (o adapter real ESPERA o
+        # ``capture_closed`` do daemon até ``timeout``) — assim o ``CaptureSession.stop`` chama
+        # ``close(timeout=...)`` uniformemente nos dois (fake de teste e pipe real).
         with self._lock:
             if self._closed:
                 return

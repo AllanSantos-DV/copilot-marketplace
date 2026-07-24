@@ -43,11 +43,17 @@ class CaptureSession:
 
     def __init__(self, port: CapturePort, emit: EmitFn, *,
                  now: Callable[[], float] = time.monotonic,
-                 join_timeout: float = 10.0) -> None:
+                 join_timeout: float = 10.0, close_timeout: float = 300.0) -> None:
         self._port = port
         self._emit = emit
         self._now = now
         self._join_timeout = join_timeout
+        # ``close_timeout``: quanto o ``stop()`` ESPERA o daemon transcrever a CAUDA e devolver o
+        # ``capture_closed`` (via ``VoxPipeCaptureStream.close`` → ``handle.close``). Generoso DE
+        # PROPÓSITO (default 300s): o fim da fala é transcrito com o modelo do perfil, NUNCA
+        # descartado por um prazo curto (era o bug do "corta a última frase": 8s estouravam sob
+        # STT lento → o worker derrubava a conexão → o daemon cancelava e descartava a cauda). A
+        # morte REAL de device continua fail-loud pelo watchdog do daemon (não espera este teto).
         self._stream = None
         self._thread: Optional[threading.Thread] = None
         self._recording = False
@@ -55,6 +61,7 @@ class CaptureSession:
         self._started_at = 0.0
         self._stopped = False              # latch: terminal (stop/cancel) já ocorreu
         self._res: Optional[dict] = None   # res cacheado → stop() idempotente
+        self._close_timeout = close_timeout
         self._emit_lock = threading.Lock()  # serializa emit: _consume(thread) × main
         # coletado pela thread consumidora:
         self._partials: List[str] = []
@@ -114,7 +121,7 @@ class CaptureSession:
             self._res = {"text": "", "dur_ms": 0, "ms": 0, "chunks": 0}
             return self._res
         if self._stream is not None:
-            self._stream.close()
+            self._stream.close(timeout=self._close_timeout)   # ESPERA a cauda transcrever (sem prazo curto)
         joined = self._join()
         self._recording = False
         self._stopped = True
