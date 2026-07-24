@@ -1,6 +1,6 @@
 {
   "name": "copilot-mobile",
-  "version": "0.3.12",
+  "version": "0.3.13",
   "description": "Bridge do copilot-mobile: provisiona o daemon apartado na 1ª execução (baixa a release buildada, sem build), encaminha o resumo falado ao celular (narração on-device, sem injetar marcador) e detecta drift celular→PC na sessão viva. Pareamento, transporte e painel de configuração ficam no daemon (ícone da bandeja).",
   "author": {
     "name": "Allan Santos",
