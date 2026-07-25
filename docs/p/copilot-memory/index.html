@@ -39,9 +39,9 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">copilot-memory</h1>
-        <span class="chip" title="versão publicada">v1.15.0</span>
+        <span class="chip" title="versão publicada">v1.16.0</span>
       </div>
-      <p class="doc-hero__lede">O <strong>copilot-memory</strong> dá ao agente uma memória que dura além da sessão, <strong>escopada por projeto</strong>. Ele injeta o contexto certo no começo de cada conversa (decisões, convenções, pendências), deixa você buscar e salvar conhecimento, e <strong>destila</strong> o que deu certo em skills reusáveis. É um <strong>cliente puro</strong> do servidor de memória <code>native-java</code>: descobre o daemon, reusa se estiver no ar e, se não estiver, <strong>baixa e sobe o servidor</strong> — verificando a assinatura antes de rodar. Toda a memória fica na sua máquina. Ele também <strong>impõe</strong> os passos que dá pra esquecer: desde a <strong>v1.8</strong>, um <strong>gate</strong> barra o <code>git push</code> até um <strong>revisor externo independente</strong> aprovar exatamente aquele commit. Desde a <strong>v1.9.0</strong>, um <strong>grafo semântico</strong> do código deixa o agente <strong>navegar</strong> um repositório — o aberto ou um externo gigante — em vez de garimpar arquivo por arquivo com grep. <strong>Novo na v1.10.0:</strong> esse grafo começa a <strong>aprender com a intenção</strong> — quando uma busca por comportamento falha e o agente confirma o nó certo pelo <strong>nome exato</strong>, ele <strong>taggeia</strong> aquele símbolo, de forma governada, para ensinar o grafo a reconhecer aquela intenção. <strong>Novo na v1.11.0:</strong> o <strong>escopo</strong> virou uma <strong>escada estrita</strong> — o <code>project_id</code> sai só do marcador <code>.memory/project.json</code> (achado subindo até a raiz, então <strong>worktree e subpasta do mesmo projeto convergem</strong>) ou do <strong>git remote</strong>; sem um identificador estável ele <strong>falha alto</strong> em vez de gravar em &quot;escopo-lixo&quot; pelo caminho da pasta. <strong>Novo na v1.12.0:</strong> quando falta identificador (projeto sem marcador e sem git remote), o plugin não fica mudo — a cada tentativa de uso ele emite um <strong>aviso acionável</strong> deixando claro que a memória está <strong>desativada</strong> e instruindo a <strong>ligá-la</strong> (criar o marcador ou usar um git remote), com um <code>project_id</code> sugerido. Novo na v1.14.0: um guard deterministico barra busca recursiva ampla (o grep sem escopo que trava a maquina varrendo pastas gigantes) e manda usar o grafo, que ja vai direto ao ponto. Cirurgico: grep dentro de um projeto passa; so varredura de arvore gigante e bloqueada.</p>
+      <p class="doc-hero__lede">O <strong>copilot-memory</strong> dá ao agente uma memória que dura além da sessão, <strong>escopada por projeto</strong>. Ele injeta o contexto certo no começo de cada conversa (decisões, convenções, pendências), deixa você buscar e salvar conhecimento, e <strong>destila</strong> o que deu certo em skills reusáveis. É um <strong>cliente puro</strong> do servidor de memória <code>native-java</code>: descobre o daemon e reusa se estiver no ar. Toda a memória fica na sua máquina. Ele também <strong>impõe</strong> os passos que dá pra esquecer: desde a <strong>v1.8</strong>, um <strong>gate</strong> barra o <code>git push</code> até um <strong>revisor externo independente</strong> aprovar exatamente aquele commit. Desde a <strong>v1.9.0</strong>, um <strong>grafo semântico</strong> do código deixa o agente <strong>navegar</strong> um repositório — o aberto ou um externo gigante — em vez de garimpar arquivo por arquivo com grep. <strong>Novo na v1.10.0:</strong> esse grafo começa a <strong>aprender com a intenção</strong> — quando uma busca por comportamento falha e o agente confirma o nó certo pelo <strong>nome exato</strong>, ele <strong>taggeia</strong> aquele símbolo, de forma governada, para ensinar o grafo a reconhecer aquela intenção. <strong>Novo na v1.11.0:</strong> o <strong>escopo</strong> virou uma <strong>escada estrita</strong> — o <code>project_id</code> sai só do marcador <code>.memory/project.json</code> (achado subindo até a raiz, então <strong>worktree e subpasta do mesmo projeto convergem</strong>) ou do <strong>git remote</strong>; sem um identificador estável ele <strong>falha alto</strong> em vez de gravar em &quot;escopo-lixo&quot; pelo caminho da pasta. <strong>Novo na v1.12.0:</strong> quando falta identificador (projeto sem marcador e sem git remote), o plugin não fica mudo — a cada tentativa de uso ele emite um <strong>aviso acionável</strong> deixando claro que a memória está <strong>desativada</strong> e instruindo a <strong>ligá-la</strong> (criar o marcador ou usar um git remote), com um <code>project_id</code> sugerido. Novo na v1.14.0: um guard deterministico barra busca recursiva ampla (o grep sem escopo que trava a maquina varrendo pastas gigantes) e manda usar o grafo, que ja vai direto ao ponto. Cirurgico: grep dentro de um projeto passa; so varredura de arvore gigante e bloqueada. <strong>Novo na v1.16.0:</strong> você pode <strong>apontar um servidor de memória externo</strong> (equipe/LAN/VPN) direto pelo <strong>painel</strong> — e o download de um servidor local virou <strong>opt-in</strong>: nada é baixado sem você autorizar; sem servidor, o plugin abre o painel e deixa você escolher <strong>apontar o seu</strong> ou <strong>baixar um local</strong>.</p>
       <div class="doc-hero__cta">
         <div class="prompt prompt--sm" data-cmd="copilot plugin install copilot-memory@copilot-marketplace">
         <span class="prompt__glyph" aria-hidden="true">⌁</span>
@@ -53,6 +53,10 @@
         <a class="lnk" href="https://github.com/AllanSantos-DV/copilot-marketplace" rel="noopener">código<span aria-hidden="true">↗</span></a>
       </div>
       <ul class="hl" aria-label="Destaques">
+        <li class="hl__item">
+          <h3 class="hl__title">Seu servidor, sua escolha — nada baixa sozinho</h3>
+          <p class="hl__body">Novo na v1.16.0. Já roda o servidor de memória na equipe, na LAN ou numa VPN? Aponte o plugin pra ele direto no painel: cole a URL, clique Testar &amp; Salvar, e a memória passa a usar o seu servidor — sem baixar nada. E o download de um servidor local virou opt-in: se não há servidor configurado nem rodando, o plugin não baixa por baixo dos panos — ele abre o painel e deixa você escolher entre apontar o seu ou autorizar baixar um local. Uma URL configurada que fica fora do ar falha alto (memória indisponível, com aviso) e nunca é trocada em silêncio por um local.</p>
+        </li>
         <li class="hl__item">
           <h3 class="hl__title">Navega o código, não garimpa</h3>
           <p class="hl__body"><strong>Desde a v1.9.0.</strong> Sete tools <code>graph_*</code> montam um <strong>grafo semântico</strong> do repo — símbolos viram nós; chamadas, imports e contêm viram arestas; ranqueado por <strong>PageRank</strong>. O agente vai direto aos pontos-chave, sem varrer arquivo por arquivo. Vale pro projeto aberto ou pra um repo externo gigante.</p>
@@ -271,12 +275,17 @@
             <li class="tree__row">
               <code class="tree__name">lib/daemon.mjs</code>
               <span class="tree__role">Descobre o daemon local e faz o health-check (cliente puro).</span>
-              <span class="tree__size">2.1 KB</span>
+              <span class="tree__size">3.7 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/daemonConfig.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">5.0 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/dashboard.mjs</code>
               <span class="tree__role">O painel (canvas): servidor local + snapshot ao vivo, só leitura.</span>
-              <span class="tree__size">28 KB</span>
+              <span class="tree__size">36 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/feedbackLoop.mjs</code>
@@ -347,6 +356,16 @@
               <code class="tree__name">lib/selfReview.mjs</code>
               <span class="tree__role"></span>
               <span class="tree__size">13 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/serverAlert.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.6 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/serverGate.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/sessionCwd.mjs</code>
@@ -500,7 +519,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.15.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.16.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>

@@ -6,7 +6,8 @@
 import { createServer } from "node:http";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { discover } from "./daemon.mjs";
+import { discover, resolveDaemon, health } from "./daemon.mjs";
+import { readConfig, saveDaemonUrl, clearDaemonUrl, configuredDaemonUrl } from "./daemonConfig.mjs";
 import { MemoryClient } from "./client.mjs";
 import { tryResolveProjectId, projectIdStrength, isFragileScope, resolveFallbackProjectId, fallbackStrength } from "./projectId.mjs";
 import { projectConfigPath, loadProjectConfig } from "./projectConfig.mjs";
@@ -19,6 +20,14 @@ import { stateDir } from "./paths.mjs";
 export const DASHBOARD_CANVAS_ID = "copilot-memory-dashboard";
 export const DASHBOARD_INSTANCE_ID = "copilot-memory-dashboard";
 export const DASHBOARD_TITLE = "🧠 Memory";
+
+// Regra PURA (testável) de quando oferecer o botão "autorizar baixar servidor local". Finding 1 da revisão:
+// NÃO oferecer em "configured-unreachable" — enquanto há URL configurada, resolveDaemon faz short-circuit
+// nela e o servidor local recém-subido fica INVISÍVEL (dead-wait + processo órfão). Nesse estado, a saída
+// correta é REMOVER a URL configurada primeiro. Só "none"/"registry-dead" (sem URL configurada) provisionam ok.
+export function offerProvision(source, canProvision) {
+    return !!canProvision && (source === "none" || source === "registry-dead");
+}
 
 const clampText = (s, n) => {
     s = String(s || "").replace(/\s+/g, " ").trim();
@@ -101,7 +110,19 @@ export class MemoryDashboard {
             telemetry: { recalls: 0, pointersInjected: 0, fetches: 0, hitRate: null, lastRecallAt: null },
             staleScope: null,
             canProvision: !!this._provision,
+            server: { configuredUrl: null, envOverride: false, source: "none", online: false },
         };
+
+        // Estado do SERVIDOR de memória (config + origem) — para a seção "Servidor de memória" da UI.
+        try {
+            const cfg = this.getServerConfig();
+            snap.server.configuredUrl = cfg.daemonUrl;
+            snap.server.envOverride = cfg.envOverride;
+            const res = await resolveDaemon();
+            snap.server.source = res.source;                 // configured|configured-unreachable|registry|registry-dead|none
+            snap.server.online = !!res.info;
+            if (res.configuredUrl) snap.server.configuredUrl = snap.server.configuredUrl || res.configuredUrl;
+        } catch { /* mantém defaults */ }
 
         // Escopo (independe do daemon estar vivo).
         try {
@@ -204,6 +225,33 @@ export class MemoryDashboard {
         try { return await this._provision(); } catch (e) { return { ok: false, reason: String(e?.message || e) }; }
     }
 
+    // Estado do servidor de memória p/ a UI: a URL configurada (canvas/env) e a origem atual. `_health` é
+    // injetável (testes). Só leitura.
+    getServerConfig() {
+        let daemonUrl = null;
+        try { daemonUrl = readConfig().daemonUrl || null; } catch { daemonUrl = null; }
+        return { daemonUrl, envOverride: !!(process.env.COPILOT_MEMORY_DAEMON_URL || "").trim() };
+    }
+
+    // Salva/testa/remove a URL do servidor (chamado por POST /api/config). url vazia/ausente → REMOVE
+    // (volta ao registry/opt-in). URL inválida → { ok:false, error } (não grava). URL válida → grava e faz
+    // health-check: status "ok" se respondeu, "error" (fail-loud) se não — mas a URL fica salva (a intenção
+    // do usuário é preservada; ele vê que está fora do ar e decide). Reusa saveDaemonUrl (escrita atômica).
+    async saveServerConfig(url) {
+        const _health = this._health || health;
+        if (url == null || String(url).trim() === "") {
+            const r = clearDaemonUrl();
+            return r.ok ? { ok: true, removed: true } : { ok: false, error: r.error };
+        }
+        const saved = saveDaemonUrl(url);
+        if (!saved.ok) return { ok: false, error: saved.error };
+        let alive = false;
+        try { alive = await _health(saved.url, 5000); } catch { alive = false; }
+        return alive
+            ? { ok: true, url: saved.url, status: "ok" }
+            : { ok: true, url: saved.url, status: "error", message: "servidor salvo, mas não respondeu ao health-check em " + saved.url + " — verifique se está no ar e acessível." };
+    }
+
     // Sobe (uma vez) o HTTP server local que serve o painel. Memoiza a promise em voo.
     // Prefere uma porta ESTÁVEL persistida: após um reload da extensão (processo novo, server novo),
     // a webview já aberta — que faz fetch RELATIVO à mesma origem — volta a responder sozinha no
@@ -257,6 +305,33 @@ export class MemoryDashboard {
         }
         if (req.method === "POST" && u.pathname === "/api/setup") {
             const out = await this.provision();
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify(out));
+            return;
+        }
+        if (req.method === "GET" && u.pathname === "/api/config") {
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify(this.getServerConfig()));
+            return;
+        }
+        if (req.method === "POST" && u.pathname === "/api/config") {
+            let body = "";
+            await new Promise((resolve) => { req.on("data", (c) => { body += c; }); req.on("end", resolve); });
+            // Body vazio → remover (clear). Body NÃO-vazio mas inválido → erro EXPLÍCITO (NÃO limpa a config
+            // por engano — hardening do review, invariante #8). Só { } ou vazio removem intencionalmente.
+            const trimmed = String(body || "").trim();
+            let out;
+            if (trimmed === "") {
+                out = await this.saveServerConfig(undefined);
+            } else {
+                let parsed, bad = false;
+                try { parsed = JSON.parse(trimmed); } catch { bad = true; }
+                if (bad || typeof parsed !== "object" || parsed === null) {
+                    out = { ok: false, error: "corpo inválido — envie JSON { url } ou { } para remover." };
+                } else {
+                    out = await this.saveServerConfig(parsed.url);
+                }
+            }
             res.setHeader("Content-Type", "application/json");
             res.end(JSON.stringify(out));
             return;
@@ -397,9 +472,8 @@ const PAGE_HTML = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"
     $('dmeta').innerHTML = s.daemon.online
       ? 'daemon '+esc(s.daemon.url)+(s.daemon.version?' · v'+esc(s.daemon.version):'')+(s.daemon.status?' · '+esc(s.daemon.status):'')
       : 'nenhum daemon vivo em ~/.mcp-memory/run';
-    const su=$('setup');
-    if(!s.daemon.online&&s.canProvision){ su.innerHTML='<button class="primary" id="prov">⬇ Provisionar servidor</button>';
-      $('prov').onclick=doProvision; } else su.innerHTML='';
+    // O provisionar/apontar servidor vive na seção "Servidor de memória" (serverCard) — opt-in consentido.
+    const su=$('setup'); if(su) su.innerHTML='';
   }
 
   function scopeCard(s){
@@ -471,10 +545,62 @@ const PAGE_HTML = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"
   function render(s){
     setPill(s);
     setScopeBanner(s);
-    $('app').innerHTML = scopeCard(s)+staleCard(s)+teleCard(s)+searchCard(s)+docsCard(s)+skillsCard(s);
+    $('app').innerHTML = serverCard(s)+scopeCard(s)+staleCard(s)+teleCard(s)+searchCard(s)+docsCard(s)+skillsCard(s);
+    wireServer(s);
     const go=$('go'),q=$('q');
     if(go){ go.onclick=doSearch; }
     if(q){ q.addEventListener('keydown',e=>{if(e.key==='Enter')doSearch();}); }
+  }
+
+  // Seção "Servidor de memória": aponta um servidor existente (Testar & Salvar / Remover) OU autoriza
+  // provisionar um local. É AQUI que o consentimento de download acontece (opt-in) — nada baixa sozinho.
+  function serverCard(s){
+    const sv=s.server||{source:'none',configuredUrl:null,online:false,envOverride:false};
+    const src=sv.source;
+    let badge='', hint='';
+    if(src==='configured'){ badge='<span class="pill on"><span class="dot"></span>conectado</span>'; hint='usando o servidor configurado.'; }
+    else if(src==='configured-unreachable'){ badge='<span class="pill off"><span class="dot"></span>fora do ar</span>'; hint='o servidor configurado não respondeu — a memória está indisponível até reconectar (nenhum local é baixado no lugar). Para usar um servidor local, clique em Remover primeiro.'; }
+    else if(src==='registry'){ badge='<span class="pill on"><span class="dot"></span>local ativo</span>'; hint='usando o servidor local desta máquina.'; }
+    else { badge='<span class="pill off"><span class="dot"></span>desativada</span>'; hint='nenhum servidor configurado nem rodando. Aponte o seu servidor OU autorize baixar um local — nada é baixado sem você autorizar.'; }
+    let h='<div class="card"><h2>Servidor de memória '+badge+'</h2>';
+    h+='<div class="meta" style="margin-bottom:8px">'+esc(hint)+'</div>';
+    h+='<div class="row"><input type="text" id="srvurl" placeholder="http://host:porta do seu servidor" autocomplete="off" value="'+esc(sv.configuredUrl||'')+'"'+(sv.envOverride?' disabled':'')+'/>';
+    h+='<button id="srvsave"'+(sv.envOverride?' disabled':'')+'>Testar &amp; Salvar</button>';
+    if(sv.configuredUrl&&!sv.envOverride) h+='<button id="srvclear">Remover</button>';
+    h+='</div>';
+    if(sv.envOverride) h+='<div class="meta" style="margin-top:6px">URL definida por variável de ambiente (COPILOT_MEMORY_DAEMON_URL) — edite por lá.</div>';
+    h+='<div id="srvmsg" class="meta" style="margin-top:8px"></div>';
+    // Autorização de download (opt-in): só quando NÃO há URL configurada travando o resolve (Finding 1:
+    // em 'configured-unreachable' o resolve faz short-circuit na URL e o local subiria invisível).
+    if((src==='none'||src==='registry-dead')&&s.canProvision){
+      h+='<div style="margin-top:10px"><button class="primary" id="srvprov">⬇ Autorizar baixar servidor local</button></div>';
+    }
+    h+='</div>';
+    return h;
+  }
+  function wireServer(s){
+    const save=$('srvsave'); if(save) save.onclick=srvSave;
+    const clr=$('srvclear'); if(clr) clr.onclick=srvClear;
+    const prov=$('srvprov'); if(prov) prov.onclick=doProvision;
+    const inp=$('srvurl'); if(inp) inp.addEventListener('keydown',e=>{if(e.key==='Enter')srvSave();});
+  }
+  async function srvSave(){
+    const inp=$('srvurl'),msg=$('srvmsg'); if(!inp||busy)return;
+    const url=inp.value.trim(); busy=true; if(msg)msg.textContent='⏳ testando…';
+    try{
+      const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+      const j=await r.json();
+      if(j.ok===false){ if(msg)msg.textContent='❌ '+(j.error||'URL inválida'); busy=false; return; }
+      if(j.removed){ if(msg)msg.textContent='✔ removido'; }
+      else if(j.status==='ok'){ if(msg)msg.textContent='✅ conectado e salvo'; }
+      else { if(msg)msg.textContent='⚠ '+(j.message||'salvo, mas sem resposta'); }
+    }catch(e){ if(msg)msg.textContent='❌ '+e.message; }
+    setTimeout(()=>{ busy=false; load(); }, 1200);
+  }
+  async function srvClear(){
+    const msg=$('srvmsg'); if(busy)return; busy=true; if(msg)msg.textContent='⏳ removendo…';
+    try{ await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})}); }catch(e){}
+    setTimeout(()=>{ busy=false; load(); }, 900);
   }
 
   async function load(){
@@ -499,7 +625,8 @@ const PAGE_HTML = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"
     }catch(e){ box.innerHTML='<div class="hint">erro: '+esc(e.message)+'</div>'; }
   }
   async function doProvision(){
-    const b=$('prov'); if(!b||busy)return; busy=true; b.disabled=true; b.textContent='⏳ provisionando…';
+    const b=$('srvprov'),msg=$('srvmsg'); if(busy)return; busy=true; if(b){b.disabled=true;b.textContent='⏳ provisionando…';}
+    if(msg)msg.textContent='⏳ baixando e subindo o servidor local…';
     try{ await fetch('/api/setup',{method:'POST'}); }catch(e){}
     setTimeout(()=>{ busy=false; load(); }, 2500);
   }

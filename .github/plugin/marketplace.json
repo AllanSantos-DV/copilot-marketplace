@@ -33,7 +33,7 @@
     {
       "name": "copilot-memory",
       "description": "Memória persistente por projeto para o Copilot (pt-BR): guarda decisões, conhecimento e lições e as recupera por busca semântica, isoladas no projeto certo, com recall automático. Um curador destila os aprendizados da sessão em skills, e um grafo semântico do código (símbolos, chamadas, imports) ajuda a navegar repositórios grandes sem garimpar. Traz um painel de saúde, escopo e skills.",
-      "version": "1.15.0",
+      "version": "1.16.0",
       "source": "./plugins/copilot-memory",
       "author": {
         "name": "Allan Santos"
