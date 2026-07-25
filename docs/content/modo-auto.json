@@ -1,0 +1,117 @@
+{
+  "tagline": "Troca o autopilot fraco do Copilot por uma mesa de agentes: quando armado, intercepta o ask_user e uma mesa — negócio, técnico, pesquisa, revisor, documentação — delibera a resposta com plano vivo, memória e pesquisa, e revisa o Stop para o agente não parar antes de o plano fechar.",
+  "lede": "O **modo-auto** substitui o autopilot fraco do Copilot por uma **mesa de agentes**. Quando você **arma** o modo, ele **intercepta o `ask_user`**: no lugar da resposta genérica do autopilot (\"usuário indisponível, siga a recomendação\"), uma mesa com papéis de **negócio, técnico, pesquisa, revisor e documentação** delibera a resposta — fundamentada em **plano vivo, memória do projeto e pesquisa**. E revisa cada `Stop`, para o agente não encerrar antes de o plano fechar. Núcleo **hexagonal** (ports & adapters), com perfis plugáveis.",
+  "highlights": [
+    { "title": "Mesa no lugar do autopilot", "body": "Armado, o modo-auto assume o `ask_user`: uma mesa delibera a resposta em vez do \"usuário indisponível, siga a recomendação\"." },
+    { "title": "Papéis que deliberam", "body": "Negócio, técnico, pesquisa, revisor e documentação — cada voz olha um ângulo antes de a mesa fechar a resposta." },
+    { "title": "Não para no meio do plano", "body": "Revisa cada `Stop`: o agente só encerra quando o plano vivo fecha, não quando cansa." },
+    { "title": "Fundamentada, não chutada", "body": "A mesa decide com plano vivo, memória do projeto e pesquisa ativa — reúso antes de inventar." }
+  ],
+  "sections": [
+    {
+      "id": "o-que-e",
+      "title": "O que é",
+      "blocks": [
+        { "type": "p", "text": "O modo autônomo nativo do Copilot é raso: quando o modelo da sessão faz uma pergunta, a resposta automática é genérica — sem análise, sem contexto, sem contestação. E o agente trata todo prompt como ordem de máxima prioridade, então **bajula** em vez de questionar (público-alvo? dor real? já existe solução? a arquitetura casa?). Resultado: planos que derrapam e só quebram lá na fase 6." },
+        { "type": "p", "text": "O **modo-auto** troca isso por uma **mesa de decisão**. Quando armado, ele assume o `ask_user`: analisa a pergunta, valida contra o que já existe e delibera com um time de papéis — **negócio, técnico, pesquisa, revisor, documentação** — devolvendo uma resposta consolidada. E barra o `Stop` até o plano fechar, para o agente não parar no meio." },
+        { "type": "note", "tone": "info", "text": "**FAIL LOUD** por princípio: em erro, o motivo sobe com contexto — nunca uma resposta plausível-falsa nem um default silencioso. E tudo começa **desligado**: nada arma sozinho." }
+      ]
+    },
+    {
+      "id": "tres-interruptores",
+      "title": "Os três interruptores",
+      "blocks": [
+        { "type": "p", "text": "São três interruptores conscientes, **todos OFF por padrão** — você liga o que quer, quando quer:" },
+        {
+          "type": "list",
+          "items": [
+            "**modo-auto** (`modo_auto on`) — a mesa responde os `ask_user` (validando se a pergunta já está no plano) e barra o `Stop` até o plano fechar. Independente dos outros.",
+            "**modo profundo** (`modo_deep on`) — troca o revisor único por um **painel de famílias de modelo** em paralelo (consenso). Custa mais token; vale quando a decisão pesa.",
+            "**modo-sombra** (`modo_sombra on`) — um **segundo cérebro contesta em background** (anti-bajulação): questiona público, dor, reúso e arquitetura, e cobra **proveniência** — de onde veio cada afirmação."
+          ]
+        },
+        { "type": "p", "text": "Veja e controle tudo pelo **painel canvas**: o interruptor lateral com status ao vivo e liga/desliga dos três." }
+      ]
+    },
+    {
+      "id": "como-usar",
+      "title": "Como usar",
+      "blocks": [
+        {
+          "type": "steps",
+          "items": [
+            { "title": "Instale o plugin", "text": "Pelo marketplace (comando na seção Instalar)." },
+            { "title": "Reinicie o app", "text": "Uma vez, para o hook popular o canvas em `~/.copilot/extensions/`." },
+            { "title": "Abra o painel", "text": "O canvas lateral mostra os três interruptores com status ao vivo." },
+            { "title": "Arme o modo-auto", "text": "Com o `modo_auto` ligado, a mesa passa a responder os `ask_user` e a revisar o `Stop`." },
+            { "title": "Ligue o que a decisão pedir", "text": "Modo profundo para consenso multi-família; modo-sombra para contestação. Ambos são caros e opt-in." },
+            { "title": "Deixe a mesa trabalhar", "text": "Ela delibera com plano vivo, memória e pesquisa — você acompanha pelo painel." }
+          ]
+        },
+        { "type": "note", "tone": "info", "text": "Com tudo **desligado**, o modo-auto não intercepta nada: o autopilot nativo segue como sempre. Nada vaza sem você armar." }
+      ]
+    },
+    {
+      "id": "os-modos",
+      "title": "A mesa e os modos",
+      "blocks": [
+        { "type": "p", "text": "Além dos interruptores, o modo-auto traz peças que a mesa aciona conforme o trabalho:" },
+        {
+          "type": "list",
+          "items": [
+            "**modo-adr** — vira um briefing em **plano vivo por fases**. Um **roteador de complexidade** decide o gasto: um plano simples não paga a mesa inteira — **express**, **mini** ou **mesa completa**.",
+            "**modo-dev** — constrói cada fase por **TDD com gates**: o build só avança quando os portões passam (tester → dev → QA → veredito).",
+            "**modo-sombra** — **contestação com proveniência**: contesta o \"sim, senhor\" e exige de onde veio cada afirmação.",
+            "**modo-scopo / modo-reuso / modo-segurança** — recortam o escopo, forçam **reúso** antes de inventar e checam **segurança**.",
+            "**pipeline paralela** — fases independentes rodam em paralelo, em **worktrees git isolados**, com merge no fim."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "como-funciona",
+      "title": "Como funciona",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "**Interceptação do `ask_user`** — armado, o modo-auto assume a pergunta do autopilot e a entrega à mesa em vez da resposta genérica.",
+            "**Mesa fundamentada** — a decisão nasce de **plano vivo + memória do projeto + pesquisa ativa**; reúso antes de inventar.",
+            "**Revisão do `Stop`** — o agente só encerra quando o plano fecha; um `Stop` prematuro é barrado.",
+            "**Núcleo hexagonal** — o core agnóstico só fala com **ports**; SDK, memória, mesa e gates são **adapters** plugáveis. Perfis trocam o comportamento sem tocar no núcleo."
+          ]
+        },
+        { "type": "p", "text": "Integra com o **copilot-memory** (memória do projeto): se ele existe, a mesa reúsa o grafo semântico e a memória; sem ele, cai nos clients vendados — **sem dependência dura**. E coopera com o **copilot-mobile**: quando os dois assumem o `ask_user`, coordenam por um **ask-bridge compartilhado** — o primeiro a chegar despacha a pergunta, sem tool duplicada." },
+        { "type": "note", "tone": "info", "text": "Sozinho, o modo-auto assume o `ask_user` de ponta a ponta. **Co-instalado com o copilot-mobile**, a coexistência plena depende de um ajuste de coordenação no mobile (já enviado); enquanto isso, o modo-auto **degrada com honestidade — sem travar**." }
+      ]
+    }
+  ],
+  "requirements": [
+    "GitHub Copilot CLI/app (carrega o canvas)",
+    "Node 18+ (runtime da extensão)",
+    "copilot-memory — opcional (memória e grafo do projeto)"
+  ],
+  "faq": [
+    { "q": "O que acontece se eu não armar nada?", "a": "Nada muda: os três interruptores começam **OFF** e o autopilot nativo segue como sempre. O modo-auto só intercepta o `ask_user` e revisa o `Stop` depois que você liga o `modo_auto`." },
+    { "q": "Preciso do copilot-memory?", "a": "Não. Se ele estiver instalado, a mesa reúsa o grafo e a memória do projeto; sem ele, o modo-auto usa os clients vendados — sem dependência dura." },
+    { "q": "Dá para usar junto com o copilot-mobile?", "a": "Sozinho, o modo-auto assume o `ask_user` por completo. Com o copilot-mobile também instalado, os dois coordenam por um ask-bridge compartilhado; a coexistência plena depende de um ajuste já enviado ao mobile, e até lá o modo-auto degrada sem travar." },
+    { "q": "Por que modo profundo e modo-sombra custam mais?", "a": "Eles rodam mais modelos: o profundo abre um painel multi-família em paralelo para consenso; o sombra mantém um segundo cérebro contestando em background. Por isso são **opt-in** e avisam o custo." },
+    { "q": "Preciso reiniciar o app?", "a": "Uma vez, após instalar ou atualizar: o hook de `SessionStart` baixa o `canvas-sync`, que espelha o plugin para `~/.copilot/extensions/` para o painel aparecer." }
+  ],
+  "files": {
+    "extension.mjs": "Extensão in-app: intercepta o `ask_user`, revisa o `Stop` e liga a mesa à sessão viva.",
+    "src/core/orchestrator.mjs": "Núcleo agnóstico: roteia a decisão pela mesa falando só com ports.",
+    "src/core/ports.mjs": "Os contratos (ports) que o núcleo enxerga — sem I/O aqui.",
+    "src/toggle/state.mjs": "Estado dos três interruptores (todos OFF por padrão).",
+    "src/adapters/agents/mesa.mjs": "A mesa: reúne os papéis e consolida a resposta ao `ask_user`.",
+    "src/adapters/agents/roles.mjs": "Os papéis da mesa: negócio, técnico, pesquisa, revisor, documentação.",
+    "src/adapters/adr/complexityRouter.mjs": "Roteador de complexidade: express, mini ou mesa completa conforme o plano.",
+    "src/adapters/profiles/modoAdr.mjs": "Perfil modo-adr: vira um briefing em plano vivo por fases.",
+    "src/adapters/profiles/modoDev.mjs": "Perfil modo-dev: constrói cada fase por TDD, só avança com os gates verdes.",
+    "src/adapters/shadow/modoSombra.mjs": "Modo-sombra: contesta a bajulação e cobra proveniência.",
+    "src/adapters/pipeline/pipeline.mjs": "Pipeline paralela: fases independentes em worktrees git isolados.",
+    "src/adapters/memory/client.mjs": "Cliente de memória: reúsa o copilot-memory quando ele existe.",
+    "src/adapters/session/askBridgeShared.mjs": "Ask-bridge compartilhado: coordena o `ask_user` com o copilot-mobile.",
+    "src/adapters/canvas/panel.mjs": "Canvas: o painel dos três interruptores no app."
+  }
+}

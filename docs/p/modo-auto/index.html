@@ -1,0 +1,773 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>modo-auto — copilot-marketplace</title>
+  <meta name="description" content="Troca o autopilot fraco do Copilot por uma mesa de agentes: quando armado, intercepta o ask_user e uma mesa — negócio, técnico, pesquisa, revisor, documentação — delibera a resposta com plano vivo, memória e pesquisa, e revisa o Stop para o agente não parar antes de o plano fechar." />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#14121C" />
+  <meta property="og:type" content="article" />
+  <meta property="og:title" content="modo-auto — copilot-marketplace" />
+  <meta property="og:description" content="Troca o autopilot fraco do Copilot por uma mesa de agentes: quando armado, intercepta o ask_user e uma mesa — negócio, técnico, pesquisa, revisor, documentação — delibera a resposta com plano vivo, memória e pesquisa, e revisa o Stop para o agente não parar antes de o plano fechar." />
+  <meta property="og:url" content="https://allansantos-dv.github.io/copilot-marketplace/p/modo-auto/" />
+  <link rel="canonical" href="https://allansantos-dv.github.io/copilot-marketplace/p/modo-auto/" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../assets/styles.css" />
+</head>
+<body class="doc">
+  <a class="skip" href="#conteudo">Pular para o conteúdo</a>
+  <header class="topbar">
+    <a class="brand" href="../../"><span class="brand__glyph" aria-hidden="true">⌁</span> copilot-marketplace</a>
+    <nav class="topnav" aria-label="Seções">
+      <a href="../../#registry">registry</a>
+      <a href="../../#publicar">publicar</a>
+      <a href="https://github.com/AllanSantos-DV/copilot-marketplace" rel="noopener">github<span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main id="conteudo">
+    <nav class="crumbs" aria-label="Trilha">
+      <a href="../../#registry">registry</a>
+      <span class="crumbs__sep" aria-hidden="true">/</span>
+      <span aria-current="page">modo-auto</span>
+    </nav>
+
+    <header class="doc-hero">
+      <p class="eyebrow">productivity</p>
+      <div class="doc-hero__top">
+        <h1 class="doc-hero__name">modo-auto</h1>
+        <span class="chip" title="versão publicada">v0.2.58</span>
+      </div>
+      <p class="doc-hero__lede">O <strong>modo-auto</strong> substitui o autopilot fraco do Copilot por uma <strong>mesa de agentes</strong>. Quando você <strong>arma</strong> o modo, ele <strong>intercepta o <code>ask_user</code></strong>: no lugar da resposta genérica do autopilot (&quot;usuário indisponível, siga a recomendação&quot;), uma mesa com papéis de <strong>negócio, técnico, pesquisa, revisor e documentação</strong> delibera a resposta — fundamentada em <strong>plano vivo, memória do projeto e pesquisa</strong>. E revisa cada <code>Stop</code>, para o agente não encerrar antes de o plano fechar. Núcleo <strong>hexagonal</strong> (ports &amp; adapters), com perfis plugáveis.</p>
+      <div class="doc-hero__cta">
+        <div class="prompt prompt--sm" data-cmd="copilot plugin install modo-auto@copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin install modo-auto@copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin install modo-auto@copilot-marketplace" aria-label="Copiar comando de instalação do modo-auto">copiar</button>
+      </div>
+      </div>
+      <div class="doc-hero__links">
+        <a class="lnk" href="https://github.com/AllanSantos-DV/modo-auto" rel="noopener">código<span aria-hidden="true">↗</span></a>
+      </div>
+      <ul class="hl" aria-label="Destaques">
+        <li class="hl__item">
+          <h3 class="hl__title">Mesa no lugar do autopilot</h3>
+          <p class="hl__body">Armado, o modo-auto assume o <code>ask_user</code>: uma mesa delibera a resposta em vez do &quot;usuário indisponível, siga a recomendação&quot;.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Papéis que deliberam</h3>
+          <p class="hl__body">Negócio, técnico, pesquisa, revisor e documentação — cada voz olha um ângulo antes de a mesa fechar a resposta.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Não para no meio do plano</h3>
+          <p class="hl__body">Revisa cada <code>Stop</code>: o agente só encerra quando o plano vivo fecha, não quando cansa.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Fundamentada, não chutada</h3>
+          <p class="hl__body">A mesa decide com plano vivo, memória do projeto e pesquisa ativa — reúso antes de inventar.</p>
+        </li>
+      </ul>
+    </header>
+
+    <div class="doc-grid">
+      <article class="doc-body" id="doc-body">
+        <section class="doc-section" id="o-que-e">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#o-que-e" aria-label="Link para O que é">#</a>O que é</h2>
+          <p>O modo autônomo nativo do Copilot é raso: quando o modelo da sessão faz uma pergunta, a resposta automática é genérica — sem análise, sem contexto, sem contestação. E o agente trata todo prompt como ordem de máxima prioridade, então <strong>bajula</strong> em vez de questionar (público-alvo? dor real? já existe solução? a arquitetura casa?). Resultado: planos que derrapam e só quebram lá na fase 6.</p>
+          <p>O <strong>modo-auto</strong> troca isso por uma <strong>mesa de decisão</strong>. Quando armado, ele assume o <code>ask_user</code>: analisa a pergunta, valida contra o que já existe e delibera com um time de papéis — <strong>negócio, técnico, pesquisa, revisor, documentação</strong> — devolvendo uma resposta consolidada. E barra o <code>Stop</code> até o plano fechar, para o agente não parar no meio.</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p><strong>FAIL LOUD</strong> por princípio: em erro, o motivo sobe com contexto — nunca uma resposta plausível-falsa nem um default silencioso. E tudo começa <strong>desligado</strong>: nada arma sozinho.</p></aside>
+        </section>
+
+        <section class="doc-section" id="tres-interruptores">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#tres-interruptores" aria-label="Link para Os três interruptores">#</a>Os três interruptores</h2>
+          <p>São três interruptores conscientes, <strong>todos OFF por padrão</strong> — você liga o que quer, quando quer:</p>
+          <ul class="doc-list"><li><strong>modo-auto</strong> (<code>modo_auto on</code>) — a mesa responde os <code>ask_user</code> (validando se a pergunta já está no plano) e barra o <code>Stop</code> até o plano fechar. Independente dos outros.</li><li><strong>modo profundo</strong> (<code>modo_deep on</code>) — troca o revisor único por um <strong>painel de famílias de modelo</strong> em paralelo (consenso). Custa mais token; vale quando a decisão pesa.</li><li><strong>modo-sombra</strong> (<code>modo_sombra on</code>) — um <strong>segundo cérebro contesta em background</strong> (anti-bajulação): questiona público, dor, reúso e arquitetura, e cobra <strong>proveniência</strong> — de onde veio cada afirmação.</li></ul>
+          <p>Veja e controle tudo pelo <strong>painel canvas</strong>: o interruptor lateral com status ao vivo e liga/desliga dos três.</p>
+        </section>
+
+        <section class="doc-section" id="como-usar">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#como-usar" aria-label="Link para Como usar">#</a>Como usar</h2>
+          <ol class="doc-steps"><li><h4>Instale o plugin</h4><p>Pelo marketplace (comando na seção Instalar).</p></li><li><h4>Reinicie o app</h4><p>Uma vez, para o hook popular o canvas em <code>~/.copilot/extensions/</code>.</p></li><li><h4>Abra o painel</h4><p>O canvas lateral mostra os três interruptores com status ao vivo.</p></li><li><h4>Arme o modo-auto</h4><p>Com o <code>modo_auto</code> ligado, a mesa passa a responder os <code>ask_user</code> e a revisar o <code>Stop</code>.</p></li><li><h4>Ligue o que a decisão pedir</h4><p>Modo profundo para consenso multi-família; modo-sombra para contestação. Ambos são caros e opt-in.</p></li><li><h4>Deixe a mesa trabalhar</h4><p>Ela delibera com plano vivo, memória e pesquisa — você acompanha pelo painel.</p></li></ol>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Com tudo <strong>desligado</strong>, o modo-auto não intercepta nada: o autopilot nativo segue como sempre. Nada vaza sem você armar.</p></aside>
+        </section>
+
+        <section class="doc-section" id="os-modos">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#os-modos" aria-label="Link para A mesa e os modos">#</a>A mesa e os modos</h2>
+          <p>Além dos interruptores, o modo-auto traz peças que a mesa aciona conforme o trabalho:</p>
+          <ul class="doc-list"><li><strong>modo-adr</strong> — vira um briefing em <strong>plano vivo por fases</strong>. Um <strong>roteador de complexidade</strong> decide o gasto: um plano simples não paga a mesa inteira — <strong>express</strong>, <strong>mini</strong> ou <strong>mesa completa</strong>.</li><li><strong>modo-dev</strong> — constrói cada fase por <strong>TDD com gates</strong>: o build só avança quando os portões passam (tester → dev → QA → veredito).</li><li><strong>modo-sombra</strong> — <strong>contestação com proveniência</strong>: contesta o &quot;sim, senhor&quot; e exige de onde veio cada afirmação.</li><li><strong>modo-scopo / modo-reuso / modo-segurança</strong> — recortam o escopo, forçam <strong>reúso</strong> antes de inventar e checam <strong>segurança</strong>.</li><li><strong>pipeline paralela</strong> — fases independentes rodam em paralelo, em <strong>worktrees git isolados</strong>, com merge no fim.</li></ul>
+        </section>
+
+        <section class="doc-section" id="como-funciona">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#como-funciona" aria-label="Link para Como funciona">#</a>Como funciona</h2>
+          <ul class="doc-list"><li><strong>Interceptação do <code>ask_user</code></strong> — armado, o modo-auto assume a pergunta do autopilot e a entrega à mesa em vez da resposta genérica.</li><li><strong>Mesa fundamentada</strong> — a decisão nasce de <strong>plano vivo + memória do projeto + pesquisa ativa</strong>; reúso antes de inventar.</li><li><strong>Revisão do <code>Stop</code></strong> — o agente só encerra quando o plano fecha; um <code>Stop</code> prematuro é barrado.</li><li><strong>Núcleo hexagonal</strong> — o core agnóstico só fala com <strong>ports</strong>; SDK, memória, mesa e gates são <strong>adapters</strong> plugáveis. Perfis trocam o comportamento sem tocar no núcleo.</li></ul>
+          <p>Integra com o <strong>copilot-memory</strong> (memória do projeto): se ele existe, a mesa reúsa o grafo semântico e a memória; sem ele, cai nos clients vendados — <strong>sem dependência dura</strong>. E coopera com o <strong>copilot-mobile</strong>: quando os dois assumem o <code>ask_user</code>, coordenam por um <strong>ask-bridge compartilhado</strong> — o primeiro a chegar despacha a pergunta, sem tool duplicada.</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Sozinho, o modo-auto assume o <code>ask_user</code> de ponta a ponta. <strong>Co-instalado com o copilot-mobile</strong>, a coexistência plena depende de um ajuste de coordenação no mobile (já enviado); enquanto isso, o modo-auto <strong>degrada com honestidade — sem travar</strong>.</p></aside>
+        </section>
+
+        <section class="doc-section" id="instalar">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#instalar" aria-label="Link para Instalar">#</a>Instalar</h2>
+          <p>Registre a vitrine uma vez (se ainda não fez):</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin marketplace add AllanSantos-DV/copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin marketplace add AllanSantos-DV/copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin marketplace add AllanSantos-DV/copilot-marketplace" aria-label="Copiar comando de registro do marketplace">copiar</button>
+      </div>
+          <p>Instale o <code>modo-auto</code>:</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin install modo-auto@copilot-marketplace">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin install modo-auto@copilot-marketplace</code>
+        <button class="copy" type="button" data-copy="copilot plugin install modo-auto@copilot-marketplace" aria-label="Copiar comando de instalação do modo-auto">copiar</button>
+      </div>
+          <p>Atualize quando quiser (ou todos com <code>--all</code>):</p>
+          <div class="prompt prompt--sm" data-cmd="copilot plugin update modo-auto">
+        <span class="prompt__glyph" aria-hidden="true">⌁</span>
+        <code class="prompt__cmd">copilot plugin update modo-auto</code>
+        <button class="copy" type="button" data-copy="copilot plugin update modo-auto" aria-label="Copiar comando de atualização do modo-auto">copiar</button>
+      </div>
+          <aside class="note note--warn"><span class="note__mark" aria-hidden="true">!</span><p>Este plugin registra um <strong>canvas</strong> (painel no app). Depois de instalar, <strong>reinicie o app uma vez</strong>: o <code>canvas-sync</code> espelha a extensão para <code>~/.copilot/extensions/</code> e o app a descobre no próximo boot.</p></aside>
+        </section>
+
+        <section class="doc-section" id="estrutura">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#estrutura" aria-label="Link para Estrutura">#</a>Estrutura</h2>
+          <p>Runtime <strong>vendado</strong> em <code>plugins/modo-auto/</code> — vem do repositório de origem, então <strong>não se edita à mão</strong> aqui. É isto que o <code>copilot plugin install</code> entrega:</p>
+          <div class="tree">
+            <div class="tree__head"><span class="prompt__glyph" aria-hidden="true">⌁</span> plugins/modo-auto/</div>
+            <ul class="tree__list">
+            <li class="tree__row">
+              <code class="tree__name">boot.mjs</code>
+              <span class="tree__role">Bootstrap de SessionStart: baixa/garante o canvas-sync na máquina.</span>
+              <span class="tree__size">10 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">extension.mjs</code>
+              <span class="tree__role">Extensão in-app: intercepta o <code>ask_user</code>, revisa o <code>Stop</code> e liga a mesa à sessão viva.</span>
+              <span class="tree__size">68 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">hooks.json</code>
+              <span class="tree__role">Hooks de ciclo de vida (SessionStart e afins).</span>
+              <span class="tree__size">178 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">LICENSE</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">package.json</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">781 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">plugin.json</code>
+              <span class="tree__role">Metadados do plugin + marcadores (extensions / hooks).</span>
+              <span class="tree__size">829 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">README.md</code>
+              <span class="tree__role">Documentação vinda do repositório de origem.</span>
+              <span class="tree__size">4.8 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">agents/maestro.agent.md</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">6.8 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">embed-house/ensureDaemon.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">6.0 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">embed-house/package.json</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">799 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">embed-house/provision.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">7.5 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">embed-house/resolveNode.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">910 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/activity/activityRegistry.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">4.9 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/activity/costMeter.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">10 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/activity/deliveryLedger.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.7 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/activity/gapDetector.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">4.3 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/activity/injectionTracker.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">5.3 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/activity/proposalStore.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">6.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/activity/selfImprove.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">4.6 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/activity/telemetrySink.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.8 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/adr/adrNudge.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.6 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/adr/adrTemplate.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/adr/assembler.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.5 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/adr/complexityRouter.mjs</code>
+              <span class="tree__role">Roteador de complexidade: express, mini ou mesa completa conforme o plano.</span>
+              <span class="tree__size">5.8 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/adr/complexityTriage.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.7 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/adr/divergenceCheck.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.0 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/adr/outlineBuilder.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">4.2 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/adr/slotFiller.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.5 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/adr/templateRegistry.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">7.4 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/agentInstall/installAgents.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.5 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/agents/agentFactory.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">12 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/agents/architect.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.0 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/agents/liveMesa.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">4.6 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/agents/liveTable.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">12 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/agents/liveWorker.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">8.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/agents/liveWorkerClient.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">5.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/agents/mesa.mjs</code>
+              <span class="tree__role">A mesa: reúne os papéis e consolida a resposta ao <code>ask_user</code>.</span>
+              <span class="tree__size">6.5 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/agents/roles.mjs</code>
+              <span class="tree__role">Os papéis da mesa: negócio, técnico, pesquisa, revisor, documentação.</span>
+              <span class="tree__size">13 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/agents/structuredResult.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.7 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/agents/usageChannel.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.3 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/agents/verifierWorker.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">5.0 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/agents/worker.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">6.9 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/agents/workerLib.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">6.3 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/canvas/guide.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.9 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/canvas/panel.mjs</code>
+              <span class="tree__role">Canvas: o painel dos três interruptores no app.</span>
+              <span class="tree__size">20 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/embed/convergenceSignal.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.7 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/embed/driftSignal.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/embed/embedder.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">4.4 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/gates/gatePort.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.9 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/git/gitContext.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.9 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/git/gitFlow.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.2 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/git/gitOrchestrator.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">5.9 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/memory/client.mjs</code>
+              <span class="tree__role">Cliente de memória: reúsa o copilot-memory quando ele existe.</span>
+              <span class="tree__size">2.3 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/memory/daemon.mjs</code>
+              <span class="tree__role">Fala com o daemon apartado (fora da sessão).</span>
+              <span class="tree__size">1.3 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/memory/memoryPort.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.7 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/memory/projectId.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.6 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/models/modelCatalog.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.2 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/models/modelListWorker.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/models/modelProbe.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.9 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/models/modelRouter.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">4.0 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/pipeline/dag.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/pipeline/escalation.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.4 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/pipeline/pipeline.mjs</code>
+              <span class="tree__role">Pipeline paralela: fases independentes em worktrees git isolados.</span>
+              <span class="tree__size">6.8 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/pipeline/slicer.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.2 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/plan/planPort.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.9 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/plan/transcript.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.3 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/plugin/pluginBridge.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.4 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/profiles/codeAnalysisProfile.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">6.5 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/profiles/modoAdr.mjs</code>
+              <span class="tree__role">Perfil modo-adr: vira um briefing em plano vivo por fases.</span>
+              <span class="tree__size">18 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/profiles/modoAutonomo.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">12 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/profiles/modoDev.mjs</code>
+              <span class="tree__role">Perfil modo-dev: constrói cada fase por TDD, só avança com os gates verdes.</span>
+              <span class="tree__size">12 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/profiles/modoReuso.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.2 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/profiles/modoScopo.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.5 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/profiles/modoSeguranca.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.4 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/research/config.example.json</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">625 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/research/config.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.5 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/research/guards.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.9 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/research/index.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">528 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/research/researchTools.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">6.8 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/research/providers/braveSearch.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.6 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/research/providers/ddgSearch.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.4 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/research/providers/http.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.0 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/research/providers/jinaReader.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.5 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/review/deepPanel.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">7.2 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/review/remediation.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.6 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/review/reviewerRotation.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/scope/codeAnalysis.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">12 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/scope/graphClient.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">6.7 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/scope/scopePort.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">6.8 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/session/askBridgeClaim.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">8.0 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/session/askBridgeProtocol.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.0 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/session/askBridgeServer.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">7.9 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/session/askBridgeShared.mjs</code>
+              <span class="tree__role">Ask-bridge compartilhado: coordena o <code>ask_user</code> com o copilot-mobile.</span>
+              <span class="tree__size">7.8 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/session/joinSessionAdapter.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">4.3 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/shadow/contestationView.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.8 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/shadow/findingsTracker.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">12 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/shadow/modoSombra.mjs</code>
+              <span class="tree__role">Modo-sombra: contesta a bajulação e cobra proveniência.</span>
+              <span class="tree__size">8.9 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/shadow/provenanceSchema.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.2 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/shadow/shadowConsolidator.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">27 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/shadow/shadowTranscript.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.8 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/shadow/shadowVerifier.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">5.3 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/shadow/verifyTools.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">6.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/skills/catalog.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">7.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/skills/skillLoader.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.4 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/util/briefFile.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">2.4 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/util/extractJson.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">1.8 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/util/resolveNode.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">964 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/util/textNorm.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">932 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/util/treeKill.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.9 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/util/workerRegistry.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">4.7 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/core/orchestrator.mjs</code>
+              <span class="tree__role">Núcleo agnóstico: roteia a decisão pela mesa falando só com ports.</span>
+              <span class="tree__size">2.2 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/core/ports.mjs</code>
+              <span class="tree__role">Os contratos (ports) que o núcleo enxerga — sem I/O aqui.</span>
+              <span class="tree__size">4.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/toggle/state.mjs</code>
+              <span class="tree__role">Estado dos três interruptores (todos OFF por padrão).</span>
+              <span class="tree__size">1.8 KB</span>
+            </li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="doc-section" id="faq">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#faq" aria-label="Link para Perguntas frequentes">#</a>Perguntas frequentes</h2>
+          <details class="faq">
+            <summary>O que acontece se eu não armar nada?</summary>
+            <p>Nada muda: os três interruptores começam <strong>OFF</strong> e o autopilot nativo segue como sempre. O modo-auto só intercepta o <code>ask_user</code> e revisa o <code>Stop</code> depois que você liga o <code>modo_auto</code>.</p>
+          </details>
+          <details class="faq">
+            <summary>Preciso do copilot-memory?</summary>
+            <p>Não. Se ele estiver instalado, a mesa reúsa o grafo e a memória do projeto; sem ele, o modo-auto usa os clients vendados — sem dependência dura.</p>
+          </details>
+          <details class="faq">
+            <summary>Dá para usar junto com o copilot-mobile?</summary>
+            <p>Sozinho, o modo-auto assume o <code>ask_user</code> por completo. Com o copilot-mobile também instalado, os dois coordenam por um ask-bridge compartilhado; a coexistência plena depende de um ajuste já enviado ao mobile, e até lá o modo-auto degrada sem travar.</p>
+          </details>
+          <details class="faq">
+            <summary>Por que modo profundo e modo-sombra custam mais?</summary>
+            <p>Eles rodam mais modelos: o profundo abre um painel multi-família em paralelo para consenso; o sombra mantém um segundo cérebro contestando em background. Por isso são <strong>opt-in</strong> e avisam o custo.</p>
+          </details>
+          <details class="faq">
+            <summary>Preciso reiniciar o app?</summary>
+            <p>Uma vez, após instalar ou atualizar: o hook de <code>SessionStart</code> baixa o <code>canvas-sync</code>, que espelha o plugin para <code>~/.copilot/extensions/</code> para o painel aparecer.</p>
+          </details>
+        </section>
+      </article>
+
+      <aside class="doc-rail" aria-label="Nesta página">
+        <nav class="toc" aria-label="Índice">
+          <p class="toc__label">nesta página</p>
+          <ul class="toc__list">
+            <li><a href="#o-que-e">O que é</a></li>
+            <li><a href="#tres-interruptores">Os três interruptores</a></li>
+            <li><a href="#como-usar">Como usar</a></li>
+            <li><a href="#os-modos">A mesa e os modos</a></li>
+            <li><a href="#como-funciona">Como funciona</a></li>
+            <li><a href="#instalar">Instalar</a></li>
+            <li><a href="#estrutura">Estrutura</a></li>
+            <li><a href="#faq">Perguntas frequentes</a></li>
+          </ul>
+        </nav>
+          <dl class="meta">
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.2.58</span></dd></div>
+            <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
+            <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
+            <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
+            <div class="meta__row"><dt>tipo</dt><dd><span class="pill">canvas</span> <span class="pill">hooks</span></dd></div>
+            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>GitHub Copilot CLI/app (carrega o canvas)</li><li>Node 18+ (runtime da extensão)</li><li>copilot-memory — opcional (memória e grafo do projeto)</li></ul></dd></div>
+            <div class="meta__row"><dt>tags</dt><dd><ul class="tags tags--meta"><li>autonomo</li><li>mesa</li><li>ask_user</li><li>stop</li><li>agentes</li><li>ports-adapters</li></ul></dd></div>
+          </dl>
+      </aside>
+    </div>
+
+    <nav class="pager" aria-label="Outros plugins">
+      <a class="pager__link pager__link--prev" href="../copilot-memory/"><span class="pager__dir">← anterior</span><span class="pager__name">copilot-memory</span></a>
+      <a class="pager__all" href="../../#registry">todos os plugins</a>
+      <a class="pager__link pager__link--next" href="../visual-explainer/"><span class="pager__dir">próximo →</span><span class="pager__name">visual-explainer</span></a>
+    </nav>
+  </main>
+
+  <footer class="foot">
+    <p class="foot__made">Feito por <a href="https://github.com/AllanSantos-DV" rel="noopener">Allan Santos</a> · MIT · página gerada de <code>marketplace.json</code> + <code>docs/content/modo-auto.json</code></p>
+    <p class="foot__cmd"><span aria-hidden="true">⌁</span> <code>copilot plugin install modo-auto@copilot-marketplace</code></p>
+  </footer>
+
+  <script src="../../assets/app.js" defer></script>
+</body>
+</html>

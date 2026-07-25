@@ -1,0 +1,13 @@
+{
+  "_comment": "COPIE este arquivo para ~/.modo-auto/config.json e preencha. Fica FORA do repo (não commitar keys). Override por env: MODO_AUTO_SEARCH_PROVIDER, MODO_AUTO_BRAVE_KEY, MODO_AUTO_TAVILY_KEY, MODO_AUTO_JINA_KEY.",
+  "research": {
+    "_searchProvider_opcoes": "auto (premium se houver key, senão grátis) | jina-ddg (sempre grátis) | brave (exige key — FAIL-LOUD se faltar)",
+    "searchProvider": "auto",
+    "keys": {
+      "_brave": "https://api.search.brave.com — plano free ~2k/mês; cole o X-Subscription-Token aqui",
+      "brave": "",
+      "tavily": "",
+      "jina": ""
+    }
+  }
+}

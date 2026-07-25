@@ -1,0 +1,164 @@
+// AgentFactoryPort — cria/reusa PAPÉIS e roda cada um como sub-agente headless (worker de node
+// LIMPO). É o que permite a mesa: N papéis (fixos + dinâmicos) rodando em paralelo, cada um com seu
+// system prompt. Reusa o catálogo; cria papel dinâmico quando o pré-análise pede um fora dele.
+
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { getRole, dynamicRole, CORE_ROLES } from "./roles.mjs";
+import { designRole } from "./architect.mjs";
+import { SKILLS_ROOT, composeSystem } from "../skills/skillLoader.mjs";
+import { resolveNode } from "../util/resolveNode.mjs";
+import { workers } from "../util/workerRegistry.mjs";
+import { createUsageChannel } from "./usageChannel.mjs";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const WORKER = join(HERE, "worker.mjs");
+
+// Limpa o stderr do worker p/ o diagnóstico: descarta o RUÍDO do Node (ExperimentalWarning do node:sqlite
+// do CLI, dicas de --trace-warnings) que MASCARAVA o erro real (aparecia no lugar do "worker erro:"/timeout).
+// Prefere a linha "worker erro:" quando existe; senão devolve as linhas úteis. Recorta a 300 chars.
+export function cleanStderr(raw) {
+  const NOISE = /ExperimentalWarning|--trace-warnings|is an experimental feature|\bnode:sqlite\b|DeprecationWarning/i;
+  const lines = String(raw || "").split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !NOISE.test(l));
+  const i = lines.findIndex((l) => /worker erro:/i.test(l));
+  const useful = i >= 0 ? lines.slice(i) : lines;
+  return useful.join(" ").replace(/\s+/g, " ").trim().slice(0, 300);
+}
+
+// Teto anti-ZUMBI do processo filho (backstop do PAI, NÃO relógio de turno): o child auto-encerra no silêncio
+// real via o próprio heartbeat (~idleGrace); este cap só pega um PROCESSO que travou e não saiu. DOIS caminhos
+// EXPLÍCITOS: (1) `maxWallMs` FINITO → `maxWallMs + 60s` (buffer p/ o child abortar sozinho antes); (2) SEM
+// limite de parede (default `Infinity` = indeterminado) → `HARD_CAP_MS` constante (30 min). Pura/testável.
+export const WORKER_HARD_CAP_MS = 30 * 60 * 1000;
+/**
+ * Teto do killer do PAI (backstop anti-zumbi).
+ * @param {number} maxWallMs  limite absoluto de parede; `Infinity`/ausente = sem limite (default).
+ * @param {number} [hardCapMs] teto usado quando não há limite de parede.
+ * @returns {number} `maxWallMs + 60s` quando finito; senão `WORKER_HARD_CAP_MS` (30 min).
+ * SÓ é usado quando o dono pede um TETO DE PAREDE EXPLÍCITO (maxWallMs finito). No default (Infinity), o PAI
+ * NÃO usa relógio de parede — usa o reaper POR ATIVIDADE (computeParentIdle). Pura/testável.
+ */
+export function computeParentCap(maxWallMs, hardCapMs = WORKER_HARD_CAP_MS) {
+  return Number.isFinite(maxWallMs) ? maxWallMs + 60000 : hardCapMs;
+}
+// IDLE do reaper do PAI (CONTROLE POR ATIVIDADE, não relógio de turno): quanto tempo o filho pode ficar
+// TOTALMENTE MUDO (sem 1 byte/heartbeat) antes de ser considerado ZUMBI. Reseta a cada atividade do filho, então
+// um agente que TRABALHA nunca é morto por tempo decorrido. Generoso: > idle-grace do filho (que dispara antes).
+export const PARENT_IDLE_FLOOR_MS = 4 * 60 * 1000;
+export function computeParentIdle(childIdleMs, floor = PARENT_IDLE_FLOOR_MS) {
+  return Math.max(floor, (Number(childIdleMs) || 0) + 120000);
+}
+
+/**
+ * @param {{ cwdProvider?: ()=>string, model?: string, getRouter?: ()=>object|null, activity?: object|null, log?: (m:string)=>void }} [opts]
+ *   activity: registro de atividade OPCIONAL (observabilidade do painel) — no-op se ausente.
+ * @returns {import("../../core/ports.mjs").AgentFactoryPort}
+ */
+export function createAgentFactory({ cwdProvider = () => process.cwd(), model, getRouter = () => null, activity = null, log = () => {} } = {}) {
+  const catalog = new Map();
+  for (const id of CORE_ROLES) { const r = getRole(id); if (r) catalog.set(id, r); }
+
+  const get = (id) => catalog.get(id) || getRole(id) || null;
+  const create = (id, subject) => { const r = dynamicRole(id, subject || id); catalog.set(id, r); log(`papel dinâmico criado: ${id}`); return r; };
+  // DESENHO de papel dinâmico pelo ARQUITETO (substitui o template). Reusa se já existe. FAIL LOUD.
+  const design = async (id, subject) => {
+    const existing = get(id);
+    if (existing && existing.kind === "designed") return existing;
+    const coverage = [...catalog.values()].map((r) => r.title).filter(Boolean);
+    const role = await designRole(id, subject, { factory: api, coverage }); // erro SOBE
+    catalog.set(id, role);
+    log(`papel desenhado pelo arquiteto: ${id} (${role.title})`);
+    return role;
+  };
+
+  // Roda UM papel com um prompt → { ok, role, title, text, error? }. Spawna node LIMPO (worker).
+  // opts.system sobrescreve o system do papel; opts.skills (nomes de skills globais) são INJETADAS no
+  // system; opts.skillDirectories carrega skills nativas; opts.cwd roda o worker num diretório específico;
+  // opts.model força um modelo; senão o ROUTER escolhe por capacidade (papel + opts.taskType).
+  function run(roleId, prompt, { subject, timeoutMs = 200000, maxWallMs = Infinity, system, skillDirectories, skills, cwd, model: modelOverride, taskType, reasoningEffort, stage, group, topic, traceId, availableTools, schema } = {}) {
+    // Papel resolvido: do catálogo/registro; senão, shell APENAS quando há `system` explícito (ex.: gate).
+    // Sem papel e sem system → FAIL LOUD (nada de template silencioso; papéis dinâmicos usam factory.design).
+    const role = get(roleId) || (system ? { id: roleId, title: roleId, kind: "shell", system } : null);
+    if (!role) throw new Error(`agentFactory.run: papel '${roleId}' nao existe e nenhum system foi fornecido (papeis dinamicos: use factory.design)`);
+    let sys = system || role.system;
+    let skillDirs = skillDirectories;
+    if (Array.isArray(skills) && skills.length) {
+      sys = composeSystem(sys, skills); // FAIL LOUD: skill ausente → LANÇA
+      skillDirs = skillDirs || [SKILLS_ROOT];
+    }
+    // Roteamento de modelo por CAPACIDADE (papel + tipo de tarefa) quando não vier modelo explícito.
+    let chosenModel = modelOverride || model;
+    let effort = reasoningEffort;
+    if (!modelOverride) {
+      const router = getRouter?.();
+      if (router) {
+        const r = router.route({ role: roleId, taskType }); // FAIL LOUD dentro do router
+        chosenModel = r.model;
+        if (effort == null) effort = r.reasoningEffort || undefined;
+      }
+    }
+    // Observabilidade (opcional, no-op se ausente): registra o worker no painel. `end` grava em TODOS os
+    // caminhos de conclusão (via finish) — spawn error, timeout, close, stdin error.
+    const act = activity ? activity.start({ role: roleId, taskType: taskType || null, model: chosenModel || null, stage: stage || null, group: group || null, topic: topic || null, traceId: traceId || null }) : null;
+    return new Promise((resolve) => {
+      const env = { ...process.env };
+      delete env.NODE_OPTIONS;      // não herdar o resolver hook do fork
+      delete env.COPILOT_SDK_PATH;  // o worker resolve o SDK global via PATH
+      env.NODE_NO_WARNINGS = "1";   // silencia ExperimentalWarning do Node (ex.: node:sqlite do CLI) que poluía o stderr e MASCARAVA o erro real no diagnóstico. Propaga ao subprocesso do CLI (env herdado).
+      env.MODO_AUTO_WORKER_CWD = cwd || cwdProvider();
+      if (chosenModel) env.MODO_AUTO_WORKER_MODEL = chosenModel;
+
+      let out = "", err = "", done = false, lastBeat = Date.now(), capturedUsage = null;
+      let killer = null, reaper = null;
+      const clearGuards = () => { if (killer) { clearTimeout(killer); killer = null; } if (reaper) { clearInterval(reaper); reaper = null; } };
+      const finish = (r) => { if (!done) { done = true; clearGuards(); if (act != null && activity) { try { const endReason = r.endReason || (r.ok ? "idle" : (/hung:|zombie:/.test(r.error || "") ? "hung" : "error")); activity.end(act, { ...r, endReason, usage: capturedUsage }); } catch { /* observabilidade nunca derruba o run */ } } resolve(r); } };
+      // canal de custo: separa a linha \x1e#USAGE {json} (tokens/nanoAiu do turno) do texto de erro real do worker.
+      const usageCh = createUsageChannel({ onUsage: (u) => { capturedUsage = u; }, onText: (line) => { err += line + "\n"; }, log });
+
+      let child;
+      try {
+        child = spawn(resolveNode(), [WORKER], { env, cwd: cwdProvider(), stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      } catch (e) { return finish({ ok: false, role: roleId, title: role.title, text: "", error: "spawn: " + (e?.message || e) }); }
+      workers.track(child); // registra p/ killAll no unload (senão o NETO do SDK vaza órfão)
+
+      // CONTROLE POR ATIVIDADE (NÃO relógio de turno): o filho auto-encerra no SILÊNCIO do SDK via heartbeat
+      // (idle-grace) e PULSA \x1e no stderr a cada evento. Aqui o PAI reseta `lastBeat` a cada byte do filho e SÓ
+      // mata se ele ficar TOTALMENTE MUDO (sem heartbeat) por `parentIdle` — um agente que TRABALHA nunca morre
+      // por tempo decorrido. Relógio de parede FIXO só existe se o dono pedir um teto EXPLÍCITO (maxWallMs finito).
+      const bump = () => { lastBeat = Date.now(); };
+      if (Number.isFinite(maxWallMs)) {
+        const capMs = computeParentCap(maxWallMs);
+        killer = setTimeout(() => { workers.reap(child); finish({ ok: false, role: roleId, title: role.title, text: out.trim(), error: `maxwall: teto de parede EXPLÍCITO de ${Math.round(capMs / 1000)}s`, endReason: "hardcap" }); }, capMs);
+      } else {
+        const parentIdle = computeParentIdle(timeoutMs);
+        reaper = setInterval(() => { if (Date.now() - lastBeat > parentIdle) { workers.reap(child); finish({ ok: false, role: roleId, title: role.title, text: out.trim(), error: `zombie: worker MUDO (sem heartbeat) por ${Math.round(parentIdle / 1000)}s`, endReason: "zombie" }); } }, 5000);
+      }
+      child.stdout.on("data", (d) => { out += d.toString(); bump(); });
+      child.stderr.on("data", (d) => { usageCh.feed(d.toString()); bump(); }); // \x1e = heartbeat; \x1e#USAGE {json} = custo; resto = erro
+      child.on("close", (code) => {
+        usageCh.flush(); // esvazia erro/usage sem \n final
+        finish({ ok: code === 0 && !!out.trim(), role: roleId, title: role.title, text: out.trim(), error: code === 0 ? null : (cleanStderr(err) || ("exit " + code)) });
+      });
+      try {
+        // Serialização INTENCIONAL: NÃO enviar Infinity (JSON.stringify o vira `null`); omitir o campo =
+        // "sem teto de parede" explícito (o child lê Number.isFinite(msg.maxWallMs) → ausente = Infinity = off).
+        const job = { role: roleId, system: sys, prompt, model: chosenModel, idleGraceMs: timeoutMs, skillDirectories: skillDirs, reasoningEffort: effort, ...(schema ? { schema } : {}) };
+        if (Number.isFinite(maxWallMs)) job.maxWallMs = maxWallMs;
+        // availableTools:[] = papel TEXT-only (crítica/veredito) → desliga os built-ins do CLI. Papéis
+        // construtores/revisores VIVOS NÃO passam isto (mantêm as ferramentas — controle é por atividade).
+        if (Array.isArray(availableTools)) job.availableTools = availableTools;
+        child.stdin.write(JSON.stringify(job));
+        child.stdin.end();
+      } catch (e) { finish({ ok: false, role: roleId, title: role.title, text: "", error: "stdin: " + (e?.message || e) }); }
+    });
+  }
+
+  // Roda vários papéis EM PARALELO → [{role,title,text,ok}]. (o pré-análise decide quais)
+  async function runMany(roleIds, prompt, opts = {}) {
+    return Promise.all(roleIds.map((id) => run(id, prompt, opts)));
+  }
+
+  const api = { get, create, design, run, runMany, catalog: () => [...catalog.keys()] };
+  return api;
+}

@@ -1,0 +1,16 @@
+{
+  "name": "embed-house-client",
+  "version": "1.0.4",
+  "description": "Cliente FINO da casa de embeddings ÚNICA (ensureDaemon + provision + resolveNode). Sem servidor e sem modelo: provisiona/consome a casa compartilhada em ~/.embed-house/bin. O pacote completo (servidor MiniLM-L6) vive em AllanSantos-DV/embed-house e é distribuído por release público.",
+  "type": "module",
+  "private": true,
+  "repository": { "type": "git", "url": "git+https://github.com/AllanSantos-DV/embed-house.git" },
+  "homepage": "https://github.com/AllanSantos-DV/embed-house#readme",
+  "bugs": { "url": "https://github.com/AllanSantos-DV/embed-house/issues" },
+  "main": "ensureDaemon.mjs",
+  "exports": {
+    ".": "./ensureDaemon.mjs"
+  },
+  "engines": { "node": ">=18" },
+  "license": "MIT"
+}

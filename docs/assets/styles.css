@@ -749,7 +749,7 @@ section { padding-block: clamp(56px, 9vw, 108px); }
 .tree__list { list-style: none; margin: 0; padding: 6px 0; }
 .tree__row {
   display: grid;
-  grid-template-columns: minmax(120px, auto) 1fr auto;
+  grid-template-columns: minmax(120px, auto) minmax(0, 1fr) auto;
   gap: 16px;
   align-items: baseline;
   padding: 7px 16px;
@@ -906,9 +906,14 @@ section { padding-block: clamp(56px, 9vw, 108px); }
   .doc-rail { position: static; top: auto; order: 2; }
   .toc__list { grid-auto-flow: row; }
 }
+@media (max-width: 640px) {
+  .tree__list { min-width: 0; }
+  .tree__row { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 12px; row-gap: 3px; min-width: 0; }
+  .tree__name { flex: 1 1 auto; min-width: 0; order: 1; white-space: normal; overflow-wrap: anywhere; }
+  .tree__size { order: 2; margin-left: auto; }
+  .tree__role { order: 3; flex: 1 0 100%; }
+}
 @media (max-width: 560px) {
-  .tree__row { grid-template-columns: 1fr auto; }
-  .tree__role { grid-column: 1 / -1; order: 3; }
   .pager { grid-template-columns: 1fr; }
   .pager__link--next { text-align: left; }
   .pager__all { order: 3; text-align: center; }
