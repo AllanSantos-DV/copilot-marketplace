@@ -200,6 +200,15 @@ export class AskUserBridge {
   /** True if there's an open override question (extension.mjs uses this to only touch our own path). */
   hasPending() { return this._pending.size > 0; }
 
+  /** Close the local canvas page server (if any) and reset the memo, so a teardown/reload doesn't leak a
+   *  listening socket across process re-boots. Idempotent; safe when no server was ever started. */
+  close() {
+    const s = this._server;
+    this._server = null;
+    this._serverPromise = null;
+    try { s?.close?.(); } catch { /* ignore */ }
+  }
+
   _resolve(requestId, answer) {
     let key = String(requestId || "");
     // Empty id (older phone with no requestId) → resolve the single open question if there's exactly

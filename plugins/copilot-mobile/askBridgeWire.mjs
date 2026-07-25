@@ -14,16 +14,17 @@
 const PHONE_RESPONDER_ID = "copilot-mobile-phone";
 const PHONE_ANSWER_TIMEOUT_MS = 300000; // humano
 
-export async function planAskBridge({ sessionId, askBridge, api, extensionId = "copilot-mobile", log = () => {} }) {
-  const claim = await api.acquireOrConnect(sessionId, { extensionId });
+export async function planAskBridge({ sessionId, askBridge, api, extensionId = "copilot-mobile", home, log = () => {} }) {
+  const claim = await api.acquireOrConnect(sessionId, home ? { extensionId, home } : { extensionId });
 
   if (claim.isOwner) {
+    const claimOpts = home ? { home } : undefined;
     const owner = api.createAskBridgeOwner({ log });
     const { port, token } = await owner.start();
-    api.updateOwnerInfo(sessionId, { loopbackPort: port, token });
+    api.updateOwnerInfo(sessionId, { loopbackPort: port, token }, claimOpts);
     // Heartbeat (protocol 1.1.0+): re-carimba heartbeatAt a cada 20s → um dono morto/travado (PID recycling no
     // Windows) é detectado como STALE e roubado no próximo join. Opt-in ADITIVO; guardado p/ compat com semente 1.0.0.
-    const stopHeartbeat = typeof api.startHeartbeat === "function" ? api.startHeartbeat(sessionId) : null;
+    const stopHeartbeat = typeof api.startHeartbeat === "function" ? api.startHeartbeat(sessionId, claimOpts) : null;
     // O CELULAR é um respondedor LOCAL do dono (com o canvas do PC): usa o requestId do dispatch pra a resposta casar.
     owner.addLocalResponder(PHONE_RESPONDER_ID, (payload) =>
       askBridge.askOnce({
@@ -60,7 +61,7 @@ export async function planAskBridge({ sessionId, askBridge, api, extensionId = "
       registered: null,
       tools: [tool],
       canvases: [askBridge.canvas()],
-      teardown: () => { try { stopHeartbeat?.(); } catch { /* ignore */ } try { owner.close(); } catch { /* ignore */ } try { claim.release(); } catch { /* ignore */ } },
+      teardown: () => { try { stopHeartbeat?.(); } catch { /* ignore */ } try { owner.close(); } catch { /* ignore */ } try { askBridge.close?.(); } catch { /* ignore */ } try { claim.release(); } catch { /* ignore */ } },
     };
   }
 
@@ -101,7 +102,7 @@ export async function planAskBridge({ sessionId, askBridge, api, extensionId = "
     registered,
     tools: [],
     canvases: [],
-    teardown: () => { try { responder.close(); } catch { /* ignore */ } try { claim.release(); } catch { /* ignore */ } },
+    teardown: () => { try { responder.close(); } catch { /* ignore */ } try { askBridge.close?.(); } catch { /* ignore */ } try { claim.release(); } catch { /* ignore */ } },
   };
 }
 
