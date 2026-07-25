@@ -7,16 +7,19 @@ de escopo/hierarquia e a composição do recall são do **servidor** — o plugi
 
 ## Como funciona
 
-- **Discovery cliente-puro** (`lib/daemon.mjs`): lê `~/.mcp-memory/run/daemon.json`
-  (respeita `MCP_RUN_DIR`), faz `GET /health` (200/503 = vivo) e reusa a URL. Daemon offline ⇒ degrada
-  com aviso. O plugin **não gerencia** o servidor (singleton, update, auto-anúncio são do native-java).
-- **Auto-provisionamento** (`lib/provision.mjs`): se **não houver daemon vivo e o servidor não estiver
-  instalado**, o plugin faz o **bootstrap inicial** — baixa a release pública mais nova
-  (`AllanSantos-DV/mcp-memory-server-releases`, tag `vX.Y.Z`, asset `mcp-memory-server-*.jar`),
-  **verifica o sha256**, sobe `java -jar … --daemon` (destacado) e aguarda o auto-anúncio. Depois disso
-  o próprio daemon assume (singleton + updates). É o mesmo padrão do `boot.mjs`/canvas-sync
-  (baixa-se-falta, reusa-se-existe). Disparado em background no início da sessão e sob demanda via
-  `memory_setup`. Requer **Java 21** no PATH; **fail-open** (sem Java/rede ⇒ degrada, nunca trava).
+- **Discovery em escada** (`lib/daemon.mjs` + `lib/daemonConfig.mjs`): resolve o servidor na ordem
+  **(0) URL configurada** (`~/.copilot-memory/config.json {daemonUrl}`, definida **pelo painel**; env
+  `COPILOT_MEMORY_DAEMON_URL` como override) → **(1) registry local** `~/.mcp-memory/run/daemon.json`
+  (respeita `MCP_RUN_DIR`) → **(2) nada**. Cada etapa faz `GET /health` (200/503 = vivo). Uma URL
+  configurada **inalcançável** falha **alto** (memória indisponível com aviso) e **NÃO** cai para um local
+  em silêncio — respeita quem apontou um servidor. O plugin **não gerencia** o servidor (singleton/update/
+  auto-anúncio são do native-java).
+- **Provisionamento OPT-IN** (`lib/provision.mjs`): o plugin **nunca** baixa um servidor sozinho. Se não há
+  servidor configurado nem rodando, ele injeta um **aviso acionável** (abre o painel via `memory_dashboard`)
+  e o usuário decide: **apontar um servidor** existente OU **autorizar** baixar um local (botão no painel /
+  tool `memory_setup`). Ao autorizar, faz o bootstrap — baixa a release pública mais nova
+  (`AllanSantos-DV/mcp-memory-server-releases`, asset `mcp-memory-server-*.jar`), **verifica o sha256**, sobe
+  `java -jar … --daemon` e aguarda o auto-anúncio. Requer **Java 21** no PATH; **fail-open**.
 - **project_id worktree-safe** (`lib/projectId.mjs` + `lib/projectConfig.mjs`): escada determinística —
   **(0) `.memory/project.json` → `metadata.defaults.project_id`** (a intenção declarada, portável entre
   máquinas/pessoas), (1) git remote normalizado, (2) repo base via `git-common-dir` (fecha o furo das

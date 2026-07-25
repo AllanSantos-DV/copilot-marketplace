@@ -13,6 +13,7 @@
 // NB: o import de joinSession é DINÂMICO (dentro do guard no fim) — assim importar { tools, hooks }
 // num harness de smoke não exige resolver @github/copilot-sdk/extension (que só existe no host).
 import { discover } from "./lib/daemon.mjs";
+import { serverGate } from "./lib/serverGate.mjs";
 import { tryResolveProjectId, isFragileScope, resolveFallbackProjectId, fallbackStrength } from "./lib/projectId.mjs";
 import { configMetadata, projectConfigPath } from "./lib/projectConfig.mjs";
 import { shouldOfferScaffold, markAsked, scaffoldGuidance } from "./lib/scaffold.mjs";
@@ -39,7 +40,7 @@ import { armSelfReview } from "./lib/selfReview.mjs";
 import { buildScopeAlert, inferSuggestedId } from "./lib/scopeAlert.mjs";
 
 // Provisionamento em background disparado no máximo 1× por processo (não repete a cada hook).
-let provisionKicked = false;
+let serverAlerted = false;
 // Curadoria de aprendizado (o distiller) disparada 1× por processo, em background.
 let curationKicked = false;
 
@@ -805,12 +806,14 @@ export const hooks = {
         // Abertura da sessão: injeta o estado/decisões do projeto aberto como contexto inicial.
         onSessionStart: async (input) => {
             rememberCwd(input.workingDirectory);
-            // Bootstrap oportunista: se não há daemon e auto-provisionamento está ligado, dispara UMA vez
-            // em BACKGROUND (fire-and-forget). Não bloqueia o hook nem o recall desta sessão — quando o
-            // servidor subir, os próximos prompts já terão memória. Consentimento: documentado no README.
-            if (!provisionKicked && autoProvisionEnabled()) {
-                provisionKicked = true;
-                (async () => { try { const info = await discover(); if (!info) await ensureServer(); } catch { /* fail-open */ } })();
+            // Servidor de memória — OPT-IN (não baixa mais em background). Resolve o estado UMA vez por
+            // sessão e, se não há servidor usável (sem config e sem daemon, OU a URL configurada está fora
+            // do ar), computa um aviso ACIONÁVEL para injeção — o download só acontece por AÇÃO EXPLÍCITA
+            // do usuário (botão "Provisionar local" no canvas, ou a tool memory_setup). Nunca provisiona só.
+            let serverBlock = null;
+            if (!serverAlerted) {
+                serverAlerted = true;
+                try { const sg = await serverGate(); if (sg.alert) serverBlock = sg.alert; } catch { /* fail-open */ }
             }
             // Curadoria de aprendizado (o distiller) em BACKGROUND, 1× por processo. Um agente curador lê os
             // checkpoints já curados + os turnos vivos e destila lições (técnicas E comportamentais),
@@ -838,6 +841,9 @@ export const hooks = {
                     })();
                 }, 4000);
             }
+            // Sem servidor usável → injeta o aviso e PARA (recall/scaffold não fazem sentido sem servidor;
+            // o aviso manda o agente abrir o memory_dashboard p/ apontar o server OU autorizar o download).
+            if (serverBlock) return { additionalContext: serverBlock };
             if (!recallEnabled()) return;
             // Nudge asked-once de scaffold: se o escopo é FRÁGIL (path/nome) e eu ainda não perguntei
             // neste workspace, injeto UMA vez a guia p/ criar o .memory/project.json e marco "asked"

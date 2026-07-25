@@ -6,6 +6,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { configuredDaemonUrl } from "./daemonConfig.mjs";
 
 // run-dir: env MCP_RUN_DIR → ~/.mcp-memory/run/ (o plugin não precisa da system property da JVM).
 export function resolveRunDir() {
@@ -42,10 +43,37 @@ export async function health(url, timeoutMs = 2000) {
     }
 }
 
-// Cliente-puro: lê registry → health → DaemonInfo | null. Sem spawn, sem efeitos colaterais.
+// Resolvedor RICO da escada (etapa 0 configurada → registry local → none) com estado EXPLÍCITO, para o
+// consentimento opt-in (Fase 3) distinguir "sem config" de "configurada mas fora do ar". Deps injetáveis.
+// FAIL-LOUD: URL configurada INALCANÇÁVEL NÃO cai pro registry local (respeita a intenção de quem apontou
+// um servidor — nunca troca em silêncio por outro). Nunca lança.
+export async function resolveDaemon(opts = {}) {
+    const _readConfig = opts._readConfig;                      // undefined → configuredDaemonUrl usa o default
+    const _readRegistry = opts._readRegistry || readRegistry;
+    const _health = opts._health || health;
+    const _env = opts._env || process.env;
+
+    // etapa 0 — URL CONFIGURADA (env > config.json), já validada/normalizada.
+    const configured = _readConfig ? configuredDaemonUrl(_env, _readConfig) : configuredDaemonUrl(_env);
+    if (configured) {
+        const alive = await _health(configured, 5000);          // timeout maior p/ WAN/VPN
+        if (alive) return { info: { url: configured, source: "configured" }, source: "configured", configuredUrl: configured };
+        return { info: null, source: "configured-unreachable", configuredUrl: configured };
+    }
+
+    // etapa 1 — registry local (auto-anúncio do daemon nesta máquina).
+    const reg = _readRegistry();
+    if (reg && reg.url) {
+        const alive = await _health(reg.url, 2000);
+        if (alive) return { info: { ...reg, source: "registry" }, source: "registry" };
+        return { info: null, source: "registry-dead" };
+    }
+
+    // etapa 2 — nada configurado nem registrado.
+    return { info: null, source: "none" };
+}
+
+// Cliente-puro: DaemonInfo | null (backward-compat p/ os consumidores existentes). Delega ao resolvedor.
 export async function discover() {
-    const info = readRegistry();
-    if (!info) return null;
-    const alive = await health(info.url);
-    return alive ? info : null;
+    return (await resolveDaemon()).info;
 }
