@@ -1,0 +1,7 @@
+{
+  "name": "@local/ask-bridge",
+  "version": "1.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Companion compartilhado do ask-bridge (semeado localmente; não editar à mão)."
+}

@@ -21,6 +21,8 @@ import { decidePhoneDrift, driftAgentContext } from "./drift.mjs";
 import { ensureDaemonInstalled } from "./bootstrap.mjs";
 import { LiveLink } from "./liveLink.mjs";
 import { AskUserBridge } from "./askUserBridge.mjs";
+import { loadAskBridge, readProtocolVersion, SEED_DIR } from "./askBridgeShared.mjs";
+import { planAskBridge } from "./askBridgeWire.mjs";
 
 const SELF_SESSION_ID = process.env.SESSION_ID || "";
 const DAEMON_HOME = process.env.COPILOT_DAEMON_HOME || join(homedir(), ".copilot-mobile-daemon");
@@ -112,11 +114,31 @@ let appHeadPending = 0;
 const bootMode = daemonMode();
 const overrideAsk = await queryAskMode(SELF_SESSION_ID);
 const askBridge = overrideAsk ? new AskUserBridge({ log: dbg, sessionId: SELF_SESSION_ID }) : null;
-dbg(`ask_user override=${overrideAsk} (bootMode="${bootMode}" via /live/ask-mode)`);
+
+// ask-bridge (companion compartilhado ~/.ask-bridge/lib): quando o override liga, o SDK só deixa UM plugin
+// registrar o ask_user. Coordenamos via lockfile por sessão — 1º a pegar = DONO (registra o override + DESPACHA
+// a todos, celular + mesa, first-to-answer); os demais = RESPONDEDORES (não registram; recebem /ask e mostram o
+// card no celular). Falha na coordenação → fallback ao override LOCAL (comportamento anterior); nunca trava o boot.
+let askWire = null;
+if (askBridge) {
+  try {
+    const api = await loadAskBridge({ log: dbg });
+    const seedMajor = api.protocol.majorOf(readProtocolVersion(SEED_DIR));
+    if (api.protocol.majorOf(api.PROTOCOL_VERSION) === seedMajor) {
+      askWire = await planAskBridge({ sessionId: SELF_SESSION_ID, askBridge, api, log: dbg });
+      dbg(`ask-bridge: role=${askWire.role} registered=${askWire.registered ?? "-"} (protocol v${api.PROTOCOL_VERSION})`);
+    } else {
+      dbg(`ask-bridge: major incompatível (lib v${api.PROTOCOL_VERSION} ≠ seed) — override LOCAL sem coordenação`);
+    }
+  } catch (e) { dbg("ask-bridge wire falhou (fallback override local): " + (e?.message || e)); }
+}
+const askTools = askWire ? askWire.tools : (askBridge ? [askBridge.tool()] : []);
+const askCanvases = askWire ? askWire.canvases : (askBridge ? [askBridge.canvas()] : []);
+dbg(`ask_user override=${overrideAsk} role=${askWire?.role || (askBridge ? "local" : "native")} (bootMode="${bootMode}" via /live/ask-mode)`);
 
 const session = await joinSession({
-  tools: askBridge ? [askBridge.tool()] : [],
-  canvases: askBridge ? [askBridge.canvas()] : [],
+  tools: askTools,
+  canvases: askCanvases,
   hooks: {
     onUserPromptSubmitted: async (input) => {
       const parts = [];
@@ -184,7 +206,7 @@ if (liveSessionId) {
     });
     liveLink.connect();
     // Best-effort clean detach when the session/app process goes away (the dropped SSE also signals it).
-    const bye = () => { try { liveLink.stop(); } catch {} try { askBridge?.abortAll(); } catch {} };
+    const bye = () => { try { liveLink.stop(); } catch {} try { askBridge?.abortAll(); } catch {} try { askWire?.teardown?.(); } catch {} };
     process.once("exit", bye);
     process.once("SIGTERM", bye);
     process.once("SIGINT", bye);

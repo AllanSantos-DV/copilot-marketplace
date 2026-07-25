@@ -82,12 +82,26 @@ export class AskUserBridge {
     });
   }
 
+  /** The ask_user override handler (OWNER path): pergunta com o canvas do PC e embrulha no tool result. */
   async _handle(args) {
-    const requestId = randomUUID();
     const question = typeof args.question === "string" ? args.question : "";
     const choices = Array.isArray(args.choices) ? args.choices.filter((c) => typeof c === "string") : [];
     const allowFreeform = args.allowFreeform !== false;
-    this.log(`ask_user override: req=${requestId} q="${question.slice(0, 60)}" choices=${JSON.stringify(choices)}`);
+    const answer = await this.askOnce({ question, choices, allowFreeform, withCanvas: true });
+    const text = String(answer ?? "").trim();
+    return { resultType: "success", textResultForLlm: text || "(o usuário não respondeu)" };
+  }
+
+  /**
+   * Faz UMA pergunta e AGUARDA a resposta; devolve a STRING ("" se não respondeu/abortou). Reutilizável:
+   *  • OWNER (override do ask_user): withCanvas=true → celular + canvas do PC.
+   *  • RESPONDEDOR do ask-bridge (o dono é OUTRO plugin): withCanvas=false → SÓ o celular (o dono cuida do PC),
+   *    e passa o requestId do dispatch pra resposta do celular (que carrega requestId) casar aqui.
+   * @param {{ question?:string, choices?:string[], allowFreeform?:boolean, requestId?:string, withCanvas?:boolean }} [p]
+   * @returns {Promise<string>}
+   */
+  async askOnce({ question = "", choices = [], allowFreeform = true, requestId = randomUUID(), withCanvas = true } = {}) {
+    this.log(`ask_user ${withCanvas ? "override" : "responder"}: req=${requestId} q="${String(question).slice(0, 60)}" choices=${JSON.stringify(choices)}`);
 
     // CRITICAL ORDERING: register the resolver FIRST — before notifying anyone and before ANY await —
     // so an answer from either side (phone or canvas) always has somewhere to land. If we notified the
@@ -101,49 +115,51 @@ export class AskUserBridge {
     // 1) route to the phone via a synthetic transient event (daemon normalizes → question card).
     try { this.liveLink?.pushEvent({ type: "user_input.requested", data: { requestId, question, choices, allowFreeform } }); } catch (e) { this.log("push requested err: " + (e?.message || e)); }
 
-    // 2) start the local canvas server + open the canvas on the PC, with BOUNDED RETRY until the panel is
-    //    confirmed shown. In override mode the native modal is suppressed, so the canvas MUST surface — a
-    //    stale/failed open (provider stolen by a reload fork, or a host hiccup) is re-issued (re-opening
-    //    rehydrates + rebinds the provider). Still OFF the blocking path: a slow/wedged open never delays
-    //    the answer, and we stop retrying the moment the question is answered/aborted. We KEEP the promise
-    //    so cleanup waits for open to finish before closing (a close racing ahead of open is a host no-op).
-    this._ensureServer().catch((e) => this.log("server err: " + (e?.message || e)));
-    this._returnTarget = null;
-    this._openPromise = Promise.resolve()
-      .then(async () => {
-        // Snapshot who's ALREADY open before we add our canvas, so on close we return focus to the user's
-        // PRIOR canvas (whatever it was) — never guessing/hardcoding, never spawning anything new.
-        try {
-          const snap = await this.session?.rpc?.canvas?.listOpen();
-          const others = (snap?.openCanvases || []).filter((c) => c && c.canvasId !== this._canvasId);
-          this._returnTarget = others[0] || null;
-        } catch {}
-        const maxAttempts = 3;
-        let result = null;
-        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-          if (!this._pending.has(requestId)) return result; // already answered/aborted → stop retrying
-          let threw = false;
+    // 2) (OWNER só) start the local canvas server + open the canvas on the PC, with BOUNDED RETRY until the
+    //    panel is confirmed shown. In override mode the native modal is suppressed, so the canvas MUST surface
+    //    — a stale/failed open (provider stolen by a reload fork, or a host hiccup) is re-issued (re-opening
+    //    rehydrates + rebinds the provider). Still OFF the blocking path: a slow/wedged open never delays the
+    //    answer, and we stop retrying the moment the question is answered/aborted. We KEEP the promise so
+    //    cleanup waits for open to finish before closing (a close racing ahead of open is a host no-op).
+    //    Como RESPONDEDOR (withCanvas=false) o dono é outro plugin e cuida do PC — aqui é só o celular.
+    if (withCanvas) {
+      this._ensureServer().catch((e) => this.log("server err: " + (e?.message || e)));
+      this._returnTarget = null;
+      this._openPromise = Promise.resolve()
+        .then(async () => {
+          // Snapshot who's ALREADY open before we add our canvas, so on close we return focus to the user's
+          // PRIOR canvas (whatever it was) — never guessing/hardcoding, never spawning anything new.
           try {
-            result = await this.session?.rpc?.canvas?.open({ canvasId: this._canvasId, instanceId: this._instanceId, input: { requestId } });
-          } catch (e) { threw = true; result = null; this.log(`canvas open attempt ${attempt} err: ` + (e?.message || e)); }
-          const availability = availabilityOf(result);
-          this.log(`canvas open attempt ${attempt}: availability=${availability} threw=${threw} (returnTarget=${this._returnTarget?.canvasId ?? "none"})`);
-          if (!shouldRetryCanvasOpen({ availability, threw, attempt, maxAttempts })) return result;
-          await new Promise((r) => setTimeout(r, canvasRetryDelayMs(attempt)));
-        }
-        return result;
-      })
-      .catch((e) => { this.log("canvas open err: " + (e?.message || e)); return null; });
+            const snap = await this.session?.rpc?.canvas?.listOpen();
+            const others = (snap?.openCanvases || []).filter((c) => c && c.canvasId !== this._canvasId);
+            this._returnTarget = others[0] || null;
+          } catch {}
+          const maxAttempts = 3;
+          let result = null;
+          for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            if (!this._pending.has(requestId)) return result; // already answered/aborted → stop retrying
+            let threw = false;
+            try {
+              result = await this.session?.rpc?.canvas?.open({ canvasId: this._canvasId, instanceId: this._instanceId, input: { requestId } });
+            } catch (e) { threw = true; result = null; this.log(`canvas open attempt ${attempt} err: ` + (e?.message || e)); }
+            const availability = availabilityOf(result);
+            this.log(`canvas open attempt ${attempt}: availability=${availability} threw=${threw} (returnTarget=${this._returnTarget?.canvasId ?? "none"})`);
+            if (!shouldRetryCanvasOpen({ availability, threw, attempt, maxAttempts })) return result;
+            await new Promise((r) => setTimeout(r, canvasRetryDelayMs(attempt)));
+          }
+          return result;
+        })
+        .catch((e) => { this.log("canvas open err: " + (e?.message || e)); return null; });
+    }
 
     // 3) block ONLY on the answer (phone OR canvas), or an abort (abortAll resolves it with "").
     const answer = await answerPromise;
 
-    // 4) cleanup: clear the phone card + close the canvas (Voz volta a ser o painel ativo).
+    // 4) cleanup: clear the phone card + close the canvas (Voz volta a ser o painel ativo; no-op sem canvas).
     try { this.liveLink?.pushEvent({ type: "user_input.completed", data: { requestId, answer } }); } catch {}
-    await this._closeCanvas();
+    if (withCanvas) await this._closeCanvas();
 
-    const text = String(answer ?? "").trim();
-    return { resultType: "success", textResultForLlm: text || "(o usuário não respondeu)" };
+    return String(answer ?? "");
   }
 
   /** Close the PC canvas for real. The host won't tear down the ACTIVE tab on close, so we first return
