@@ -22,7 +22,7 @@ import { ensureDaemonInstalled } from "./bootstrap.mjs";
 import { LiveLink } from "./liveLink.mjs";
 import { AskUserBridge } from "./askUserBridge.mjs";
 import { loadAskBridge, readProtocolVersion, SEED_DIR } from "./askBridgeShared.mjs";
-import { planAskBridge } from "./askBridgeWire.mjs";
+import { planAskBridge, askRegistration } from "./askBridgeWire.mjs";
 
 const SELF_SESSION_ID = process.env.SESSION_ID || "";
 const DAEMON_HOME = process.env.COPILOT_DAEMON_HOME || join(homedir(), ".copilot-mobile-daemon");
@@ -113,7 +113,7 @@ let appHeadPending = 0;
 // this and registers the override. Native default means the buggy override never turns on by accident.
 const bootMode = daemonMode();
 const overrideAsk = await queryAskMode(SELF_SESSION_ID);
-const askBridge = overrideAsk ? new AskUserBridge({ log: dbg, sessionId: SELF_SESSION_ID }) : null;
+let askBridge = overrideAsk ? new AskUserBridge({ log: dbg, sessionId: SELF_SESSION_ID }) : null;
 
 // ask-bridge (companion compartilhado ~/.ask-bridge/lib): quando o override liga, o SDK só deixa UM plugin
 // registrar o ask_user. Coordenamos via lockfile por sessão — 1º a pegar = DONO (registra o override + DESPACHA
@@ -121,19 +121,25 @@ const askBridge = overrideAsk ? new AskUserBridge({ log: dbg, sessionId: SELF_SE
 // card no celular). Falha na coordenação → fallback ao override LOCAL (comportamento anterior); nunca trava o boot.
 let askWire = null;
 if (askBridge) {
+  let coordinated = false;
   try {
     const api = await loadAskBridge({ log: dbg });
     const seedMajor = api.protocol.majorOf(readProtocolVersion(SEED_DIR));
     if (api.protocol.majorOf(api.PROTOCOL_VERSION) === seedMajor) {
       askWire = await planAskBridge({ sessionId: SELF_SESSION_ID, askBridge, api, log: dbg });
+      coordinated = true;
       dbg(`ask-bridge: role=${askWire.role} registered=${askWire.registered ?? "-"} (protocol v${api.PROTOCOL_VERSION})`);
     } else {
-      dbg(`ask-bridge: major incompatível (lib v${api.PROTOCOL_VERSION} ≠ seed) — override LOCAL sem coordenação`);
+      dbg(`ask-bridge: major incompatível (lib v${api.PROTOCOL_VERSION} ≠ seed) — cai pro NATIVO (nunca override sem lockfile)`);
     }
-  } catch (e) { dbg("ask-bridge wire falhou (fallback override local): " + (e?.message || e)); }
+  } catch (e) { dbg("ask-bridge wire falhou — cai pro NATIVO (nunca override sem lockfile): " + (e?.message || e)); }
+  // CRÍTICO (bug medido ao vivo pela mesa modo-auto): jamais registrar o override CRU sem ter passado pelo
+  // lockfile (acquireOrConnect). Segurar o ask_user sem owner.json faz OUTRO plugin coordenado (modo-auto)
+  // colidir no SDK (clash) e degradar. Se a coordenação NÃO rodou, vamos pro NATIVO — o outro plugin assume
+  // limpo o override (o celular ainda responde o ask_user nativo pela ponte via handlePendingUserInput).
+  if (!coordinated) askBridge = null;
 }
-const askTools = askWire ? askWire.tools : (askBridge ? [askBridge.tool()] : []);
-const askCanvases = askWire ? askWire.canvases : (askBridge ? [askBridge.canvas()] : []);
+const { tools: askTools, canvases: askCanvases } = askRegistration(askWire);
 dbg(`ask_user override=${overrideAsk} role=${askWire?.role || (askBridge ? "local" : "native")} (bootMode="${bootMode}" via /live/ask-mode)`);
 
 const session = await joinSession({

@@ -107,3 +107,14 @@ export async function planAskBridge({ sessionId, askBridge, api, extensionId = "
 }
 
 export { PHONE_RESPONDER_ID, PHONE_ANSWER_TIMEOUT_MS };
+
+/**
+ * Resolve o que registrar no joinSession a partir do resultado da coordenação. INVARIANTE DE SEGURANÇA
+ * (bug medido ao vivo pela mesa modo-auto, 2026-07-25): só há tool `ask_user` quando a coordenação produziu um
+ * DONO (askWire.role==='owner' → tools=[tool]); RESPONDEDOR e coordenação-ausente ⇒ [] (NATIVO — nunca um
+ * override CRU sem lockfile, que faria o outro plugin colidir no SDK). Puro/testável.
+ * @param {{tools:any[],canvases:any[]}|null} askWire
+ */
+export function askRegistration(askWire) {
+  return { tools: askWire ? askWire.tools : [], canvases: askWire ? askWire.canvases : [] };
+}
