@@ -54,6 +54,27 @@
       "category": "productivity"
     },
     {
+      "name": "modo-auto",
+      "description": "Modo autonomo por sessao para o Copilot: uma MESA de agentes responde os ask_user e revisa os Stop (nao deixa o agente parar antes do plano terminar), com base em plano vivo, memoria e pesquisa. Nucleo hexagonal (ports & adapters) com perfis plugaveis: modo-autonomo agora, modo-planejamento depois.",
+      "version": "0.2.58",
+      "source": "./plugins/modo-auto",
+      "author": {
+        "name": "Allan Santos"
+      },
+      "homepage": "https://github.com/AllanSantos-DV/modo-auto",
+      "repository": "https://github.com/AllanSantos-DV/modo-auto",
+      "license": "MIT",
+      "keywords": [
+        "autonomo",
+        "mesa",
+        "ask_user",
+        "stop",
+        "agentes",
+        "ports-adapters"
+      ],
+      "category": "productivity"
+    },
+    {
       "name": "visual-explainer",
       "description": "Explicações visuais animadas, narradas por voz e interativas: peça um assunto e um agente desenhista gera UMA página HTML autocontida e offline, com narração assada pelo motor (vox-engine), play/pause, zoom, câmera passo a passo e peças clicáveis — incluindo vista explodida (montado→desmontado) e design system rico. Você escreve só uma spec; o builder assa a voz e monta o HTML otimizado.",
       "version": "0.3.0",

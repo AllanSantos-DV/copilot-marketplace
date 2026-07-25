@@ -34,6 +34,11 @@
     "hash": "f6a21fce49f3f76b",
     "at": "2026-07-23T15:56:39.872Z"
   },
+  "modo-auto": {
+    "version": "0.2.58",
+    "hash": "8d5267d1ec7ea48c",
+    "at": "2026-07-25T17:16:39.005Z"
+  },
   "session-unloader": {
     "version": "0.4.1",
     "hash": "5614e77241009c71",
