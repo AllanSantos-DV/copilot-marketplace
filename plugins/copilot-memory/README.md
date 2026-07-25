@@ -151,12 +151,14 @@ disco saturado). O grafo (`graph_search`) já vai **direto ao node** — então 
 árvores gigantes. Cobre a tool `Grep`/`Glob` do host (via `paths`) e `rg`/`grep`/`findstr`/
 `Select-String`/`Get-ChildItem -Recurse` no shell.
 
-- **Só gateia com memória ATIVA** (`project_id` resolvido) — sem escopo não há grafo pra redirecionar,
-  então passa direto.
+- **Segurança-de-máquina INCONDICIONAL**: barra o alvo absurdo **com ou sem** `project_id`. Antes o guard
+  isentava sessões sem escopo — e era justo aí que o `rg` recursivo fritava a máquina. O escopo agora só
+  decide a **mensagem** (abaixo), não o bloqueio.
 - **Fail-open DURO**: qualquer erro/timeout/dúvida → libera. O guard **nunca** trava a sessão nem
   bloqueia trabalho legítimo. Early-exit baratíssimo (só tools de busca pagam qualquer checagem).
-- Ao bloquear, devolve uma mensagem acionável: *escope o `paths`, ou use `graph_search`/`graph_analyze`
-  pra achar o node e então busque escopado.*
+- Ao bloquear — **com** escopo: *escope o `paths`, ou use `graph_search`/`graph_analyze` pra ir ao node e
+  então busque escopado*. **Sem** escopo: além disso, **injeta o aviso** pra definir o
+  `.memory/project.json` / `git remote origin` (liga memória + grafo).
 
 **Modo** — env `COPILOT_MEMORY_GREP_GUARD` = `off` | `observe` | `enforce` (padrão **enforce**; senão
 `~/.copilot-memory/grepguard.json`). `observe` mede sem bloquear; `off` desliga. Escape rápido numa

@@ -12,7 +12,7 @@
     },
     {
       "title": "Nao deixa a busca fritar a maquina",
-      "body": "Novo na v1.14.0. Um hook deterministico bloqueia busca recursiva ampla sobre raizes gigantes que travam CPU e disco, e redireciona pro grafo, que vai direto ao arquivo e linha. Cirurgico: busca dentro de um projeto passa normal; so a varredura de arvore absurda e barrada. Fail-open: na duvida, libera, nunca trava a sessao. Liga/desliga por COPILOT_MEMORY_GREP_GUARD (off/observe/enforce)."
+      "body": "Novo na v1.14.0 (reforcado na v1.15.0). Um hook deterministico bloqueia busca recursiva ampla sobre raizes gigantes que travam CPU e disco, e redireciona pro grafo, que vai direto ao arquivo e linha. Cirurgico: busca dentro de um projeto passa normal; so a varredura de arvore absurda e barrada. Na v1.15.0 a protecao virou INCONDICIONAL: vale mesmo sem identificador de projeto (era ai, nas sessoes sem escopo, que o grep recursivo mais fritava a maquina) e sem escopo o bloqueio ainda injeta o aviso pra definir o project_id e ligar memoria + grafo. Fail-open: na duvida, libera, nunca trava a sessao. Liga/desliga por COPILOT_MEMORY_GREP_GUARD (off/observe/enforce)."
     },
     {
       "title": "Barra o `git push` sem revisão",
