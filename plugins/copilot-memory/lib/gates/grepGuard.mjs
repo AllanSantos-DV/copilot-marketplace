@@ -19,6 +19,7 @@ import { classify, isSearchTool } from "./searchClassifier.mjs";
 import { tryResolveProjectId } from "../projectId.mjs";
 import { logShadow } from "./shadow.mjs";
 import { stateDir } from "../paths.mjs";
+import { buildScopeAlert } from "../scopeAlert.mjs";
 
 function resolveMode() {
     const env = String(process.env.COPILOT_MEMORY_GREP_GUARD || "").trim().toLowerCase();
@@ -87,23 +88,29 @@ function run(text) {
     const toolInput = pick(input, ["tool_input", "toolArgs", "toolInput", "arguments", "input", "args"]);
     const cwd = pick(input, ["cwd", "workingDirectory", "working_directory"]) || process.cwd();
 
-    // Só gateia com MEMÓRIA ATIVA (o dono: "se a memória estiver ativa, com project id"). Sem project_id →
-    // não há grafo p/ redirecionar → passthrough. Resolução COM CACHE (git no máx 1×/cwd/5min — hot path).
+    // SEGURANÇA-DE-MÁQUINA INCONDICIONAL: barra busca AMPLA (raiz absurda) com ou SEM project_id. Antes o
+    // guard saía aqui quando não havia escopo — e era EXATAMENTE nas sessões sem identificador que o rg
+    // recursivo fritava a máquina. O project_id NÃO gateia mais o bloqueio; ele só decide a MENSAGEM: com
+    // escopo → redireciona ao grafo; sem escopo → o deny INJETA o aviso para definir o project_id (ligar
+    // memória + grafo). classify é PURO (não depende de pid). Resolução do pid COM CACHE (git ≤1×/cwd/5min).
     let pid = null;
     try { pid = cachedProjectId(cwd); } catch { pid = null; }
-    if (!pid) return allow();
 
     let verdict;
     try { verdict = classify({ toolName, toolInput, cwd }); } catch { return allow(); }
 
-    try { logShadow({ toolName, toolArgs: toolInput, normalized: { operation: "search" }, ms: 0, decision: "grepguard:" + verdict.decision + ":" + mode }); } catch { /* noop */ }
+    try { logShadow({ toolName, toolArgs: toolInput, normalized: { operation: "search" }, ms: 0, decision: "grepguard:" + verdict.decision + ":" + mode + (pid ? "" : ":noscope") }); } catch { /* noop */ }
 
     if (verdict.decision === "deny" && mode === "enforce") {
+        // Sem escopo, anexa o aviso ACIONÁVEL (definir .memory/project.json / git remote) ao contexto do
+        // agente — instrui a LIGAR a memória, não só a escopar a busca. Reusa buildScopeAlert (built-in-only).
+        let ctx = verdict.reason;
+        if (!pid) { try { ctx = verdict.reason + "\n\n" + buildScopeAlert(cwd); } catch { /* mantém reason */ } }
         return emit({
             hookSpecificOutput: {
                 permissionDecision: "deny",
                 permissionDecisionReason: verdict.reason,
-                additionalContext: verdict.reason,
+                additionalContext: ctx,
             },
         });
     }
