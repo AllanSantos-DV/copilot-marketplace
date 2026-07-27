@@ -15,10 +15,10 @@ import { spawn } from "node:child_process";
 import { download } from "./http.mjs";
 
 // Pinned target: bump these together with a new dist release to roll the daemon forward.
-const DAEMON_VERSION = "0.1.26";
+const DAEMON_VERSION = "0.1.27";
 const DIST_OWNER = "AllanSantos-DV";
 const DIST_REPO = "copilot-mobile-daemon-dist";
-const DIST_TAG = "copilot-mobile-daemon-v0.1.26";
+const DIST_TAG = "copilot-mobile-daemon-v0.1.27";
 const DIST_ASSET = "copilot-mobile-daemon-win32-x64.tar.gz";
 const DIST_URL = `https://github.com/${DIST_OWNER}/${DIST_REPO}/releases/download/${DIST_TAG}/${DIST_ASSET}`;
 
@@ -91,39 +91,65 @@ function restartRunningDaemon() {
 
 /**
  * Remove files the CURRENT dist no longer ships. `tar -x` only ADDS/overwrites — it never deletes, so
- * files dropped from the tarball (unit tests, the dev harness) survive forever in an install that has
- * been upgraded in place. That left this daemon carrying 2-month-old `*.test.mjs` and `validate-*`/
- * `probe-*` scripts that CONTRADICTED the shipped code (e.g. a stale test asserting the OLD
- * COPILOT_SDK_AUTH_TOKEN env), which is confusing at best and dangerous to audit at worst.
- * pack-dist.mjs already excludes exactly these patterns from the archive; this mirrors that rule on the
- * install side so every machine self-heals on the next provision. Best-effort: never blocks the upgrade.
+ * files dropped from the tarball (unit tests, the dev harness) survive forever in an install upgraded
+ * in place, contradicting the shipped code.
+ *
+ * SAFEGUARDS (a deleter that runs unattended on every machine must not be a regex guess):
+ *   1. ALLOW-LIST: the dist ships FILES.json (written by pack-dist). We delete only paths ABSENT from
+ *      it — a file the manifest lists is NEVER touched, whatever it looks like.
+ *   2. FLOOR: if FILES.json is missing, unparseable, or lists fewer than MIN_MANIFEST files, we prune
+ *      NOTHING and say so. A truncated manifest must never authorize a mass delete.
+ *   3. SCOPE: even among unlisted files we only remove the known non-shipping shapes (tests, dev
+ *      harness, *.bak-<stamp>, a stray dist/*.tar.gz). Runtime state the daemon creates at run time
+ *      (logs, runtime.json, node_modules, .git) is out of scope by construction.
+ * Best-effort throughout: pruning must never block an upgrade.
  */
+const MIN_MANIFEST = 50;
 function pruneOrphans() {
-  const isOrphan = (rel) => {
-    const base = rel.split(/[\\/]/).pop();
+  let shipped = null;
+  try {
+    const m = JSON.parse(readFileSync(join(APP_DIR, "FILES.json"), "utf8"));
+    if (Array.isArray(m?.files) && m.files.length >= MIN_MANIFEST) shipped = new Set(m.files);
+    else log(`prune skipped: manifest has ${m?.files?.length ?? 0} entries (< ${MIN_MANIFEST})`);
+  } catch { log("prune skipped: no readable FILES.json in the bundle"); }
+  if (!shipped) return; // no manifest ⇒ no deletions. Never guess.
+
+  const nonShipping = (rel) => {
+    const base = rel.split("/").pop();
     return /\.test\.mjs$/.test(base)
-      || /^(validate-|probe-|poc-)/.test(base) && rel.includes("scripts")
-      || (rel.includes("scripts") && (base === "_isolate.mjs" || base === "pack-dist.mjs"))
-      || /\.bak-\d+/.test(rel)                     // src.bak-*/guest-agent.bak-* left by manual deploys
-      || /[\\/]dist[\\/].*\.tar\.gz$/.test(rel);   // the tarball itself, copied in by an extract
+      || (rel.startsWith("scripts/") && (/^(validate-|probe-|poc-)/.test(base) || base === "_isolate.mjs" || base === "pack-dist.mjs"))
+      || /\.bak-\d+/.test(rel)
+      || (rel.startsWith("dist/") && rel.endsWith(".tar.gz"));
   };
-  const walk = (dir, depth = 0) => {
-    if (depth > 4) return;
+  const removed = [];
+  const walk = (dir, prefix = "", depth = 0) => {
+    if (depth > 5) return;
     let entries = [];
     try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
       if (e.name === "node_modules" || e.name === ".git") continue;
-      const abs = join(dir, e.name);
-      if (e.isDirectory()) walk(abs, depth + 1);
-      else if (isOrphan(abs)) {
-        try { rmSync(abs, { force: true }); removed.push(e.name); } catch {}
-      }
+      const rel = prefix ? `${prefix}/${e.name}` : e.name;
+      if (e.isDirectory()) { walk(join(dir, e.name), rel, depth + 1); continue; }
+      if (shipped.has(rel)) continue;          // (1) the manifest wins — never delete a shipped file
+      if (!nonShipping(rel)) continue;         // (3) unlisted but not a known leftover ⇒ leave it alone
+      try { rmSync(join(dir, e.name), { force: true }); removed.push(rel); } catch {}
     }
   };
-  const removed = [];
   walk(APP_DIR);
   pruneUnrunnableScripts();
-  if (removed.length) log(`pruned ${removed.length} stale file(s) the dist no longer ships`);
+  verifyInstall(shipped);
+  if (removed.length) log(`pruned ${removed.length} file(s) absent from FILES.json: ${removed.slice(0, 5).join(", ")}${removed.length > 5 ? "…" : ""}`);
+}
+
+/** Post-install verification against the shipped manifest: every file the dist promised must be on disk.
+ *  Reports LOUD (bootstrap.log) instead of silently trusting the extract. Never throws. */
+function verifyInstall(shipped) {
+  try {
+    const missing = [];
+    for (const rel of shipped) if (!existsSync(join(APP_DIR, rel))) missing.push(rel);
+    if (missing.length) log(`VERIFY FAILED: ${missing.length} shipped file(s) missing after install: ${missing.slice(0, 5).join(", ")}`);
+    else log(`verify ok: all ${shipped.size} shipped files present`);
+  } catch {}
 }
 
 /**
