@@ -9,22 +9,25 @@
 // The daemon's STATE (daemon.json/state.json/runtime.json) lives in the parent home dir, so
 // re-installing app/ never wipes pairing or the chosen transport.
 import { homedir, platform } from "node:os";
-import { join } from "node:path";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, openSync, closeSync, rmSync, readdirSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, openSync, closeSync, rmSync, readdirSync, renameSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { download } from "./http.mjs";
 
 // Pinned target: bump these together with a new dist release to roll the daemon forward.
-const DAEMON_VERSION = "0.1.28";
+const DAEMON_VERSION = "0.1.29";
 const DIST_OWNER = "AllanSantos-DV";
 const DIST_REPO = "copilot-mobile-daemon-dist";
-const DIST_TAG = "copilot-mobile-daemon-v0.1.28";
+const DIST_TAG = "copilot-mobile-daemon-v0.1.29";
 const DIST_ASSET = "copilot-mobile-daemon-win32-x64.tar.gz";
 const DIST_URL = `https://github.com/${DIST_OWNER}/${DIST_REPO}/releases/download/${DIST_TAG}/${DIST_ASSET}`;
 
 const HOME = process.env.COPILOT_DAEMON_HOME || join(homedir(), ".copilot-mobile-daemon");
 const APP_DIR = join(HOME, "app");
 const MARKER = join(APP_DIR, ".installed.json");
+// Pruned files are MOVED here, not destroyed — a wrong prune is recoverable by copying back. Lives
+// OUTSIDE app/ so the next prune never re-scans it (and `verifyInstall` never sees it as an install file).
+const QUARANTINE = join(HOME, "_pruned");
 const RUNTIME_FILE = join(HOME, "runtime.json");
 const LOCK = join(HOME, "bootstrap.lock");
 const LOG = join(HOME, "bootstrap.log");
@@ -132,13 +135,22 @@ function pruneOrphans() {
       if (e.isDirectory()) { walk(join(dir, e.name), rel, depth + 1); continue; }
       if (shipped.has(rel)) continue;          // (1) the manifest wins — never delete a shipped file
       if (!nonShipping(rel)) continue;         // (3) unlisted but not a known leftover ⇒ leave it alone
-      try { rmSync(join(dir, e.name), { force: true }); removed.push(rel); } catch {}
+      // (4) REVERSIBLE: move to a quarantine folder instead of destroying. A wrong prune is then a
+      // copy-back, not a data loss. Falls back to delete only if the move itself fails.
+      try {
+        const dest = join(QUARANTINE, rel);
+        mkdirSync(dirname(dest), { recursive: true });
+        renameSync(join(dir, e.name), dest);
+        removed.push(rel);
+      } catch {
+        try { rmSync(join(dir, e.name), { force: true }); removed.push(rel); } catch {}
+      }
     }
   };
   walk(APP_DIR);
   pruneUnrunnableScripts();
   verifyInstall(shipped);
-  if (removed.length) log(`pruned ${removed.length} file(s) absent from FILES.json: ${removed.slice(0, 5).join(", ")}${removed.length > 5 ? "…" : ""}`);
+  if (removed.length) log(`pruned ${removed.length} file(s) absent from FILES.json → quarantined in ${QUARANTINE}: ${removed.slice(0, 5).join(", ")}${removed.length > 5 ? "…" : ""}`);
 }
 
 /** Post-install verification against the shipped manifest: every file the dist promised must be on disk.
