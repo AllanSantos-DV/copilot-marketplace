@@ -15,10 +15,10 @@ import { spawn } from "node:child_process";
 import { download } from "./http.mjs";
 
 // Pinned target: bump these together with a new dist release to roll the daemon forward.
-const DAEMON_VERSION = "0.1.25";
+const DAEMON_VERSION = "0.1.26";
 const DIST_OWNER = "AllanSantos-DV";
 const DIST_REPO = "copilot-mobile-daemon-dist";
-const DIST_TAG = "copilot-mobile-daemon-v0.1.25";
+const DIST_TAG = "copilot-mobile-daemon-v0.1.26";
 const DIST_ASSET = "copilot-mobile-daemon-win32-x64.tar.gz";
 const DIST_URL = `https://github.com/${DIST_OWNER}/${DIST_REPO}/releases/download/${DIST_TAG}/${DIST_ASSET}`;
 
@@ -103,7 +103,9 @@ function pruneOrphans() {
     const base = rel.split(/[\\/]/).pop();
     return /\.test\.mjs$/.test(base)
       || /^(validate-|probe-|poc-)/.test(base) && rel.includes("scripts")
-      || (rel.includes("scripts") && (base === "_isolate.mjs" || base === "pack-dist.mjs"));
+      || (rel.includes("scripts") && (base === "_isolate.mjs" || base === "pack-dist.mjs"))
+      || /\.bak-\d+/.test(rel)                     // src.bak-*/guest-agent.bak-* left by manual deploys
+      || /[\\/]dist[\\/].*\.tar\.gz$/.test(rel);   // the tarball itself, copied in by an extract
   };
   const walk = (dir, depth = 0) => {
     if (depth > 4) return;
@@ -120,7 +122,38 @@ function pruneOrphans() {
   };
   const removed = [];
   walk(APP_DIR);
+  pruneUnrunnableScripts();
   if (removed.length) log(`pruned ${removed.length} stale file(s) the dist no longer ships`);
+}
+
+/**
+ * The repo's package.json declares the whole dev harness (`validate:*`, `test:*`, …) but the dist
+ * deliberately ships none of it — so an INSTALLED bundle advertised ~25 scripts that fail with
+ * MODULE_NOT_FOUND. A bundle must only declare what it can actually run. Rewrite the installed
+ * package.json dropping every script whose `scripts/<file>.mjs` target is absent (the repo copy is
+ * untouched). Best-effort; a failure here never blocks the upgrade.
+ */
+function pruneUnrunnableScripts() {
+  const pkgPath = join(APP_DIR, "package.json");
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+    if (!pkg?.scripts) return;
+    const kept = {};
+    let dropped = 0;
+    for (const [name, cmd] of Object.entries(pkg.scripts)) {
+      // Drop a script when the file/dir it drives isn't in the bundle: a `scripts/<x>.mjs` target that
+      // doesn't exist, or a test runner pointed at `test/`-style globs (unit tests are never shipped).
+      const s = String(cmd);
+      const m = /(?:^|\s)(scripts\/[\w.\-]+\.mjs)/.exec(s);
+      const usesTests = /(^|\s)(test\/|[\w.\-/*]*\*\.test\.mjs)/.test(s) || /--test\b/.test(s);
+      if ((m && !existsSync(join(APP_DIR, m[1]))) || (usesTests && !existsSync(join(APP_DIR, "test")))) { dropped++; continue; }
+      kept[name] = cmd;
+    }
+    if (!dropped) return;
+    pkg.scripts = kept;
+    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+    log(`package.json: dropped ${dropped} script(s) whose target is not shipped`);
+  } catch { /* never block an upgrade over cosmetics */ }
 }
 
 async function provision() {
