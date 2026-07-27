@@ -10,15 +10,15 @@
 // re-installing app/ never wipes pairing or the chosen transport.
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, openSync, closeSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, openSync, closeSync, rmSync, readdirSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { download } from "./http.mjs";
 
 // Pinned target: bump these together with a new dist release to roll the daemon forward.
-const DAEMON_VERSION = "0.1.24";
+const DAEMON_VERSION = "0.1.25";
 const DIST_OWNER = "AllanSantos-DV";
 const DIST_REPO = "copilot-mobile-daemon-dist";
-const DIST_TAG = "copilot-mobile-daemon-v0.1.24";
+const DIST_TAG = "copilot-mobile-daemon-v0.1.25";
 const DIST_ASSET = "copilot-mobile-daemon-win32-x64.tar.gz";
 const DIST_URL = `https://github.com/${DIST_OWNER}/${DIST_REPO}/releases/download/${DIST_TAG}/${DIST_ASSET}`;
 
@@ -89,6 +89,40 @@ function restartRunningDaemon() {
   return false;
 }
 
+/**
+ * Remove files the CURRENT dist no longer ships. `tar -x` only ADDS/overwrites — it never deletes, so
+ * files dropped from the tarball (unit tests, the dev harness) survive forever in an install that has
+ * been upgraded in place. That left this daemon carrying 2-month-old `*.test.mjs` and `validate-*`/
+ * `probe-*` scripts that CONTRADICTED the shipped code (e.g. a stale test asserting the OLD
+ * COPILOT_SDK_AUTH_TOKEN env), which is confusing at best and dangerous to audit at worst.
+ * pack-dist.mjs already excludes exactly these patterns from the archive; this mirrors that rule on the
+ * install side so every machine self-heals on the next provision. Best-effort: never blocks the upgrade.
+ */
+function pruneOrphans() {
+  const isOrphan = (rel) => {
+    const base = rel.split(/[\\/]/).pop();
+    return /\.test\.mjs$/.test(base)
+      || /^(validate-|probe-|poc-)/.test(base) && rel.includes("scripts")
+      || (rel.includes("scripts") && (base === "_isolate.mjs" || base === "pack-dist.mjs"));
+  };
+  const walk = (dir, depth = 0) => {
+    if (depth > 4) return;
+    let entries = [];
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name === "node_modules" || e.name === ".git") continue;
+      const abs = join(dir, e.name);
+      if (e.isDirectory()) walk(abs, depth + 1);
+      else if (isOrphan(abs)) {
+        try { rmSync(abs, { force: true }); removed.push(e.name); } catch {}
+      }
+    }
+  };
+  const removed = [];
+  walk(APP_DIR);
+  if (removed.length) log(`pruned ${removed.length} stale file(s) the dist no longer ships`);
+}
+
 async function provision() {
   mkdirSync(APP_DIR, { recursive: true });
   const tgz = join(HOME, DIST_ASSET);
@@ -110,6 +144,7 @@ async function provision() {
   }
   if (code !== 0 || !existsSync(join(APP_DIR, "bin", "daemon.mjs"))) throw new Error("extract failed (tar code " + code + ")");
   try { rmSync(tgz, { force: true }); } catch {}
+  pruneOrphans();
   // Register logon autostart (idempotent) so the tray comes back on every login.
   const installPs1 = join(APP_DIR, "scripts", "install-autostart.ps1");
   if (existsSync(installPs1)) {
