@@ -29,6 +29,44 @@ try {
   root = (spawnSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).stdout || "").trim();
 } catch {}
 
+// ---- BLOQUEIO GLOBAL (defesa de push): rejeita enviar commit com o trailer
+// "Co-authored-by: ... Copilot ..." que o usuario NAO autorizou. Vale para QUALQUER
+// caminho de criacao do commit (commit normal, filter-branch, rebase, amend): se a
+// mensagem carrega o trailer, o push e BARRADO ate limpar. Isto complementa o
+// commit-msg (que remove no commit normal) fechando o buraco do filter-branch/sh.
+// Fail-open apenas em ERRO de execucao (nunca brica push alheio por falha da checagem).
+try {
+  const linhas = input.toString("utf8").split(/\r?\n/).filter(Boolean);
+  const ZERO = /^0+$/;
+  const infratores = new Set();
+  const cwd = root || process.cwd();
+  for (const linha of linhas) {
+    const partes = linha.split(" ");
+    const localSha = partes[1];
+    const remoteSha = partes[3];
+    if (!localSha || ZERO.test(localSha)) continue; // delecao de ref: nada a enviar
+    const range = (remoteSha && !ZERO.test(remoteSha))
+      ? [`${remoteSha}..${localSha}`]
+      : [localSha, "--not", "--remotes", "--max-count=1000"];
+    const shas = (spawnSync("git", ["rev-list", ...range], { cwd, encoding: "utf8" }).stdout || "")
+      .split(/\r?\n/).filter(Boolean);
+    for (const sha of shas) {
+      const body = spawnSync("git", ["log", "-1", "--format=%B", sha], { cwd, encoding: "utf8" }).stdout || "";
+      if (/^\s*co-authored-by:.*copilot/im.test(body)) infratores.add(sha.slice(0, 9));
+    }
+  }
+  if (infratores.size > 0) {
+    process.stderr.write(
+      "\n[pre-push BLOQUEADO] Commit(s) com o trailer 'Co-authored-by: ... Copilot ...' NAO autorizado:\n  " +
+      [...infratores].join(", ") +
+      "\nLimpe a(s) mensagem(ns) SEM o trailer antes do push. Este bloqueio nao pode ser contornado por filter-branch/sh.\n\n"
+    );
+    process.exit(1);
+  }
+} catch {
+  // fail-open: erro na verificacao nao deve bloquear push alheio
+}
+
 function delegateLocalAndExit() {
   try {
     const p = spawnSync("git", ["rev-parse", "--git-path", "hooks/pre-push"], {
