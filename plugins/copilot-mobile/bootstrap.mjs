@@ -15,10 +15,10 @@ import { spawn } from "node:child_process";
 import { download } from "./http.mjs";
 
 // Pinned target: bump these together with a new dist release to roll the daemon forward.
-const DAEMON_VERSION = "0.1.29";
+const DAEMON_VERSION = "0.1.30";
 const DIST_OWNER = "AllanSantos-DV";
 const DIST_REPO = "copilot-mobile-daemon-dist";
-const DIST_TAG = "copilot-mobile-daemon-v0.1.29";
+const DIST_TAG = "copilot-mobile-daemon-v0.1.30";
 const DIST_ASSET = "copilot-mobile-daemon-win32-x64.tar.gz";
 const DIST_URL = `https://github.com/${DIST_OWNER}/${DIST_REPO}/releases/download/${DIST_TAG}/${DIST_ASSET}`;
 
@@ -230,12 +230,42 @@ async function provision() {
   startTrayDetached();
 }
 
+// The owner's Copilot token is injected by the CLI into THIS process only (measured: it is not a
+// user- or machine-scoped environment variable). A daemon respawned by the tray therefore has no way
+// to recover it, which is exactly what orphans guest containers ("container gone and cannot be
+// recreated without the owner token"). We are the process that legitimately holds it, so we hand it
+// over on every load. In memory on both sides — nothing is written to disk.
+function ownerCopilotToken() {
+  for (const [k, v] of Object.entries(process.env)) {
+    if (k.startsWith("COPILOT_GH_ACCOUNT_") && typeof v === "string" && v.length > 20) return v;
+  }
+  return process.env.HOST_COPILOT_TOKEN || "";
+}
+
+async function supplyHostToken() {
+  const token = ownerCopilotToken();
+  if (!token) return; // nothing to hand over — stay silent, the daemon just keeps asking
+  let rt;
+  try { rt = JSON.parse(readFileSync(RUNTIME_FILE, "utf8")); } catch { return; }
+  if (!rt?.loopPort || !rt?.desktopToken) return;
+  try {
+    const r = await fetch(`http://127.0.0.1:${rt.loopPort}/host/token`, {
+      method: "POST",
+      headers: { "x-copilot-token": rt.desktopToken, "content-type": "application/json" },
+      body: JSON.stringify({ token }),
+    }).then((x) => x.json());
+    if (r?.healed) log(`host token supplied — re-healed ${r.healed} orphaned guest(s)`);
+    else if (r?.first) log("host token supplied");
+  } catch (e) { log("host token handoff failed (harmless, retries next load): " + (e?.message || e)); }
+}
+
 // Public entry. Safe to call on every load: returns fast when already provisioned. Never throws.
 export async function ensureDaemonInstalled() {
   try {
     if (platform() !== "win32") { log("non-win32 platform — skipping (bundle is win32-x64)"); return; }
     if (isInstalledCurrent()) {
       if (!trayRunning()) { log("installed but tray not running — starting"); startTrayDetached(); }
+      else await supplyHostToken(); // steady state: keep the daemon's owner token alive across respawns
       return;
     }
     // Serialize across concurrent session forks: first to create the lock wins; others bail.
@@ -246,6 +276,10 @@ export async function ensureDaemonInstalled() {
       log(`provisioning daemon v${DAEMON_VERSION} (installed=${installedVersion() || "none"})`);
       await provision();
       log("provision complete");
+      // The provision just restarted the daemon (fresh process ⇒ empty owner token). Give the tray a
+      // moment to relaunch it, then hand the token straight over so guests never sit orphaned.
+      await new Promise((r) => setTimeout(r, 6000));
+      await supplyHostToken();
     } finally {
       try { closeSync(fd); } catch {}
       try { rmSync(LOCK, { force: true }); } catch {}
