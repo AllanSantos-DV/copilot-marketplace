@@ -23,7 +23,7 @@ import threading
 import traceback
 import wave
 import vox_sdk
-import vox_lifecycle
+import vox_cli
 from capture_session import CaptureSession
 from vox_capture_adapter import VoxPipeCaptureAdapter
 
@@ -114,7 +114,7 @@ def _ensure_deps():
 _ensure_deps()
 
 
-# numpy + vox_stream + sounddevice + vox_audio_devices: TODOS fora do import do worker fino.
+# numpy + sounddevice + vox_audio_devices: TODOS fora do import do worker fino.
 # O daemon faz captura/STT/TTS E a enumeração de device (vox.devices()); o worker não toca áudio
 # local. numpy é LAZY só no transcribe_file (WAV offline raro) → fork ocioso = numpy-free E
 # sounddevice-free (o ganho de RAM + fonte ÚNICA de seleção de mic, a mesma do ditado).
@@ -812,16 +812,16 @@ class _VoxBridge:
     def ensure(self, boot_timeout=60.0, connect_ms=0):
         """Garante um cliente conectado. NUNCA levanta (True/False).
 
-        - ``boot_timeout > 0`` (BOOT): delega ao SDK ``ensure_vox_detailed`` — instala/
-          atualiza/RECICLA e sobe o daemon (o hook do ditado sobe junto). Serializado e
-          com progresso VISÍVEL (a instalação é silenciosa por minutos).
-        - ``boot_timeout <= 0`` (DECODE fast-fail): só REUSA se o pipe já está no ar
-          (``autostart``/``auto_update``/``recycle_stale`` desligados) — NUNCA instala
-          nem bloqueia o thread de decode/wake; acquire NÃO-bloqueante (se o boot está
-          segurando o lock instalando, retorna False na hora). ``connect_ms`` controla o
-          timeout de conexão: 0 no PROBE de decode (daemon fora -> fast-fail, sem stall de
-          ~2s), mas um CUSHION pequeno na RECONEXÃO (daemon UP -> absorve ERROR_PIPE_BUSY
-          transitório do pipe compartilhado)."""
+        - ``boot_timeout > 0`` (BOOT): pede ao MOTOR que se deixe pronto (``vox ensure``) e
+          então conecta. Instalar, atualizar, reciclar um daemon velho e ocioso e verificar a
+          assinatura da release é responsabilidade DELE — antes o plugin carregava 1415 linhas
+          vendorizadas (``vox_lifecycle`` + ``vox_splash`` + ``_ed25519_ref``) para refazer
+          aqui o que ``vox_engine.bootstrap`` já faz lá dentro.
+        - ``boot_timeout <= 0`` (DECODE fast-fail): só REUSA se o pipe já está no ar — NUNCA
+          instala nem bloqueia o thread de decode/wake. ``connect_ms`` controla o timeout de
+          conexão: 0 no PROBE (daemon fora -> fast-fail, sem stall de ~2s), mas um CUSHION
+          pequeno na RECONEXÃO (daemon UP -> absorve ERROR_PIPE_BUSY transitório).
+        """
         if self._connected:
             return True
         if boot_timeout <= 0:
@@ -830,10 +830,9 @@ class _VoxBridge:
             try:
                 if self._connected:
                     return True
-                self._client = vox_lifecycle.ensure_vox(
-                    self._pipe, autostart=False, auto_update=False,
-                    recycle_stale=False, with_translation=False,
-                    connect_timeout_ms=connect_ms)
+                # Reuse-only: o cliente do pipe, sem nenhum ciclo de vida no meio.
+                self._client = vox_sdk.VoxClient.try_connect(
+                    self._pipe, connect_timeout=max(0.0, connect_ms) / 1000.0)
                 return self._connected
             except Exception as exc:   # noqa: BLE001 — fast-fail NUNCA levanta
                 log(f"vox-engine ensure(fast) erro: {exc}")
@@ -843,21 +842,29 @@ class _VoxBridge:
         with self._boot_lock:
             if self._connected:
                 return True
-            self._status("Conectando ao motor de voz…")
+            self._status("Preparando o motor de voz…")
             try:
-                res = vox_lifecycle.ensure_vox_detailed(
-                    self._pipe, autostart=True, auto_update=True,
-                    recycle_stale=True, with_translation=True,
-                    boot_timeout_ms=int(max(0.0, boot_timeout) * 1000))
+                res = vox_cli.ensure(self._pipe, boot_timeout_s=max(0.0, boot_timeout))
+            except vox_cli.VoxCliError as exc:
+                self._last_error = VoxEngineError(f"falha ao subir o motor: {exc}")
+                log(f"vox-engine: subida do motor falhou: {exc}")
+                return False
             except Exception as exc:   # noqa: BLE001 — blindagem total: vira _last_error/False
                 self._last_error = VoxEngineError(f"falha ao subir o motor: {exc}")
                 log(f"vox-engine: subida do motor falhou: {exc}")
                 return False
-            self._client = res.get("client")
+
             action = res.get("action")
+            try:
+                self._client = vox_sdk.VoxClient(self._pipe)
+            except Exception as exc:   # noqa: BLE001
+                self._last_error = VoxEngineError(
+                    f"motor preparado (ação={action}) mas o pipe não aceitou conexão: {exc}")
+                log(f"vox-engine: conexao pos-ensure falhou: {exc}")
+                return False
             if self._connected:
                 self._last_error = None
-                iv = res.get("installedVersion")
+                iv = res.get("running_version") or res.get("installed_version")
                 self._status(f"Motor de voz pronto (v{iv or '?'}; ação={action}).")
                 return True
             self._last_error = VoxEngineError(
@@ -959,6 +966,21 @@ class _VoxBridge:
                                    profile=self._profile),
             boot_timeout=0.0)
 
+    def transcribe_file(self, pcm, language):
+        """Gravação INTEIRA (float32 16k) -> texto. O motor segmenta no SERVIDOR.
+
+        Diferente de :meth:`transcribe` (trecho curto do ditado ao vivo), aqui o áudio inteiro
+        vai de uma vez e quem corta nos vales de silêncio é o motor — que já faz isso para todo
+        mundo. Antes o worker segmentava do lado do cliente com o ``StreamSegmenter``
+        vendorizado, o que obrigava a carregar 828 linhas copiadas do motor para reproduzir a
+        lógica que o próprio motor executa melhor (sem o teto de ~30s do Whisper).
+        """
+        h = self._call(
+            lambda c: c.transcribe_file(pcm, lang=language or "", session=self._session),
+            boot_timeout=0.0,
+        )
+        return (h.get("text") or "").strip() if isinstance(h, dict) else str(h or "").strip()
+
     def synthesize(self, text, voice=None, speed=1.0):
         """(texto) -> (wav_bytes, sample_rate:int) via {cmd:"tts"} do motor único, com a
         NORMALIZAÇÃO na FONTE (``normalize=True``) e o áudio já em WAV codificado — o cliente
@@ -984,10 +1006,10 @@ class _VoxBridge:
 
 
 def main():
-    # GUARD (fail-loud): o worker FINO conecta ao daemon SEM numpy no boot — vox_stream/numpy sao
-    # LAZY (so o transcribe_file offline os carrega). Se um import de vox_stream/numpy vazar pro
+    # GUARD (fail-loud): o worker FINO conecta ao daemon SEM numpy no boot — numpy e LAZY (so o
+    # transcribe_file offline o carrega, para converter o WAV). Se um import de numpy vazar pro
     # topo do worker, o boot FALHA AQUI, alto e claro, em vez de inflar a RAM ociosa em silencio.
-    assert "numpy" not in sys.modules, "numpy carregado no boot do worker (vox_stream vazou no import de topo)"
+    assert "numpy" not in sys.modules, "numpy carregado no boot do worker (vazou num import de topo)"
     state = {"language": (os.environ.get("VOICE_LANG", "pt").strip() or "pt"),
              "model": VOX_PROFILE}
     def _vox_status(msg, busy=False):
@@ -1201,7 +1223,6 @@ def main():
                 fpath = msg.get("path")
                 try:
                     import numpy as np                      # LAZY: só o transcribe_file usa numpy
-                    from vox_stream import StreamSegmenter   # LAZY: idem (segmentação do WAV offline)
                     with wave.open(fpath, "rb") as wf:
                         nch = wf.getnchannels()
                         sw = wf.getsampwidth()
@@ -1223,11 +1244,11 @@ def main():
                             xp = np.linspace(0.0, 1.0, arr.size, dtype=np.float64)
                             xq = np.linspace(0.0, 1.0, n_out, dtype=np.float64)
                             arr = np.interp(xq, xp, arr).astype(np.float32)
-                    _fseg = StreamSegmenter(sr=SAMPLE_RATE)
-                    _file_segs = _fseg.feed(arr) + _fseg.flush()
-                    parts = [decode_seg(seg, raise_on_motor_fail=True)
-                             for seg in _file_segs]
-                    text = " ".join(p for p in parts if p).strip()
+                    # O MOTOR segmenta a gravação inteira (VAD nos vales de silêncio) e devolve
+                    # o texto todo, sem o teto de ~30s do Whisper. Antes isto era feito aqui com
+                    # o StreamSegmenter vendorizado — 828 linhas copiadas do motor para refazer,
+                    # do lado do cliente, uma decisão que o servidor já toma para todo mundo.
+                    text = vox.transcribe_file(arr, state["language"])
                     emit({"event": "transcribed", "id": rid, "ok": True, "text": text})
                 except VoxEngineError as exc:
                     # Motor caiu no meio: NÃO reporta sucesso vazio (que seria
