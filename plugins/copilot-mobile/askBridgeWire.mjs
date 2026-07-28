@@ -14,6 +14,36 @@
 const PHONE_RESPONDER_ID = "copilot-mobile-phone";
 const PHONE_ANSWER_TIMEOUT_MS = 300000; // humano
 
+/**
+ * Traduz uma FALHA do dispatch num resultado de tool, SEM mascarar o motivo real.
+ *
+ * Bug apontado pela sessão whatsapp-plugin (2026-07-28) e PROCEDENTE: o catch antigo devolvia
+ * `success:"(o usuário não respondeu)"` para QUALQUER erro — então "a ponte está quebrada / não há
+ * ninguém registrado pra perguntar" ficava indistinguível de "o humano escolheu não responder".
+ * Isso é fail-SILENT: o agente segue como se tivesse perguntado. Violava a nossa própria regra.
+ *
+ * Regra agora:
+ *  • TODOS os respondedores declinaram/não responderam ⇒ é de fato um não-resposta HUMANA (a pergunta
+ *    chegou a alguém). Mantém a UX do nativo.
+ *  • Qualquer outra falha (nenhum respondedor registrado, socket, bug) ⇒ é INFRAESTRUTURA: o texto diz
+ *    o motivo real e nega explicitamente que tenha sido recusa do usuário. O `error`/`resultType` sinaliza
+ *    pro host, e o `textResultForLlm` garante que a verdade chega ao modelo mesmo que o host ignore o tipo.
+ * Puro e testável.
+ */
+export function askFailureResult(err) {
+  const msg = String(err?.message ?? err ?? "").trim();
+  if (/nenhum respondedor respondeu/i.test(msg)) {
+    return { resultType: "success", textResultForLlm: "(o usuário não respondeu)" };
+  }
+  return {
+    resultType: "failure",
+    error: msg || "ask-bridge dispatch falhou (sem mensagem)",
+    textResultForLlm:
+      `(ask_user NÃO foi entregue — falha da ponte: ${msg || "erro desconhecido"}. ` +
+      `Isto NÃO é uma recusa do usuário; a pergunta não chegou a ninguém.)`,
+  };
+}
+
 export async function planAskBridge({ sessionId, askBridge, api, extensionId = "copilot-mobile", home, log = () => {} }) {
   const claim = await api.acquireOrConnect(sessionId, home ? { extensionId, home } : { extensionId });
 
@@ -48,7 +78,7 @@ export async function planAskBridge({ sessionId, askBridge, api, extensionId = "
           return { resultType: "success", textResultForLlm: String(answer ?? "").trim() || "(o usuário não respondeu)" };
         } catch (e) {
           log(`ask-bridge dispatch: ${e?.message || e}`);
-          return { resultType: "success", textResultForLlm: "(o usuário não respondeu)" };
+          return askFailureResult(e);
         } finally {
           try { askBridge.abortAll(); } catch { /* ignore */ }
         }
