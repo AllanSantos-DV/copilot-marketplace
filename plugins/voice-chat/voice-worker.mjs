@@ -61,7 +61,29 @@ export function ensureWorker() {
     if (worker || workerStarting) return;   // modelo fino: CADA fork sobe o PRÓPRIO worker (sem eleição de primário)
     pyIndex = 0;
     pyCandidates = null;   // rebuild discovery fresh for this start sequence
+    // PRIMEIRO INSTALL do motor: só isto o plugin faz por conta própria. Depois de instalado,
+    // instalar/atualizar/reciclar é do `vox ensure`, do próprio motor — o worker não carrega
+    // mais o ciclo de vida vendorizado. Não bloqueia o start: se o motor já existe (o caso
+    // comum), o bootstrap sai na hora; se não existe, o worker sobe e o boot do bridge
+    // reporta a falha ALTA, com razão, em vez de travar a extensão.
+    void bootstrapEngineOnce();
     startWorker();
+}
+
+let engineBootstrapped = false;
+async function bootstrapEngineOnce() {
+    if (engineBootstrapped) return;
+    engineBootstrapped = true;
+    try {
+        const boot = await import("./voice-engine-bootstrap.mjs");
+        const r = await boot.ensureEngineInstalled({ log: (m) => log(`[motor] ${m}`) });
+        // Degrade SINALIZADO: nunca silencioso. Quem decide o que mostrar é o worker, que
+        // vai falhar alto no primeiro pedido se o motor de fato não estiver lá.
+        if (!r.ok) { log(`[motor] instalação automática indisponível: ${r.reason}`); }
+        else if (r.installed) { log(`[motor] instalado v${r.version}`); }
+    } catch (e) {
+        log(`[motor] bootstrap falhou: ${e?.message || e}`);
+    }
 }
 
 function startWorker() {
