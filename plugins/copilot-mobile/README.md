@@ -31,3 +31,15 @@ node drift.test.mjs   # 17/17 — detecção de drift (puro)
 ```
 A fiação ponta-a-ponta (baseline via getEvents + incremento por `user.message`, leitura do disco no
 hook, composição voz+aviso) é validada por `../daemon/scripts/probe-bridge-integration.mjs`.
+
+## Escopo do "agnóstico" (precisão importa)
+
+Este plugin é **environment-agnostic**: não carrega nenhum caminho de máquina, IP de LAN, nome de
+aparelho, conta ou token. O diretório do daemon é resolvido em runtime
+(`process.env.COPILOT_DAEMON_HOME || join(homedir(), ".copilot-mobile-daemon")`).
+
+Ele **NÃO é owner-agnostic**, e isso é por construção: `DIST_OWNER`/`DIST_REPO` apontam para
+`AllanSantos-DV/copilot-mobile-daemon-dist`, que é de onde o daemon é baixado, e `DIST_SHA256` fixa
+o hash do artefato exato contra o qual esta versão foi construída. Sem esse pino não há o que instalar
+— e sem o hash, a instalação aceitaria qualquer coisa que a URL devolvesse. Quem quiser publicar um
+fork troca esses três valores e reempacota.

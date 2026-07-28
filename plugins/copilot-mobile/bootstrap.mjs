@@ -10,16 +10,21 @@
 // re-installing app/ never wipes pairing or the chosen transport.
 import { homedir, platform } from "node:os";
 import { join, dirname } from "node:path";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, openSync, closeSync, rmSync, readdirSync, renameSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { download } from "./http.mjs";
 
 // Pinned target: bump these together with a new dist release to roll the daemon forward.
-const DAEMON_VERSION = "0.1.35";
+const DAEMON_VERSION = "0.1.36";
 const DIST_OWNER = "AllanSantos-DV";
 const DIST_REPO = "copilot-mobile-daemon-dist";
-const DIST_TAG = "copilot-mobile-daemon-v0.1.35";
+const DIST_TAG = "copilot-mobile-daemon-v0.1.36";
 const DIST_ASSET = "copilot-mobile-daemon-win32-x64.tar.gz";
+// SHA-256 of the exact tarball this bridge was built against, printed by scripts/pack-dist.mjs.
+// Bump it in the SAME commit as DIST_TAG — a stale digest fails the install loudly, which is the
+// intended behaviour: better a refused upgrade than an unverified one.
+const DIST_SHA256 = "4290d2cd415910c87ac8b555138c36d26f38a37e2f813af95c4d202e655470a5";
 const DIST_URL = `https://github.com/${DIST_OWNER}/${DIST_REPO}/releases/download/${DIST_TAG}/${DIST_ASSET}`;
 
 const HOME = process.env.COPILOT_DAEMON_HOME || join(homedir(), ".copilot-mobile-daemon");
@@ -199,6 +204,21 @@ async function provision() {
   const tgz = join(HOME, DIST_ASSET);
   log(`downloading ${DIST_URL}`);
   await download(DIST_URL, tgz);
+  // HTTPS proves we reached github.com. It does NOT prove the asset is the one we built: a release
+  // asset can be re-uploaded, an account can be compromised, a proxy can serve something else — and an
+  // installer that only checks the URL would extract whatever it got, straight into the daemon that
+  // holds the owner's Copilot token. So the digest is pinned at build time and verified HERE, before a
+  // single byte is unpacked. A mismatch aborts the install with the two hashes shown; it never falls
+  // back to "install anyway", because a silent fallback would defeat the entire check.
+  const got = createHash("sha256").update(readFileSync(tgz)).digest("hex");
+  if (got !== DIST_SHA256) {
+    try { rmSync(tgz, { force: true }); } catch {}
+    throw new Error(
+      `dist integrity check FAILED for ${DIST_TAG}: expected sha256 ${DIST_SHA256}, got ${got}. `
+      + "The downloaded asset is not the one this bridge was built against — refusing to install it.",
+    );
+  }
+  log(`sha256 ok (${got.slice(0, 16)}…)`);
   log(`downloaded ${tgz}; extracting → ${APP_DIR}`);
   // Native bsdtar (Windows 10 1803+/11). Archive root = daemon contents → extract straight into app/.
   // UPGRADE-SAFE: a running daemon locks node_modules (its bundled runtime .exe). The runtime is
