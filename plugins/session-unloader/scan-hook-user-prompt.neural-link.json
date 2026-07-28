@@ -1,0 +1,16 @@
+{
+  "_comment": "Calibragem do neural-link. Esta extensao NAO declara hook proprio: o dispatcher le este arquivo e roda o script no processo unico do evento. Requer neural-link >= 0.7.1.",
+  "events": [
+    "UserPromptSubmit"
+  ],
+  "script": {
+    "node": "scan-hook.mjs"
+  },
+  "args": [
+    "user-prompt"
+  ],
+  "timeout": 20000,
+  "weight": 0.55,
+  "modifiers": [],
+  "project": "session-unloader"
+}
