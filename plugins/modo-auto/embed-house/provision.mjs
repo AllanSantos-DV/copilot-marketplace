@@ -1,16 +1,22 @@
-// provision.mjs — BAIXA+INSTALA a casa compartilhada de um RELEASE PÚBLICO (copilot-marketplace, padrão
-// vox-engine), verificada por SHA256 FAIL-CLOSED (sidecar ausente/malformado/mismatch = ABORT), com lock
-// atômico (openSync 'wx') p/ serializar consumidores concorrentes. NUNCA lança → {ok:false,reason}.
+// provision.mjs — BAIXA+INSTALA a casa compartilhada do RELEASE PÚBLICO do engine-registry (o registro
+// central dos motores), verificada por SHA256 FAIL-CLOSED (sidecar ausente/malformado/mismatch = ABORT),
+// com lock atômico (openSync 'wx') p/ serializar consumidores concorrentes. NUNCA lança → {ok:false,reason}.
 // Instala em ~/.embed-house/bin (neutro, cross-plugin). O artefato é self-contained (traz o próprio
 // node_modules trimado) → funciona em máquina limpa, sem depender do node_modules do consumidor.
+//
+// NOTA DE MIGRAÇÃO: a origem era `copilot-marketplace` — a vitrine de EXTENSÕES do Copilot CLI, que não
+// deveria hospedar motor nenhum. Um motor é agnóstico: não conhece seus consumidores nem o host deles.
+// A casa dos motores agora é `engine-registry`, onde a release também vem ASSINADA (Ed25519). Este
+// arquivo verifica só o sha256; quem quiser a verificação de autenticidade usa o `engine-kit`, que
+// substitui este provision inteiro.
 import { mkdirSync, existsSync, renameSync, rmSync, openSync, closeSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 
-const DEFAULT_VERSION = "1.0.4";
-const MARKETPLACE = "https://github.com/AllanSantos-DV/copilot-marketplace/releases/download";
+const DEFAULT_VERSION = "1.0.5";
+const MARKETPLACE = "https://github.com/AllanSantos-DV/engine-registry/releases/download";
 const HOME = join(homedir(), ".embed-house");
 const BIN = join(HOME, "bin");
 const LOCK = join(HOME, "provision.lock");
