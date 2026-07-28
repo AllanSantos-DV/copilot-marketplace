@@ -16,15 +16,15 @@ import { spawn } from "node:child_process";
 import { download } from "./http.mjs";
 
 // Pinned target: bump these together with a new dist release to roll the daemon forward.
-const DAEMON_VERSION = "0.1.36";
+const DAEMON_VERSION = "0.1.37";
 const DIST_OWNER = "AllanSantos-DV";
 const DIST_REPO = "copilot-mobile-daemon-dist";
-const DIST_TAG = "copilot-mobile-daemon-v0.1.36";
+const DIST_TAG = "copilot-mobile-daemon-v0.1.37";
 const DIST_ASSET = "copilot-mobile-daemon-win32-x64.tar.gz";
 // SHA-256 of the exact tarball this bridge was built against, printed by scripts/pack-dist.mjs.
 // Bump it in the SAME commit as DIST_TAG — a stale digest fails the install loudly, which is the
 // intended behaviour: better a refused upgrade than an unverified one.
-const DIST_SHA256 = "4290d2cd415910c87ac8b555138c36d26f38a37e2f813af95c4d202e655470a5";
+const DIST_SHA256 = "842f172084c66aea37a758f34cf232a48fd8f1c934bf0e61941f314f346b9627";
 const DIST_URL = `https://github.com/${DIST_OWNER}/${DIST_REPO}/releases/download/${DIST_TAG}/${DIST_ASSET}`;
 
 const HOME = process.env.COPILOT_DAEMON_HOME || join(homedir(), ".copilot-mobile-daemon");
