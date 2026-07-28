@@ -134,6 +134,11 @@ def _to_closed(frame: dict) -> CaptureClosed:
         errors=errors,
         mic_ok=bool(frame.get("mic_ok", True)),
         cancelled=bool(frame.get("cancelled", False)),
+        # O daemon pode responder ao ``capture_close`` com ``{event:error, code, message}``
+        # (ex.: ``capture_timeout``). PRESERVA o motivo — descartá-lo fazia o texto parcial
+        # passar por final, calado.
+        code=str(frame.get("code") or ""),
+        message=str(frame.get("message") or ""),
     )
 
 

@@ -74,6 +74,12 @@ class CaptureClosed:
     errors: Tuple[str, ...] = ()
     mic_ok: bool = True
     cancelled: bool = False
+    # Preenchidos quando o fechamento NÃO foi ``ok`` (o daemon devolveu ``{event:error}``
+    # em vez do sumário — ex.: ``capture_timeout`` do teto de drain). Sem isto o motivo se
+    # perdia e a camada de cima entregava o texto PARCIAL como se fosse o final: o bug do
+    # "cortou a última frase", invisível. ``code=""`` = fechamento normal.
+    code: str = ""
+    message: str = ""
 
 
 @dataclass(frozen=True)

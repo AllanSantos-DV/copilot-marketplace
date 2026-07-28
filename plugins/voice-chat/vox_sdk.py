@@ -66,9 +66,9 @@ AudioFormat = Literal["pcm", "wav", "opus", "vorbis", "mp3"]
 PROFILES: tuple[str, ...] = ("dictation", "translator", "transcription", "transcription_hq")
 PROFILE_PURPOSE: dict[str, str] = {
     "dictation": "ditado / trecho curto — velocidade (streaming)",
-    "translator": "tradução — qualidade",
+    "translator": "tradução em tempo real — único perfil com large-v3 (GPU)",
     "transcription": "arquivo completo — rápido (padrão; mesmo motor do ditado)",
-    "transcription_hq": "arquivo completo — qualidade máxima (áudio difícil/ruidoso)",
+    "transcription_hq": "arquivo completo — turbo (large-v3 é reservado à tradução)",
 }
 MODELS: tuple[str, ...] = ("base", "small", "turbo", "large-v3")
 PRIORITIES: tuple[str, ...] = ("interactive", "batch")
@@ -954,8 +954,9 @@ class VoxClient:
         """Retrato TIPADO das capacidades desta máquina (uma chamada → cliente sabe tudo).
 
         Faz o handshake ``info`` e devolve um :class:`Capabilities`: perfis já resolvidos
-        pro hardware (``transcription``→turbo, ``transcription_hq``→large-v3 na GPU), modelos
-        residentes/permitidos, formatos de áudio servíveis + as listas estáticas conhecidas.
+        pro hardware (``transcription``/``transcription_hq``→turbo; ``translator``→large-v3
+        na GPU — único perfil com large), modelos residentes/permitidos, formatos de áudio
+        servíveis + as listas estáticas conhecidas.
         É a forma nativa de descoberta — o cliente não hardcoda nem lê o código-fonte."""
         h = self.info(timeout=timeout)
         # Coerção defensiva de TIPO (não só falsy): um daemon degradado/hostil pode mandar
@@ -1015,8 +1016,8 @@ class VoxClient:
 
         ``timeout`` é maior (batch). Sem ``model``/``profile``, usa o profile
         ``transcription`` = **turbo** (rápido, mesmo motor do ditado, zero VRAM nova).
-        Qualidade máxima p/ áudio difícil/ruidoso: ``profile='transcription_hq'`` ou
-        ``model='large-v3'`` (sobe lazy sob demanda).
+        Por política do motor, o ``large-v3`` é reservado à tradução em tempo real:
+        arquivo (inclusive ``profile='transcription_hq'``) NUNCA sobe large — fica em turbo.
         Levanta :class:`VoxEngineError` se o motor não retornar ``result``."""
         pcm = _to_pcm_bytes(audio)
         header: dict = {"cmd": "transcribe_file", "req_id": self._next_rid(),

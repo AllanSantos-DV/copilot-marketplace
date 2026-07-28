@@ -126,9 +126,30 @@ class CaptureSession:
         self._recording = False
         self._stopped = True
         self._res = self._build_res(stuck=not joined)
+        self._warn_if_truncated()
         if not self._quiet:
             self._safe_emit({"event": "recording", "state": False})
         return self._res
+
+    def _warn_if_truncated(self) -> None:
+        """FAIL-LOUD do fechamento incompleto: o daemon respondeu ``{event:error}`` ao
+        ``capture_close`` (ex.: ``capture_timeout``) em vez do sumário, então a CAUDA — o
+        fim da fala que ainda estava sendo transcrito — NÃO voltou. O texto entregue é o
+        PARCIAL (o que chegou ao vivo até o clique).
+
+        Fail-loud ≠ fail-destrutivo: entregamos o parcial (melhor que nada), mas NUNCA
+        calados — era exatamente este silêncio que fazia "cortou a última frase" parecer
+        um capricho do motor em vez de um erro."""
+        summary = self._summary
+        if summary is None or summary.ok:
+            return
+        self._safe_emit({
+            "event": "error",
+            "code": "capture_truncated",
+            "message": summary.message
+            or "O fim da fala não foi transcrito a tempo — o texto pode estar incompleto.",
+            "cause": summary.code or "close_failed",
+        })
 
     def cancel(self) -> None:
         """ABORT: descarta a captura (mic roubado / cancelamento do PTT). IDEMPOTENTE."""
@@ -209,4 +230,8 @@ class CaptureSession:
                "voiced_run_ms": None, "chunks": chunks}
         if stuck:
             res["stuck"] = True   # fail-loud: a thread não encerrou; o res pode ser parcial
+        if summary is not None and not summary.ok:
+            # o daemon não confirmou o fechamento → a cauda não voltou; o texto é PARCIAL
+            res["truncated"] = True
+            res["close_error"] = summary.code or "close_failed"
         return res
