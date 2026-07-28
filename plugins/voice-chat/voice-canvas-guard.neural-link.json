@@ -1,0 +1,13 @@
+{
+  "_comment": "Calibragem do neural-link. Esta extensao NAO declara hook proprio: o dispatcher le este arquivo e roda o script no processo unico do evento. Requer neural-link >= 0.7.1.",
+  "events": [
+    "postToolUseFailure"
+  ],
+  "script": {
+    "node": "voice-canvas-guard.cjs"
+  },
+  "timeout": 8000,
+  "weight": 0.95,
+  "modifiers": [],
+  "project": "voice-chat"
+}
