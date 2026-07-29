@@ -27,10 +27,22 @@ import subprocess
 #: MAJOR do envelope JSON do CLI que este conector entende.
 SUPPORTED_SCHEMA_MAJOR = 1
 
-_FALLBACK_DIRS = (
-    os.path.join(os.environ.get("LOCALAPPDATA", ""), "vox-engine", "Scripts"),
-    os.path.join(os.environ.get("USERPROFILE", ""), ".vox-engine", "Scripts"),
-)
+#: Onde o motor instala o CLI. O instalador cria um venv em ``%LOCALAPPDATA%\vox-engine\venv``
+#: e os console-scripts ficam em ``venv\Scripts`` — o mesmo layout que ``bootstrap.daemon_paths``
+#: e o SDK usam. Sem o segmento ``venv`` o executável existe e mesmo assim não é achado.
+#: Essa é a razão de não bastar procurar no PATH: o venv do motor não é ativado por ninguém.
+def _install_root() -> str:
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    return os.path.join(base, "vox-engine")
+
+
+def _candidate_dirs() -> "tuple[str, ...]":
+    root = _install_root()
+    return (
+        os.path.join(root, "venv", "Scripts"),   # Windows
+        os.path.join(root, "venv", "bin"),       # POSIX
+    )
+
 
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -48,17 +60,14 @@ def find_vox() -> "str | None":
     override = os.environ.get("VOX_CLI")
     if override:
         return override if os.path.isfile(override) else None
-    found = shutil.which("vox")
-    if found:
-        return found
-    for d in _FALLBACK_DIRS:
-        if not d:
-            continue
+    for d in _candidate_dirs():
         for name in ("vox.exe", "vox"):
             p = os.path.join(d, name)
             if os.path.isfile(p):
                 return p
-    return None
+    # PATH por último: só vale se alguém instalou o motor globalmente. Procurar aqui primeiro
+    # arriscaria pegar um `vox` de outro projeto em vez do motor que o consumidor depende.
+    return shutil.which("vox")
 
 
 def _run(args: "list[str]", timeout_s: float) -> dict:
