@@ -23,6 +23,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 
 #: MAJOR do envelope JSON do CLI que este conector entende.
 SUPPORTED_SCHEMA_MAJOR = 1
@@ -57,6 +58,8 @@ def _from_pointer() -> "str | None":
 
 
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+#: Grupo de processo próprio: impede que um Ctrl-C do consumidor derrube o motor no meio.
+_NEW_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
 
 class VoxCliError(RuntimeError):
@@ -89,18 +92,37 @@ def _run(args: "list[str]", timeout_s: float) -> dict:
     exe = find_vox()
     if not exe:
         raise VoxCliError("motor de voz não instalado (executável 'vox' não encontrado)")
-    try:
-        proc = subprocess.run(
-            [exe, *args], capture_output=True, timeout=timeout_s,
-            creationflags=_NO_WINDOW,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise VoxCliError(f"o motor não respondeu em {timeout_s:.0f}s") from exc
-    except OSError as exc:
-        raise VoxCliError(f"não consegui executar {exe}: {exc}") from exc
 
-    stderr = (proc.stderr or b"").decode("utf-8", "replace").strip()
-    raw = (proc.stdout or b"").decode("utf-8", "replace").strip()
+    # Arquivos temporários em vez de pipes — a diferença entre funcionar e travar.
+    #
+    # Com `capture_output=True`, o `communicate()` só retorna quando o pipe FECHA, e o pipe só
+    # fecha quando o último detentor do handle morre. O `vox ensure` sobe o daemon, que é
+    # permanente e HERDA esses handles: o comando termina em segundos e a leitura fica presa
+    # até o timeout. O sintoma era "o motor não respondeu em 120s" — mas o motor respondia; era
+    # este lado que não conseguia ver o fim da saída. Um arquivo não tem esse acoplamento: ele
+    # está completo quando o processo sai, independentemente de quem mais herdou o descritor.
+    with tempfile.TemporaryDirectory(prefix="voxcli-") as tmp:
+        f_out = os.path.join(tmp, "out")
+        f_err = os.path.join(tmp, "err")
+        try:
+            with open(f_out, "wb") as fo, open(f_err, "wb") as fe:
+                proc = subprocess.run(
+                    [exe, *args], stdout=fo, stderr=fe,
+                    stdin=subprocess.DEVNULL, timeout=timeout_s,
+                    creationflags=_NO_WINDOW | _NEW_GROUP,
+                )
+        except subprocess.TimeoutExpired as exc:
+            raise VoxCliError(f"o motor não respondeu em {timeout_s:.0f}s") from exc
+        except OSError as exc:
+            raise VoxCliError(f"não consegui executar {exe}: {exc}") from exc
+
+        with open(f_out, "rb") as fo:
+            saida = fo.read()
+        with open(f_err, "rb") as fe:
+            erro = fe.read()
+
+    stderr = erro.decode("utf-8", "replace").strip()
+    raw = saida.decode("utf-8", "replace").strip()
     if not raw:
         raise VoxCliError(f"o motor não devolveu saída (exit {proc.returncode}). {stderr}".strip())
     try:

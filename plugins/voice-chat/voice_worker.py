@@ -1119,6 +1119,17 @@ def main():
     _mok, _mname, _mreason = detect_mic()
     emit({"event": "mic", "ok": _mok, "name": _mname, "reason": _mreason})
     emit({"event": "mics", **list_mics()})
+    # A 1ª leitura acontece com o motor ainda subindo (o boot roda em thread), e a enumeração
+    # de microfone vem DELE — então ela sai vazia e a UI trava em "nenhum microfone", para
+    # sempre, mesmo com 34 dispositivos disponíveis. Não é erro: é ordem. Quando o motor fica
+    # pronto, reemitimos a lista de verdade.
+    def _reemitir_microfones():
+        if not vox.ensure(boot_timeout=90.0):
+            return   # o _motor_boot já reporta a falha do motor — não duplicar erro aqui
+        ok, nome, razao = detect_mic()
+        emit({"event": "mic", "ok": ok, "name": nome, "reason": razao})
+        emit({"event": "mics", **list_mics()})
+    threading.Thread(target=_reemitir_microfones, daemon=True).start()
     start_focus_poller()   # emite appFocus (foco do app) na mudança; a UI gateia o áudio conforme o setting
 
 
