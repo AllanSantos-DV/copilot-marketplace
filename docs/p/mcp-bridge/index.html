@@ -4,12 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>mcp-bridge — copilot-marketplace</title>
-  <meta name="description" content="Devolve o MCP ao Copilot onde a política bloqueia — via extensão, com tools, prompts e resources nativos." />
+  <meta name="description" content="Devolve o MCP ao Copilot onde a política bloqueia: conecta seus servidores MCP e entrega tools, prompts e resources nativamente ao agente. Um motor local, como o mcp-gateway, entra só pelo nome — sem URL nem token no config." />
   <meta name="color-scheme" content="dark" />
   <meta name="theme-color" content="#14121C" />
   <meta property="og:type" content="article" />
   <meta property="og:title" content="mcp-bridge — copilot-marketplace" />
-  <meta property="og:description" content="Devolve o MCP ao Copilot onde a política bloqueia — via extensão, com tools, prompts e resources nativos." />
+  <meta property="og:description" content="Devolve o MCP ao Copilot onde a política bloqueia: conecta seus servidores MCP e entrega tools, prompts e resources nativamente ao agente. Um motor local, como o mcp-gateway, entra só pelo nome — sem URL nem token no config." />
   <meta property="og:url" content="https://allansantos-dv.github.io/copilot-marketplace/p/mcp-bridge/" />
   <link rel="canonical" href="https://allansantos-dv.github.io/copilot-marketplace/p/mcp-bridge/" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -39,9 +39,9 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">mcp-bridge</h1>
-        <span class="chip" title="versão publicada">v0.1.0</span>
+        <span class="chip" title="versão publicada">v0.2.0</span>
       </div>
-      <p class="doc-hero__lede">Onde o MCP é bloqueado por política mas extensões são permitidas, o <strong>mcp-bridge</strong> reabre a porta: conecta a servidores MCP (<code>stdio</code>, <code>http</code>, <code>sse</code> — com login OAuth) e expõe as tools, prompts e resources deles nativamente ao agente, com resiliência, auditoria e um painel de saúde. Devolve os braços e as pernas da IA.</p>
+      <p class="doc-hero__lede">Onde o MCP é bloqueado por política mas extensões são permitidas, o <strong>mcp-bridge</strong> reabre a porta: conecta a servidores MCP (<code>stdio</code>, <code>http</code>, <code>sse</code> — com login OAuth) e entrega as tools, prompts e resources deles <strong>nativamente</strong> ao agente, com reconexão, auditoria e um painel de saúde. E um motor que já roda na sua máquina entra pelo campo <code>engine</code>, <strong>só pelo nome</strong>: endereço e credencial são resolvidos na hora da conexão, nunca guardados no config.</p>
       <div class="doc-hero__cta">
         <div class="prompt prompt--sm" data-cmd="copilot plugin install mcp-bridge@copilot-marketplace">
         <span class="prompt__glyph" aria-hidden="true">⌁</span>
@@ -54,16 +54,20 @@
       </div>
       <ul class="hl" aria-label="Destaques">
         <li class="hl__item">
-          <h3 class="hl__title">MCP onde é bloqueado</h3>
-          <p class="hl__body">Reconecta o agente a servidores MCP usando o canal de extensões, que a política permite.</p>
+          <h3 class="hl__title">MCP onde a política bloqueia</h3>
+          <p class="hl__body">Reconecta o agente a servidores MCP pelo canal de extensões — o que a política permite — e expõe <strong>tools, prompts e resources</strong> como capacidades nativas.</p>
         </li>
         <li class="hl__item">
-          <h3 class="hl__title">Tools, prompts e resources</h3>
-          <p class="hl__body">Expõe tudo nativamente ao agente — não só tools, mas prompts e resources também.</p>
+          <h3 class="hl__title">O config guarda nome, não segredo</h3>
+          <p class="hl__body"><code>engine: mcp-gateway</code> no lugar de <code>url</code> + <code>headers</code>. A ponte lê o <code>runtime.json</code> e o cofre do motor <strong>na hora de conectar</strong> — o token nunca é escrito por ela.</p>
         </li>
         <li class="hl__item">
-          <h3 class="hl__title">Resiliência e auditoria</h3>
-          <p class="hl__body">Reconexão automática, log de auditoria e um painel de saúde para ver o que está de pé.</p>
+          <h3 class="hl__title">Falha alto, nunca no escuro</h3>
+          <p class="hl__body">Motor parado ou ausente derruba <strong>aquele</strong> servidor com erro explícito. Sem adivinhar porta e sem conectar sem credencial: erro claro agora vale mais que erro silencioso depois.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Tudo à vista</h3>
+          <p class="hl__body">Painel de saúde no app, auditoria linha a linha de cada chamada, perfis de servidores, retry com circuit breaker e limite de resposta.</p>
         </li>
       </ul>
     </header>
@@ -72,21 +76,59 @@
       <article class="doc-body" id="doc-body">
         <section class="doc-section" id="o-que-e">
           <h2 class="doc-h2"><a class="doc-anchor" href="#o-que-e" aria-label="Link para O que é">#</a>O que é</h2>
-          <p>O mcp-bridge é uma extensão que fala <strong>Model Context Protocol</strong> por baixo e reapresenta cada servidor MCP como capacidade nativa do agente do Copilot. É a saída para ambientes onde o MCP direto está barrado por política, mas extensões são liberadas.</p>
-          <p>Ele não força nada: usa o canal que já é permitido para reconectar o agente a servidores que <strong>você</strong> controla, e registra tudo para auditoria.</p>
-          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Registra um <strong>canvas</strong> (painel de saúde) e usa <strong>hooks</strong>; reinicie o app uma vez após instalar.</p></aside>
+          <p>O mcp-bridge fala <strong>Model Context Protocol</strong> por baixo e reapresenta cada servidor MCP como capacidade nativa do agente: as tools viram tools dele, os prompts viram prompts, os resources viram resources. É a saída para ambientes onde o MCP direto está barrado por política, mas extensões são liberadas.</p>
+          <p>Ele não força nada — usa o canal que já é permitido para reconectar o agente a servidores que <strong>você</strong> controla, e registra cada chamada num log que dá para consultar de dentro da sessão.</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Toda a configuração mora num arquivo só: <code>~/.copilot/mcp-bridge/config.json</code>. Ele nasce na primeira sessão, já com um servidor de exemplo desligado.</p></aside>
         </section>
 
         <section class="doc-section" id="como-usar">
           <h2 class="doc-h2"><a class="doc-anchor" href="#como-usar" aria-label="Link para Como usar">#</a>Como usar</h2>
-          <ol class="doc-steps"><li><h4>Instale o plugin</h4><p>Pelo marketplace (comando na seção Instalar).</p></li><li><h4>Reinicie o app</h4><p>Uma vez, para os hooks e o painel entrarem.</p></li><li><h4>Configure os servidores</h4><p>Aponte para seus servidores MCP (stdio, http ou sse) e, se preciso, faça o login OAuth.</p></li><li><h4>Use as capacidades</h4><p>As tools, prompts e resources dos servidores passam a aparecer nativamente para o agente.</p></li><li><h4>Acompanhe a saúde</h4><p>O painel mostra conexões, reconexões e a auditoria das chamadas.</p></li></ol>
-          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Conexões caídas são retomadas automaticamente; o painel deixa claro o que está de pé e o que falhou.</p></aside>
+          <ol class="doc-steps"><li><h4>Instale o plugin</h4><p>Pelo marketplace (comando na seção Instalar) e reinicie o app uma vez — o painel entra no próximo boot.</p></li><li><h4>Declare seus servidores</h4><p>Abra o <code>config.json</code> e liste o que quer conectar: <code>stdio</code> para processos locais, <code>http</code> ou <code>sse</code> para os remotos.</p></li><li><h4>Aponte pelo motor, quando houver um</h4><p>Num servidor <code>http</code>/<code>sse</code>, troque <code>url</code> e <code>headers</code> pelo campo <code>engine</code> com o nome do motor. A ponte resolve endereço e credencial sozinha.</p></li><li><h4>Entre nos que pedem login</h4><p><code>mcpbridge_login &lt;servidor&gt;</code> abre o navegador para autorizar (OAuth 2.1). Depois, rode <code>/clear</code> ou reinicie a sessão.</p></li><li><h4>Use as capacidades</h4><p>As tools, prompts e resources passam a aparecer nativamente para o agente. <code>mcpbridge_list_servers</code> mostra o que conectou e o que cada servidor trouxe.</p></li><li><h4>Acompanhe a saúde</h4><p>O painel <strong>MCP Bridge — Dashboard</strong> mostra status, latência e erros; <code>mcpbridge_audit</code> lista as últimas chamadas.</p></li></ol>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Mexeu no <code>config.json</code>? A mudança entra no próximo <code>/clear</code> ou reinício da sessão.</p></aside>
         </section>
 
-        <section class="doc-section" id="transportes">
-          <h2 class="doc-h2"><a class="doc-anchor" href="#transportes" aria-label="Link para Transportes e segurança">#</a>Transportes e segurança</h2>
-          <ul class="doc-list"><li><strong>stdio</strong> — processos MCP locais.</li><li><strong>http</strong> e <strong>sse</strong> — servidores MCP remotos.</li><li><strong>OAuth</strong> — login quando o servidor exige.</li><li><strong>Auditoria</strong> — registro das tools chamadas, para rastreabilidade.</li></ul>
-          <p>Pensado para uso <strong>enterprise</strong>: você mantém o controle dos servidores e a visibilidade do que o agente acessa.</p>
+        <section class="doc-section" id="motor">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#motor" aria-label="Link para Motor em vez de URL">#</a>Motor em vez de URL</h2>
+          <p>Um <strong>motor</strong> é um daemon que já roda na sua máquina e anuncia onde está — o caso da ponte é o <code>mcp-gateway</code>, que conecta uma vez em cada servidor MCP e reexpõe tudo num endpoint só. O jeito óbvio de alcançá-lo seria colar no config a porta <strong>e</strong> o bearer dele: segredo em texto puro, num arquivo que qualquer processo com acesso ao seu HOME consegue ler.</p>
+          <div class="codeblock"><pre><code>// endereço chumbado + segredo em texto puro no seu config
+{
+  &quot;name&quot;: &quot;gateway&quot;,
+  &quot;type&quot;: &quot;http&quot;,
+  &quot;url&quot;: &quot;http://127.0.0.1:8765/mcp&quot;,
+  &quot;headers&quot;: { &quot;Authorization&quot;: &quot;Bearer &lt;o segredo do motor, aqui&gt;&quot; },
+  &quot;enabled&quot;: true
+}</code></pre></div>
+          <p>No lugar disso, declare <strong>o nome do motor</strong>. O config passa a guardar uma referência, não uma credencial:</p>
+          <div class="codeblock"><button class="copy copy--code" type="button" data-copy="{
+  &quot;name&quot;: &quot;gateway&quot;,
+  &quot;type&quot;: &quot;http&quot;,
+  &quot;engine&quot;: &quot;mcp-gateway&quot;,
+  &quot;enabled&quot;: true
+}" aria-label="Copiar bloco de código">copiar</button><pre><code>{
+  &quot;name&quot;: &quot;gateway&quot;,
+  &quot;type&quot;: &quot;http&quot;,
+  &quot;engine&quot;: &quot;mcp-gateway&quot;,
+  &quot;enabled&quot;: true
+}</code></pre></div>
+          <p>Na hora de conectar, a ponte lê <code>~/.mcp-gateway/runtime.json</code> para saber host, porta e caminho, e pega o bearer no cofre do motor (<code>~/.mcp-gateway/auth-token</code>, com ACL só do dono). Monta a conexão em memória e segue: <strong>o segredo nunca é persistido pela ponte</strong>, e a porta acompanha o motor se ele mudar.</p>
+          <ul class="doc-list"><li><strong><code>engine</code> vence <code>url</code>.</strong> Se os dois estiverem no mesmo servidor, quem decide é o motor vivo — uma URL velha esquecida no config não ganha dele.</li><li><strong>Motor parado ou ausente falha alto.</strong> Só aquele servidor cai, com o erro dizendo o arquivo que faltou (<code>~/.&lt;motor&gt;/runtime.json</code>) e as duas saídas: subir o motor ou voltar para uma <code>url</code> explícita. Os demais conectam normalmente.</li><li><strong>Sem fallback silencioso.</strong> Adivinhar uma porta, ou conectar sem o bearer, trocaria um erro claro agora por um erro obscuro no meio do trabalho.</li><li><strong>A ponte não instala motor.</strong> Ela só <strong>usa</strong> o que já está na máquina: instalar e atualizar continuam sendo ação explícita sua, e o bootstrap do plugin é <strong>offline</strong> — não baixa nem executa código remoto, requisito do ambiente onde esta ponte existe.</li></ul>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Conferido nesta versão: <strong>8/8</strong> no harness do <code>engine</code> — motor ausente, precedência sobre <code>url</code>, motor sem token, <code>runtime.json</code> corrompido e <code>url</code> literal intacta — mais <strong>72/72</strong> no gate de qualidade e <strong>4/4</strong> na verificação de instalação ponta a ponta.</p></aside>
+        </section>
+
+        <section class="doc-section" id="servidores">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#servidores" aria-label="Link para Servidores e ajustes">#</a>Servidores e ajustes</h2>
+          <p>Um <code>config.json</code>, um objeto por servidor. Os transportes:</p>
+          <ul class="doc-list"><li><strong><code>stdio</code></strong> — processos MCP locais, com <code>command</code>, <code>args</code>, <code>env</code> e <code>cwd</code>.</li><li><strong><code>http</code></strong> e <strong><code>sse</code></strong> — servidores remotos, por <code>url</code> explícita ou pelo nome do motor em <code>engine</code>.</li><li><strong>OAuth 2.1</strong> — para quem exige login: fluxo com PKCE e registro dinâmico de cliente. <code>mcpbridge_login</code> abre o navegador; <code>mcpbridge_logout</code> apaga os tokens salvos.</li></ul>
+          <p>E os ajustes que impedem um servidor ruim de estragar a sessão:</p>
+          <ul class="doc-list"><li><strong>Perfis</strong> — conjuntos nomeados de servidores (<code>dev</code>, <code>prod</code>); <code>mcpbridge_use_profile</code> troca o ativo e persiste a escolha.</li><li><strong>Resiliência</strong> — retry com backoff e <strong>circuit breaker</strong> por servidor: quem está caindo é isolado em vez de arrastar todo mundo.</li><li><strong>Limite de resposta</strong> — resposta gigante é truncada ou paginada, com aviso, para não estourar o contexto do agente.</li><li><strong>Timeouts</strong> — um para abrir a conexão, outro por chamada de tool.</li><li><strong>Auditoria</strong> — cada chamada vira uma linha em <code>~/.copilot/mcp-bridge/audit.jsonl</code>, com opção de ocultar os argumentos.</li></ul>
+        </section>
+
+        <section class="doc-section" id="painel">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#painel" aria-label="Link para Painel e auditoria">#</a>Painel e auditoria</h2>
+          <p>A ponte registra o painel <strong>MCP Bridge — Dashboard</strong> no app: a foto do que está de pé — servidor, transporte, status, quantas tools, prompts e resources cada um trouxe, latência média, erros e as últimas chamadas auditadas.</p>
+          <p>As mesmas respostas vêm por tools, sem sair do chat:</p>
+          <ul class="doc-list"><li><code>mcpbridge_list_servers</code> — o diagnóstico da ponte: status, erro da última tentativa e o que cada servidor expôs.</li><li><code>mcpbridge_audit</code> — as últimas chamadas (servidor/tool, status, duração), com filtro por servidor ou tool.</li><li><code>mcpbridge_profiles</code> e <code>mcpbridge_use_profile</code> — vê e troca o perfil ativo.</li><li><code>mcpbridge_login</code> e <code>mcpbridge_logout</code> — entra e sai dos servidores com OAuth.</li><li><code>mcpbridge_list_resources</code> e <code>mcpbridge_read_resource</code> — lista e lê os resources dos servidores conectados.</li></ul>
+          <p>No início de cada sessão a ponte anuncia quantos servidores conectaram e quantas capacidades entraram. Se algum falhou, o aviso nomeia o servidor e o motivo — em vez de sumir com ele da lista.</p>
         </section>
 
         <section class="doc-section" id="instalar">
@@ -120,27 +162,27 @@
             <ul class="tree__list">
             <li class="tree__row">
               <code class="tree__name">boot.mjs</code>
-              <span class="tree__role">Bootstrap de SessionStart: baixa/garante o canvas-sync na máquina.</span>
+              <span class="tree__role">Bootstrap de SessionStart <strong>offline</strong>: roda o <code>sync.mjs</code> vendado aqui — não baixa nem executa código remoto.</span>
               <span class="tree__size">1.1 KB</span>
             </li>
             <li class="tree__row">
-              <code class="tree__name">extension.mjs</code>
-              <span class="tree__role">Extensão in-app: hooks e tools da sessão viva do agente.</span>
-              <span class="tree__size">751 KB</span>
+              <code class="tree__name">boot.neural-link.json</code>
+              <span class="tree__role">Calibragem do SessionStart entregue ao dispatcher: o plugin não declara hook próprio.</span>
+              <span class="tree__size">353 B</span>
             </li>
             <li class="tree__row">
-              <code class="tree__name">hooks.json</code>
-              <span class="tree__role">Hooks de ciclo de vida (SessionStart e afins).</span>
-              <span class="tree__size">178 B</span>
+              <code class="tree__name">extension.mjs</code>
+              <span class="tree__role">A ponte: conecta os servidores do config, resolve o motor pelo nome, expõe tools/prompts/resources ao agente e abre o painel.</span>
+              <span class="tree__size">753 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
-              <span class="tree__role">Metadados do plugin + marcadores (extensions / hooks).</span>
-              <span class="tree__size">823 B</span>
+              <span class="tree__role">Metadados do plugin + marcador de canvas (o painel).</span>
+              <span class="tree__size">845 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">sync.mjs</code>
-              <span class="tree__role">Espelha canvas extensions instaladas para ~/.copilot/extensions.</span>
+              <span class="tree__role">Espelha a extensão para <code>~/.copilot/extensions/</code> (self-contained, sem rede) — é o que faz o app carregar o painel.</span>
               <span class="tree__size">9.4 KB</span>
             </li>
             </ul>
@@ -151,11 +193,31 @@
           <h2 class="doc-h2"><a class="doc-anchor" href="#faq" aria-label="Link para Perguntas frequentes">#</a>Perguntas frequentes</h2>
           <details class="faq">
             <summary>Isso burla a política da empresa?</summary>
-            <p>Não força nada: usa o canal de extensões, que a política já permite, para reconectar o agente a servidores MCP que você controla — com auditoria de tudo.</p>
+            <p>Não força nada: usa o canal de extensões, que a política já permite, para reconectar o agente a servidores MCP que <strong>você</strong> controla — e registra cada chamada em <code>~/.copilot/mcp-bridge/audit.jsonl</code>, com o painel mostrando o que está conectado.</p>
+          </details>
+          <details class="faq">
+            <summary>O que é um “motor” aqui?</summary>
+            <p>Um daemon local que anuncia onde está num <code>runtime.json</code> dentro do seu HOME (<code>~/.&lt;motor&gt;/</code>) — o mesmo padrão do <code>vox-engine</code> e da <code>embed-house</code> desta vitrine. Para a ponte, o motor da vez é o <code>mcp-gateway</code>: ele conecta uma vez em cada servidor MCP e reexpõe tudo num endpoint só.</p>
+          </details>
+          <details class="faq">
+            <summary>O plugin instala o motor para mim?</summary>
+            <p>Não, e é de propósito: a ponte só <strong>usa</strong> um motor que já está na máquina. Instalar ou atualizar continua sendo ação explícita sua — o bootstrap do plugin é offline e não baixa nem executa código remoto, porque esta ponte roda justamente onde isso não é aceitável.</p>
+          </details>
+          <details class="faq">
+            <summary>E se o motor estiver parado?</summary>
+            <p>Aquele servidor falha com erro explícito, dizendo o arquivo que faltou (<code>~/.&lt;motor&gt;/runtime.json</code>) e as duas saídas: subir o motor ou trocar para uma <code>url</code> explícita. Os outros servidores conectam normalmente — a ponte não adivinha porta nem tenta conectar sem credencial.</p>
+          </details>
+          <details class="faq">
+            <summary>Posso continuar usando <code>url</code> e <code>headers</code>?</summary>
+            <p>Pode. Uma <code>url</code> explícita continua valendo exatamente como você escreveu; o campo <code>engine</code> só entra quando você o declara. Se os dois aparecerem no mesmo servidor, o motor vivo vence — para que um endereço velho no config não sequestre a conexão.</p>
+          </details>
+          <details class="faq">
+            <summary>Meu token fica salvo no config?</summary>
+            <p>Não. Com <code>engine</code>, a ponte lê o bearer do cofre do motor na hora de conectar e o usa em memória — nada é gravado no <code>config.json</code>. Os tokens de OAuth ficam à parte, em <code>~/.copilot/mcp-bridge/oauth/</code>, com permissão restrita ao seu usuário.</p>
           </details>
           <details class="faq">
             <summary>Que transportes suporta?</summary>
-            <p>stdio, http e sse, com login OAuth quando o servidor exige.</p>
+            <p><code>stdio</code> para processos locais, <code>http</code> e <code>sse</code> para remotos — com login OAuth 2.1 (PKCE e registro dinâmico de cliente) quando o servidor exige.</p>
           </details>
         </section>
       </article>
@@ -166,19 +228,21 @@
           <ul class="toc__list">
             <li><a href="#o-que-e">O que é</a></li>
             <li><a href="#como-usar">Como usar</a></li>
-            <li><a href="#transportes">Transportes e segurança</a></li>
+            <li><a href="#motor">Motor em vez de URL</a></li>
+            <li><a href="#servidores">Servidores e ajustes</a></li>
+            <li><a href="#painel">Painel e auditoria</a></li>
             <li><a href="#instalar">Instalar</a></li>
             <li><a href="#estrutura">Estrutura</a></li>
             <li><a href="#faq">Perguntas frequentes</a></li>
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.1.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.2.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
-            <div class="meta__row"><dt>tipo</dt><dd><span class="pill">canvas</span> <span class="pill">hooks</span></dd></div>
-            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>Node 18+ (runtime da extensão)</li><li>Servidores MCP para conectar (stdio / http / sse)</li></ul></dd></div>
+            <div class="meta__row"><dt>tipo</dt><dd><span class="pill">canvas</span></dd></div>
+            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>App do GitHub Copilot com suporte a plugins (o painel exige o app GUI)</li><li>Node 18+ (runtime da extensão)</li><li>Servidores MCP para conectar — <code>stdio</code>, <code>http</code> ou <code>sse</code></li><li>Para o campo <code>engine</code>: o motor já instalado e rodando (ex.: <code>mcp-gateway</code>)</li></ul></dd></div>
             <div class="meta__row"><dt>tags</dt><dd><ul class="tags tags--meta"><li>mcp</li><li>bridge</li><li>model-context-protocol</li><li>tools</li><li>enterprise</li><li>pt-BR</li></ul></dd></div>
           </dl>
       </aside>

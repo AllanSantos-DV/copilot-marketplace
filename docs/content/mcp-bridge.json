@@ -1,19 +1,20 @@
 {
-  "tagline": "Devolve o MCP ao Copilot onde a política bloqueia — via extensão, com tools, prompts e resources nativos.",
-  "lede": "Onde o MCP é bloqueado por política mas extensões são permitidas, o **mcp-bridge** reabre a porta: conecta a servidores MCP (`stdio`, `http`, `sse` — com login OAuth) e expõe as tools, prompts e resources deles nativamente ao agente, com resiliência, auditoria e um painel de saúde. Devolve os braços e as pernas da IA.",
+  "tagline": "Devolve o MCP ao Copilot onde a política bloqueia: conecta seus servidores MCP e entrega tools, prompts e resources nativamente ao agente. Um motor local, como o mcp-gateway, entra só pelo nome — sem URL nem token no config.",
+  "lede": "Onde o MCP é bloqueado por política mas extensões são permitidas, o **mcp-bridge** reabre a porta: conecta a servidores MCP (`stdio`, `http`, `sse` — com login OAuth) e entrega as tools, prompts e resources deles **nativamente** ao agente, com reconexão, auditoria e um painel de saúde. E um motor que já roda na sua máquina entra pelo campo `engine`, **só pelo nome**: endereço e credencial são resolvidos na hora da conexão, nunca guardados no config.",
   "highlights": [
-    { "title": "MCP onde é bloqueado", "body": "Reconecta o agente a servidores MCP usando o canal de extensões, que a política permite." },
-    { "title": "Tools, prompts e resources", "body": "Expõe tudo nativamente ao agente — não só tools, mas prompts e resources também." },
-    { "title": "Resiliência e auditoria", "body": "Reconexão automática, log de auditoria e um painel de saúde para ver o que está de pé." }
+    { "title": "MCP onde a política bloqueia", "body": "Reconecta o agente a servidores MCP pelo canal de extensões — o que a política permite — e expõe **tools, prompts e resources** como capacidades nativas." },
+    { "title": "O config guarda nome, não segredo", "body": "`engine: mcp-gateway` no lugar de `url` + `headers`. A ponte lê o `runtime.json` e o cofre do motor **na hora de conectar** — o token nunca é escrito por ela." },
+    { "title": "Falha alto, nunca no escuro", "body": "Motor parado ou ausente derruba **aquele** servidor com erro explícito. Sem adivinhar porta e sem conectar sem credencial: erro claro agora vale mais que erro silencioso depois." },
+    { "title": "Tudo à vista", "body": "Painel de saúde no app, auditoria linha a linha de cada chamada, perfis de servidores, retry com circuit breaker e limite de resposta." }
   ],
   "sections": [
     {
       "id": "o-que-e",
       "title": "O que é",
       "blocks": [
-        { "type": "p", "text": "O mcp-bridge é uma extensão que fala **Model Context Protocol** por baixo e reapresenta cada servidor MCP como capacidade nativa do agente do Copilot. É a saída para ambientes onde o MCP direto está barrado por política, mas extensões são liberadas." },
-        { "type": "p", "text": "Ele não força nada: usa o canal que já é permitido para reconectar o agente a servidores que **você** controla, e registra tudo para auditoria." },
-        { "type": "note", "tone": "info", "text": "Registra um **canvas** (painel de saúde) e usa **hooks**; reinicie o app uma vez após instalar." }
+        { "type": "p", "text": "O mcp-bridge fala **Model Context Protocol** por baixo e reapresenta cada servidor MCP como capacidade nativa do agente: as tools viram tools dele, os prompts viram prompts, os resources viram resources. É a saída para ambientes onde o MCP direto está barrado por política, mas extensões são liberadas." },
+        { "type": "p", "text": "Ele não força nada — usa o canal que já é permitido para reconectar o agente a servidores que **você** controla, e registra cada chamada num log que dá para consultar de dentro da sessão." },
+        { "type": "note", "tone": "info", "text": "Toda a configuração mora num arquivo só: `~/.copilot/mcp-bridge/config.json`. Ele nasce na primeira sessão, já com um servidor de exemplo desligado." }
       ]
     },
     {
@@ -23,39 +24,113 @@
         {
           "type": "steps",
           "items": [
-            { "title": "Instale o plugin", "text": "Pelo marketplace (comando na seção Instalar)." },
-            { "title": "Reinicie o app", "text": "Uma vez, para os hooks e o painel entrarem." },
-            { "title": "Configure os servidores", "text": "Aponte para seus servidores MCP (stdio, http ou sse) e, se preciso, faça o login OAuth." },
-            { "title": "Use as capacidades", "text": "As tools, prompts e resources dos servidores passam a aparecer nativamente para o agente." },
-            { "title": "Acompanhe a saúde", "text": "O painel mostra conexões, reconexões e a auditoria das chamadas." }
+            { "title": "Instale o plugin", "text": "Pelo marketplace (comando na seção Instalar) e reinicie o app uma vez — o painel entra no próximo boot." },
+            { "title": "Declare seus servidores", "text": "Abra o `config.json` e liste o que quer conectar: `stdio` para processos locais, `http` ou `sse` para os remotos." },
+            { "title": "Aponte pelo motor, quando houver um", "text": "Num servidor `http`/`sse`, troque `url` e `headers` pelo campo `engine` com o nome do motor. A ponte resolve endereço e credencial sozinha." },
+            { "title": "Entre nos que pedem login", "text": "`mcpbridge_login <servidor>` abre o navegador para autorizar (OAuth 2.1). Depois, rode `/clear` ou reinicie a sessão." },
+            { "title": "Use as capacidades", "text": "As tools, prompts e resources passam a aparecer nativamente para o agente. `mcpbridge_list_servers` mostra o que conectou e o que cada servidor trouxe." },
+            { "title": "Acompanhe a saúde", "text": "O painel **MCP Bridge — Dashboard** mostra status, latência e erros; `mcpbridge_audit` lista as últimas chamadas." }
           ]
         },
-        { "type": "note", "tone": "info", "text": "Conexões caídas são retomadas automaticamente; o painel deixa claro o que está de pé e o que falhou." }
+        { "type": "note", "tone": "info", "text": "Mexeu no `config.json`? A mudança entra no próximo `/clear` ou reinício da sessão." }
       ]
     },
     {
-      "id": "transportes",
-      "title": "Transportes e segurança",
+      "id": "motor",
+      "title": "Motor em vez de URL",
       "blocks": [
+        { "type": "p", "text": "Um **motor** é um daemon que já roda na sua máquina e anuncia onde está — o caso da ponte é o `mcp-gateway`, que conecta uma vez em cada servidor MCP e reexpõe tudo num endpoint só. O jeito óbvio de alcançá-lo seria colar no config a porta **e** o bearer dele: segredo em texto puro, num arquivo que qualquer processo com acesso ao seu HOME consegue ler." },
+        {
+          "type": "code",
+          "lang": "jsonc",
+          "code": "// endereço chumbado + segredo em texto puro no seu config\n{\n  \"name\": \"gateway\",\n  \"type\": \"http\",\n  \"url\": \"http://127.0.0.1:8765/mcp\",\n  \"headers\": { \"Authorization\": \"Bearer <o segredo do motor, aqui>\" },\n  \"enabled\": true\n}"
+        },
+        { "type": "p", "text": "No lugar disso, declare **o nome do motor**. O config passa a guardar uma referência, não uma credencial:" },
+        {
+          "type": "code",
+          "lang": "jsonc",
+          "copy": true,
+          "code": "{\n  \"name\": \"gateway\",\n  \"type\": \"http\",\n  \"engine\": \"mcp-gateway\",\n  \"enabled\": true\n}"
+        },
+        { "type": "p", "text": "Na hora de conectar, a ponte lê `~/.mcp-gateway/runtime.json` para saber host, porta e caminho, e pega o bearer no cofre do motor (`~/.mcp-gateway/auth-token`, com ACL só do dono). Monta a conexão em memória e segue: **o segredo nunca é persistido pela ponte**, e a porta acompanha o motor se ele mudar." },
         {
           "type": "list",
           "items": [
-            "**stdio** — processos MCP locais.",
-            "**http** e **sse** — servidores MCP remotos.",
-            "**OAuth** — login quando o servidor exige.",
-            "**Auditoria** — registro das tools chamadas, para rastreabilidade."
+            "**`engine` vence `url`.** Se os dois estiverem no mesmo servidor, quem decide é o motor vivo — uma URL velha esquecida no config não ganha dele.",
+            "**Motor parado ou ausente falha alto.** Só aquele servidor cai, com o erro dizendo o arquivo que faltou (`~/.<motor>/runtime.json`) e as duas saídas: subir o motor ou voltar para uma `url` explícita. Os demais conectam normalmente.",
+            "**Sem fallback silencioso.** Adivinhar uma porta, ou conectar sem o bearer, trocaria um erro claro agora por um erro obscuro no meio do trabalho.",
+            "**A ponte não instala motor.** Ela só **usa** o que já está na máquina: instalar e atualizar continuam sendo ação explícita sua, e o bootstrap do plugin é **offline** — não baixa nem executa código remoto, requisito do ambiente onde esta ponte existe."
           ]
         },
-        { "type": "p", "text": "Pensado para uso **enterprise**: você mantém o controle dos servidores e a visibilidade do que o agente acessa." }
+        { "type": "note", "tone": "info", "text": "Conferido nesta versão: **8/8** no harness do `engine` — motor ausente, precedência sobre `url`, motor sem token, `runtime.json` corrompido e `url` literal intacta — mais **72/72** no gate de qualidade e **4/4** na verificação de instalação ponta a ponta." }
+      ]
+    },
+    {
+      "id": "servidores",
+      "title": "Servidores e ajustes",
+      "blocks": [
+        { "type": "p", "text": "Um `config.json`, um objeto por servidor. Os transportes:" },
+        {
+          "type": "list",
+          "items": [
+            "**`stdio`** — processos MCP locais, com `command`, `args`, `env` e `cwd`.",
+            "**`http`** e **`sse`** — servidores remotos, por `url` explícita ou pelo nome do motor em `engine`.",
+            "**OAuth 2.1** — para quem exige login: fluxo com PKCE e registro dinâmico de cliente. `mcpbridge_login` abre o navegador; `mcpbridge_logout` apaga os tokens salvos."
+          ]
+        },
+        { "type": "p", "text": "E os ajustes que impedem um servidor ruim de estragar a sessão:" },
+        {
+          "type": "list",
+          "items": [
+            "**Perfis** — conjuntos nomeados de servidores (`dev`, `prod`); `mcpbridge_use_profile` troca o ativo e persiste a escolha.",
+            "**Resiliência** — retry com backoff e **circuit breaker** por servidor: quem está caindo é isolado em vez de arrastar todo mundo.",
+            "**Limite de resposta** — resposta gigante é truncada ou paginada, com aviso, para não estourar o contexto do agente.",
+            "**Timeouts** — um para abrir a conexão, outro por chamada de tool.",
+            "**Auditoria** — cada chamada vira uma linha em `~/.copilot/mcp-bridge/audit.jsonl`, com opção de ocultar os argumentos."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "painel",
+      "title": "Painel e auditoria",
+      "blocks": [
+        { "type": "p", "text": "A ponte registra o painel **MCP Bridge — Dashboard** no app: a foto do que está de pé — servidor, transporte, status, quantas tools, prompts e resources cada um trouxe, latência média, erros e as últimas chamadas auditadas." },
+        { "type": "p", "text": "As mesmas respostas vêm por tools, sem sair do chat:" },
+        {
+          "type": "list",
+          "items": [
+            "`mcpbridge_list_servers` — o diagnóstico da ponte: status, erro da última tentativa e o que cada servidor expôs.",
+            "`mcpbridge_audit` — as últimas chamadas (servidor/tool, status, duração), com filtro por servidor ou tool.",
+            "`mcpbridge_profiles` e `mcpbridge_use_profile` — vê e troca o perfil ativo.",
+            "`mcpbridge_login` e `mcpbridge_logout` — entra e sai dos servidores com OAuth.",
+            "`mcpbridge_list_resources` e `mcpbridge_read_resource` — lista e lê os resources dos servidores conectados."
+          ]
+        },
+        { "type": "p", "text": "No início de cada sessão a ponte anuncia quantos servidores conectaram e quantas capacidades entraram. Se algum falhou, o aviso nomeia o servidor e o motivo — em vez de sumir com ele da lista." }
       ]
     }
   ],
   "requirements": [
+    "App do GitHub Copilot com suporte a plugins (o painel exige o app GUI)",
     "Node 18+ (runtime da extensão)",
-    "Servidores MCP para conectar (stdio / http / sse)"
+    "Servidores MCP para conectar — `stdio`, `http` ou `sse`",
+    "Para o campo `engine`: o motor já instalado e rodando (ex.: `mcp-gateway`)"
   ],
   "faq": [
-    { "q": "Isso burla a política da empresa?", "a": "Não força nada: usa o canal de extensões, que a política já permite, para reconectar o agente a servidores MCP que você controla — com auditoria de tudo." },
-    { "q": "Que transportes suporta?", "a": "stdio, http e sse, com login OAuth quando o servidor exige." }
-  ]
+    { "q": "Isso burla a política da empresa?", "a": "Não força nada: usa o canal de extensões, que a política já permite, para reconectar o agente a servidores MCP que **você** controla — e registra cada chamada em `~/.copilot/mcp-bridge/audit.jsonl`, com o painel mostrando o que está conectado." },
+    { "q": "O que é um “motor” aqui?", "a": "Um daemon local que anuncia onde está num `runtime.json` dentro do seu HOME (`~/.<motor>/`) — o mesmo padrão do `vox-engine` e da `embed-house` desta vitrine. Para a ponte, o motor da vez é o `mcp-gateway`: ele conecta uma vez em cada servidor MCP e reexpõe tudo num endpoint só." },
+    { "q": "O plugin instala o motor para mim?", "a": "Não, e é de propósito: a ponte só **usa** um motor que já está na máquina. Instalar ou atualizar continua sendo ação explícita sua — o bootstrap do plugin é offline e não baixa nem executa código remoto, porque esta ponte roda justamente onde isso não é aceitável." },
+    { "q": "E se o motor estiver parado?", "a": "Aquele servidor falha com erro explícito, dizendo o arquivo que faltou (`~/.<motor>/runtime.json`) e as duas saídas: subir o motor ou trocar para uma `url` explícita. Os outros servidores conectam normalmente — a ponte não adivinha porta nem tenta conectar sem credencial." },
+    { "q": "Posso continuar usando `url` e `headers`?", "a": "Pode. Uma `url` explícita continua valendo exatamente como você escreveu; o campo `engine` só entra quando você o declara. Se os dois aparecerem no mesmo servidor, o motor vivo vence — para que um endereço velho no config não sequestre a conexão." },
+    { "q": "Meu token fica salvo no config?", "a": "Não. Com `engine`, a ponte lê o bearer do cofre do motor na hora de conectar e o usa em memória — nada é gravado no `config.json`. Os tokens de OAuth ficam à parte, em `~/.copilot/mcp-bridge/oauth/`, com permissão restrita ao seu usuário." },
+    { "q": "Que transportes suporta?", "a": "`stdio` para processos locais, `http` e `sse` para remotos — com login OAuth 2.1 (PKCE e registro dinâmico de cliente) quando o servidor exige." }
+  ],
+  "files": {
+    "extension.mjs": "A ponte: conecta os servidores do config, resolve o motor pelo nome, expõe tools/prompts/resources ao agente e abre o painel.",
+    "boot.mjs": "Bootstrap de SessionStart **offline**: roda o `sync.mjs` vendado aqui — não baixa nem executa código remoto.",
+    "sync.mjs": "Espelha a extensão para `~/.copilot/extensions/` (self-contained, sem rede) — é o que faz o app carregar o painel.",
+    "boot.neural-link.json": "Calibragem do SessionStart entregue ao dispatcher: o plugin não declara hook próprio.",
+    "plugin.json": "Metadados do plugin + marcador de canvas (o painel)."
+  }
 }
