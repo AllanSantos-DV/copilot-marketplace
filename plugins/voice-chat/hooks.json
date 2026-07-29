@@ -1,6 +1,5 @@
 {
   "version": 1,
-  "_comment": "agentStop e postToolUseFailure sao eventos DA EXTENSAO, entregues pelo host so a hooks declarados AQUI. Nao migrar para o dispatcher global do neural-link: la eles nunca disparam (medido - zero eventos reais em um dia inteiro). Hooks de eventos GLOBAIS (SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, PreCompact) esses sim vao para o dispatcher, via companion .neural-link.json.",
   "hooks": {
     "agentStop": [
       {
