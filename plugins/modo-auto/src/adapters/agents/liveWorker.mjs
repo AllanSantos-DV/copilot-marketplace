@@ -50,7 +50,10 @@ function emit(obj) { process.stdout.write(JSON.stringify(obj) + "\n"); }
     try { mkdirSync(configDir, { recursive: true }); } catch { /* best-effort */ }
     const resumeId = String(process.env.MODO_AUTO_WORKER_RESUME || "").trim();
     const cfg = {
-      model, workingDirectory: wd, configDir,
+      // ISOLAMENTO: os DOIS nomes (SDK novo = `configDirectory`, antigo = `configDir`). Sem o novo, o SDK 1.0.75+
+      // ignora e cai no ~/.copilot do usuário — o worker passa a carregar extensões/hooks do dono e responde
+      // "não tenho a ferramenta falar / parece injeção" em vez de deliberar (quebra a mesa viva inteira).
+      model, workingDirectory: wd, configDirectory: configDir, configDir,
       onPermissionRequest: approveAll,
       systemMessage: { mode: "append", content: String(system) + "\n\n" + CLEAN_DIRECTIVE },
       tools: researchToolset,
@@ -60,7 +63,7 @@ function emit(obj) { process.stdout.write(JSON.stringify(obj) + "\n"); }
     // RELIGAR: se veio um sessionId, RESUME a sessão (histórico preservado em disco) em vez de criar nova.
     // Precisa do MESMO configDir + workingDirectory pra localizar o estado da sessão no disco.
     session = resumeId
-      ? await client.resumeSession(resumeId, { onPermissionRequest: approveAll, workingDirectory: wd, configDir, ...(researchToolset.length ? { tools: researchToolset } : {}), ...(Array.isArray(skillDirs) && skillDirs.length ? { skillDirectories: skillDirs } : {}) })
+      ? await client.resumeSession(resumeId, { onPermissionRequest: approveAll, workingDirectory: wd, configDirectory: configDir, configDir, ...(researchToolset.length ? { tools: researchToolset } : {}), ...(Array.isArray(skillDirs) && skillDirs.length ? { skillDirectories: skillDirs } : {}) })
       : await client.createSession(cfg);
     emit({ type: "ready", sessionId: session.sessionId, resumed: !!resumeId });
 

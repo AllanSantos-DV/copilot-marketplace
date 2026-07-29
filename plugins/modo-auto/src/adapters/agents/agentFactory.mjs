@@ -112,7 +112,7 @@ export function createAgentFactory({ cwdProvider = () => process.cwd(), model, g
       let out = "", err = "", done = false, lastBeat = Date.now(), capturedUsage = null;
       let killer = null, reaper = null;
       const clearGuards = () => { if (killer) { clearTimeout(killer); killer = null; } if (reaper) { clearInterval(reaper); reaper = null; } };
-      const finish = (r) => { if (!done) { done = true; clearGuards(); if (act != null && activity) { try { const endReason = r.endReason || (r.ok ? "idle" : (/hung:|zombie:/.test(r.error || "") ? "hung" : "error")); activity.end(act, { ...r, endReason, usage: capturedUsage }); } catch { /* observabilidade nunca derruba o run */ } } resolve(r); } };
+      const finish = (r) => { if (!done) { done = true; clearGuards(); if (act != null && activity) { try { const endReason = r.endReason || (r.ok ? "idle" : (/hung:|zombie:/.test(r.error || "") ? "hung" : "error")); const metrics = { inputLines: typeof prompt === "string" ? prompt.split(/\r?\n/).length : undefined, inputTokens: capturedUsage?.inputTokens, outputTokens: capturedUsage?.outputTokens }; activity.end(act, { ...r, endReason, usage: capturedUsage, metrics }); } catch { /* observabilidade nunca derruba o run */ } } resolve(r); } };
       // canal de custo: separa a linha \x1e#USAGE {json} (tokens/nanoAiu do turno) do texto de erro real do worker.
       const usageCh = createUsageChannel({ onUsage: (u) => { capturedUsage = u; }, onText: (line) => { err += line + "\n"; }, log });
 

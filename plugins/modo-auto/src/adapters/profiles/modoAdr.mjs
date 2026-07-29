@@ -126,9 +126,9 @@ export function createModoAdr({ log = () => {}, roles } = {}) {
     const plan = res.document;
 
     let written = null;
-    if (caps.plan?.writePlan) {
-      written = caps.plan.writePlan(plan);
-      if (!written) throw new Error("modo-adr vivo: writePlan nao gravou o plano vivo (sem workspaceDir?)");
+    if (caps.plan?.writeAdrPlan) {
+      written = caps.plan.writeAdrPlan(plan); // adr-plan.md SEPARADO — a mesa NÃO toca no plan.md da sessão
+      if (!written) throw new Error("modo-adr vivo: writeAdrPlan nao gravou o plano do ADR (sem workspaceDir?)");
     }
     if (caps.memory?.save) {
       const sv = await caps.memory.save(plan, { type: "plan", tags: ["adr", "plano-vivo"] });
@@ -179,6 +179,10 @@ export function createModoAdr({ log = () => {}, roles } = {}) {
         catch (e) { log(`[modo-adr] triagem falhou (${e?.message || e}) → mesa COMPLETA (fail-safe)`); path = "full"; triageInfo = { tier: "?", path: "full", source: "triage-failed" }; }
       }
 
+      // TELEMETRIA do roteador (Princípio 11): registra a decisão pra o safety-net do express não operar às cegas.
+      // Best-effort SINALIZADO — falha de registro não derruba o plano.
+      if (caps.onRoute) { try { caps.onRoute(triageInfo); } catch (e) { log(`[modo-adr] onRoute falhou (sinalizado): ${e?.message || e}`); } }
+
       // 1) o que JÁ EXISTE no projeto (memória). Offline = degradado explícito (não erro mascarado).
       let existing = "";
       const mem = caps.memory?.recall ? await caps.memory.recall(bf, { topK: 4 }) : null;
@@ -218,9 +222,9 @@ export function createModoAdr({ log = () => {}, roles } = {}) {
 
       // 4) grava o plano vivo (REQUERIDO — falha SOBE) + memória (opcional, resultado surfaced).
       let written = null;
-      if (caps.plan?.writePlan) {
-        written = caps.plan.writePlan(plan); // se falhar a escrita, writePlan LANÇA (planPort fail-loud)
-        if (!written) throw new Error("modo-adr: writePlan nao gravou o plano vivo (sem workspaceDir?)");
+      if (caps.plan?.writeAdrPlan) {
+        written = caps.plan.writeAdrPlan(plan); // adr-plan.md SEPARADO — a mesa NÃO toca no plan.md (fail-loud)
+        if (!written) throw new Error("modo-adr: writeAdrPlan nao gravou o plano do ADR (sem workspaceDir?)");
       }
       const saved = caps.memory?.save ? await caps.memory.save(plan, { type: "plan", tags: ["adr", "plano-vivo"] }) : null;
       if (saved && saved.ok === false) log(`[modo-adr] AVISO: memória não salvou o plano (${saved.error || "offline"})`);

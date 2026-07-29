@@ -8,10 +8,15 @@
 
 import { createOrchestrator } from "./src/core/orchestrator.mjs";
 import { createModoAutonomo } from "./src/adapters/profiles/modoAutonomo.mjs";
-import { buildAskHandler, buildAskUserOverrideTool, wireIdle } from "./src/adapters/session/joinSessionAdapter.mjs";
-import { acquireOrConnect as _acquireOrConnect, releaseClaim as _releaseClaim, updateOwnerInfo as _updateOwnerInfo, startHeartbeat as _startHeartbeat } from "./src/adapters/session/askBridgeClaim.mjs";
+import { buildAskHandler, buildAskUserOverrideTool, makeIdleHandler } from "./src/adapters/session/joinSessionAdapter.mjs";
+import { acquireOrConnect as _acquireOrConnect, releaseClaim as _releaseClaim, updateOwnerInfo as _updateOwnerInfo, startHeartbeat as _startHeartbeat, setArmed as _setArmed } from "./src/adapters/session/askBridgeClaim.mjs";
 import { createAskBridgeOwner as _createAskBridgeOwner, createAskBridgeResponder as _createAskBridgeResponder, registerWithOwner as _registerWithOwner } from "./src/adapters/session/askBridgeServer.mjs";
 import { loadAskBridge } from "./src/adapters/session/askBridgeShared.mjs";
+import { DEFAULTS as ASK_DEFAULTS } from "./src/adapters/session/askBridgeProtocol.mjs";
+import { abReport, f2Report, f4Threshold, rolloutAlert } from "./src/adapters/review/rolloutGate.mjs";
+import { createRolloutFlags } from "./src/adapters/review/rolloutFlags.mjs";
+import { auditSpans, formatSpanAudit } from "./src/adapters/activity/spanSchema.mjs";
+import { checkSetup, formatSetup, FIX_COMMAND } from "./src/adapters/health/setupCheck.mjs";
 import { createToggleState } from "./src/toggle/state.mjs";
 import { createMemoryPort } from "./src/adapters/memory/memoryPort.mjs";
 import { createPlanPort } from "./src/adapters/plan/planPort.mjs";
@@ -41,6 +46,7 @@ import { formatContestation } from "./src/adapters/shadow/contestationView.mjs";
 import { loadMemoryPlugin, isUsable } from "./src/adapters/plugin/pluginBridge.mjs";
 import { createEmbedder } from "./src/adapters/embed/embedder.mjs";
 import { workers, setWorkerLog } from "./src/adapters/util/workerRegistry.mjs";
+import { spawn } from "node:child_process";
 import { renderGuideText } from "./src/adapters/canvas/guide.mjs";
 import { ModoAutoPanel, PANEL_CANVAS_ID, PANEL_INSTANCE_ID, PANEL_TITLE } from "./src/adapters/canvas/panel.mjs";
 import { installBundledAgents } from "./src/adapters/agentInstall/installAgents.mjs";
@@ -50,6 +56,7 @@ import { gapsFromSink } from "./src/adapters/activity/gapDetector.mjs";
 import { proposeImprovements } from "./src/adapters/activity/selfImprove.mjs";
 import { injectionPrecision, lowPrecisionGap } from "./src/adapters/activity/injectionTracker.mjs";
 import { aggregateCost, formatCostLine, renderCostReport } from "./src/adapters/activity/costMeter.mjs";
+import { routeSpan, aggregateRoutes, formatRouteLine, routeAlert, routeAlertThrottled, ROUTE_WINDOW_MS, ROUTE_ALERT_THROTTLE_MS } from "./src/adapters/adr/routerTelemetry.mjs";
 import { createDeliveryLedger } from "./src/adapters/activity/deliveryLedger.mjs";
 import { readBrief } from "./src/adapters/util/briefFile.mjs";
 import { createProposalStore, improvementNudge, maxStartedAt, nudgeThrottled } from "./src/adapters/activity/proposalStore.mjs";
@@ -65,7 +72,7 @@ const HERE = dirname(fileURLToPath(import.meta.url)); // pasta do plugin (p/ age
 // ask-bridge: bindings MUTÁVEIS — default = BUNDLED (este plugin). No 1º boot, initAskBridge() chama
 // loadAskBridge() e, se a lib COMPARTILHADA (~/.ask-bridge/lib) for major-compatível, troca para as fns de lá
 // (fonte única cross-plugin). Falha/incompat → fica no bundled, sinalizado (FAIL LOUD no log). Nunca silencioso.
-let acquireOrConnect = _acquireOrConnect, releaseClaim = _releaseClaim, updateOwnerInfo = _updateOwnerInfo, startHeartbeat = _startHeartbeat;
+let acquireOrConnect = _acquireOrConnect, releaseClaim = _releaseClaim, updateOwnerInfo = _updateOwnerInfo, startHeartbeat = _startHeartbeat, setArmed = _setArmed;
 let createAskBridgeOwner = _createAskBridgeOwner, createAskBridgeResponder = _createAskBridgeResponder, registerWithOwner = _registerWithOwner;
 let askBridgeSource = "bundled", askBridgeVersion = null, _askBridgeInit = null;
 function initAskBridge(log = () => {}) {
@@ -75,6 +82,7 @@ function initAskBridge(log = () => {}) {
       const r = await loadAskBridge({ log });
       const a = r?.api || {};
       if (a.acquireOrConnect) acquireOrConnect = a.acquireOrConnect;
+      if (a.setArmed) setArmed = a.setArmed;
       if (a.releaseClaim) releaseClaim = a.releaseClaim;
       if (a.updateOwnerInfo) updateOwnerInfo = a.updateOwnerInfo;
       if (a.startHeartbeat) startHeartbeat = a.startHeartbeat;
@@ -116,6 +124,7 @@ const memory = createMemoryPort({ cwdProvider: () => process.cwd(), clientFactor
 const plan = createPlanPort({ sessionProvider: () => hostSession, log: logHost });   // PlanPort → plan.md/transcript
 const telemetry = createTelemetrySink({ dir: pathJoin(MODO_HOME, "telemetry"), log: logHost }); // persistência determinística dos spans (histórico p/ auto-melhoria)
 const proposals = createProposalStore({ dir: pathJoin(MODO_HOME, "proposals"), log: logHost }); // store DEDICADO das propostas de auto-melhoria (dedup + cursor/watermark)
+const rolloutFlags = createRolloutFlags({ dir: MODO_HOME, log: logHost }); // flags F1/F2/F4 PERSISTIDAS (ligáveis por tool — env não é acionável dentro do app)
 const activity = createActivityRegistry({ onEnd: (span) => telemetry.persist(span), log: logHost }); // observabilidade dos workers (painel) + telemetria persistida
 // EFICÁCIA (GAP 2): persiste o VEREDITO de uma fase do modo-dev como span v2 (stage dev-verdict) — o gapDetector
 // mede rounds/escalate/exhausted. Fonte ÚNICA (DRY) usada por modo_dev E pelo pipeline. Aritmética pura (Princípio 11).
@@ -223,7 +232,7 @@ const panel = new ModoAutoPanel({
 // modo-auto re-join (reflect); sombra reseta o dossiê ao ligar; deep é lido em call-time. FAIL LOUD.
 async function applyToggle(key, value) {
   const v = !!value;
-  if (key === "auto") { state.set(v); await reflect(); return v; }
+  if (key === "auto") { state.set(v); requestReflect(); return v; }
   if (key === "deep") { deepState.set(v); return v; }
   if (key === "sombra") { shadowState.set(v); if (v) { sombra.reset(); shadowVerifierInst = null; findingsInst = null; findingsSid = null; } return v; }
   throw new Error("applyToggle: chave desconhecida " + key);
@@ -242,7 +251,32 @@ export const hooks = {
       const cur = proposals.getCursor();
       const n = nudgeThrottled(improvementNudge(spans, cur.ts), cur.lastNudgedTs);
       if (n) { parts.push(n); proposals.markNudged(Date.now()); }
+      // MONITOR+ALERTA (humano no loop) do roteador ADR: se as rotas saíram da faixa saudável, surfaça um alerta
+      // ACIONÁVEL — mas com JANELA DESLIZANTE (14d, anti-congelamento) e COOLDOWN (re-emite só se o conjunto de sinais
+      // mudou ou passou 24h, anti alert-fatigue). Reusa os spans e o cursor (cur) já lidos. Best-effort.
+      const { emit: routeEmit, sig: routeSig } = routeAlertThrottled(
+        aggregateRoutes(spans, { windowMs: ROUTE_WINDOW_MS }),
+        { lastSig: cur.lastRouteAlertSig, lastTs: cur.lastRouteAlertTs },
+      );
+      if (routeEmit) { parts.push(routeEmit); proposals.markRouteAlert(Date.now(), routeSig); }
+      // ROLLOUT das fases de melhoria (F1/F2/F4): o go/no-go deixa de depender de LEMBRAR de rodar `modo_rollout`.
+      // Quando a amostra fecha, o veredito ACIONÁVEL vem sozinho no início da sessão — com o MESMO cooldown por
+      // assinatura (re-emite só se a decisão MUDOU ou passou 24h). Best-effort SINALIZADO.
+      const fl0 = rolloutFlags.get();
+      const ra = rolloutAlert(spans, { f1On: fl0.f1, f2Ms: fl0.f2BudgetMs, f4On: fl0.f4 });
+      if (ra.emit && (ra.sig !== cur.lastRolloutAlertSig || Date.now() - (cur.lastRolloutAlertTs || 0) >= ROUTE_ALERT_THROTTLE_MS)) {
+        parts.push(ra.emit);
+        proposals.markRolloutAlert(Date.now(), ra.sig);
+      }
     } catch (e) { logHost("[auto-melhoria] nudge onStart falhou (sinalizado): " + (e?.message || e)); }
+    // AUTOCURA DE SETUP: os WORKERS da mesa usam o CLI do npm global (não o binário auto-atualizado do app). Se
+    // estiver atrás, a mesa AVISA com o conserto — CLI velho = conpty velho = popup de assertion sob o spawn
+    // rápido de workers, que é justamente o que a mesa faz. Best-effort e SEM cooldown de 24h: um setup quebrado
+    // não deve ser silenciado (o aviso some sozinho quando o conserto é feito).
+    try {
+      const setup = checkSetup();
+      if (setup.message) parts.push(setup.message);
+    } catch (e) { logHost("[setup] autodiagnóstico falhou (sinalizado): " + (e?.message || e)); }
     return parts.length ? { additionalContext: parts.join("\n\n") } : undefined;
   },
   onUserPromptSubmitted: async () => {
@@ -284,23 +318,25 @@ export const tools = [
       // flag do toggle. Se o toggle está ON mas o listener de idle NÃO está fiado (ex.: reload deixou inerte),
       // AUTO-CURA re-armando via reflect(). Assim o status nunca mente "LIGADO" enquanto o gate de Stop está morto.
       const armed = state.get();
-      let wired = !!(hostSession && idleOff);
-      if (armed && !wired && sdk) { try { await reflect(); wired = !!(hostSession && idleOff); logHost(`[modo-auto] status: toggle ON mas inerte → re-armado (wired=${wired})`); } catch (e) { logHost("[modo-auto] status: re-arme falhou (sinalizado): " + (e?.message || e)); } }
       if (!armed) return ok(`DESLIGADO (inerte) — perfil ${profile.id}.`);
+      // ON: se há re-join pendente (toggle recém-mudado) ou a sessão ainda não subiu, o arme aplica no FIM deste
+      // turno (re-join roda no idle, fora do turno — é o que evita o travamento). Honesto, não trava.
+      if (reflectPending || !hostSession) { requestReflect(); logHost("[modo-auto] status: ON, arme pendente → aplica no idle (fim do turno)"); return ok(`LIGADO — o arme (interceptação de ask_user + gate de parada) aplica no FIM deste turno; o re-join roda fora do turno pra NÃO travar. Cheque o status no próximo turno pra confirmar.`); }
       const askMsg = askBridge.role === "owner"
         ? (askBridge.dispatch
           ? "ATIVA (dono da rota; servidor de dispatch UP — mesa + respondedores por first-to-answer)"
           : "⚠️ PARCIAL (dono, mas o servidor de dispatch NÃO subiu → só self-dispatch da mesa; respondedores externos não conectam — ver log)")
-        : askBridge.role === "responder"
-          ? (askBridge.registered
+        : askBridge.role === "responder"          ? (askBridge.registered
             ? `via respondedor (registrado no dono '${askBridge.owner?.extensionId || "?"}' — a mesa responde por dispatch)`
             : `⚠️ INDISPONÍVEL (não registrei no dono: ${askBridge.reason || "?"})`)
           : askBridge.role === "clashed-fallback"
             ? "⚠️ INDISPONÍVEL (clash inesperado — fallback sem override; ver log)"
             : "off";
-      return ok(wired
-        ? `LIGADO e ARMADO (perfil ${profile.id}) — gate de parada fiado no idle (revisa entrega × plano, barra parada incompleta). Interceptação de ask_user: ${askMsg}. ask-bridge: fonte=${askBridgeSource}${askBridgeVersion ? " v" + askBridgeVersion : ""}.`
-        : `LIGADO mas ⚠️ NÃO ARMADO — o gate de parada NÃO está fiado${sdk ? " (re-arme não fixou)" : " (SDK ausente)"}: a revisão de Stop NÃO vai disparar. Religue com modo_auto off e depois on.`);
+      // SAÚDE DO SETUP na mesma linha: o status não pode dizer "armado" e esconder que os WORKERS vão rodar num
+      // CLI velho (é o que gera o popup de assertion). Sinalizado só quando há problema; degradação nunca cala.
+      let setupMsg = "";
+      try { const c = checkSetup(); if (c.stale || c.reason === "worker-sdk-nao-encontrado") setupMsg = ` ⚠️ SETUP: ${formatSetup(c)} — rode modo_setup.`; } catch { /* diagnóstico é enriquecimento */ }
+      return ok(`LIGADO e ARMADO (perfil ${profile.id}) — gate de parada fiado no idle (revisa entrega × plano, barra parada incompleta). Interceptação de ask_user: ${askMsg}. ask-bridge: fonte=${askBridgeSource}${askBridgeVersion ? " v" + askBridgeVersion : ""}.${setupMsg}`);
     },
   },
   {
@@ -325,13 +361,13 @@ export const tools = [
       let briefing;
       try { briefing = readBrief({ path: briefingPath, inline: briefingInline, cwd: process.cwd(), label: "briefing", log: logHost }); }
       catch (e) { return { ok: false, error: `modo_adr: ${e?.message || e}` }; }
-      const r = await adr.buildPlan(briefing, { factory, memory, plan, deep, router: modelRouter, liveMesa, embedder }, { deep: deepState.get(), mesa: mesa || "auto" });
+      const r = await adr.buildPlan(briefing, { factory, memory, plan, deep, router: modelRouter, liveMesa, embedder, onRoute: (d) => { try { telemetry.persist(routeSpan(d)); } catch (e) { logHost("[modo_adr] route telemetry falhou (sinalizado): " + (e?.message || e)); } } }, { deep: deepState.get(), mesa: mesa || "auto" });
       if (!r.ok) return ok(`ADR falhou: ${r.error || "erro"}`);
       const dv = r.deepReview ? `\n\n[validação PROFUNDA — painel ${r.deepReview.families.join("+")}] ${r.deepReview.pass ? "plano sólido" : "riscos corroborados:\n- " + r.deepReview.findings.join("\n- ")}` : "";
       const caminho = r.path ? `triagem: ${r.tier || "?"} → ${r.path === "express" ? "EXPRESSO (sem debate)" : r.path === "mini" ? "mesa-mini (3 papéis, 1 volta)" : "mesa completa"}${r.triageSource && r.triageSource !== "deterministic" ? " [" + r.triageSource + "]" : ""}` : "";
       const meta = r.engine === "viva" ? ` (mesa viva: ${r.rounds} voltas, convergiu=${r.converged})` : "";
       await recordDelivery((briefing || "").slice(0, 120) + " → " + (r.plan || "").slice(0, 200), "plano"); // GAP 3: entrega (aceite por ação)
-      return ok(`plano vivo gerado${r.written ? " (plan.md escrito)" : ""}${caminho ? " — " + caminho : ""}${meta}:\n\n${r.plan}${dv}`);
+      return ok(`plano do ADR gerado${r.written ? " (gravado em adr-plan.md — LEIA-o e incorpore ao SEU plan.md; a mesa ADR NÃO toca no plan.md da sessão)" : ""}${caminho ? " — " + caminho : ""}${meta}:\n\n${r.plan}${dv}`);
     },
   },
   {
@@ -352,7 +388,7 @@ export const tools = [
     },
     handler: async ({ phase, taskType, maxRounds, deep: deepArg }) => {
       const useDeep = deepArg != null ? !!deepArg : deepState.get();
-      const r = await dev.develop(phase, { gate, factory, memory, router: modelRouter, deep, recordVerdict }, { taskType, maxRounds, deep: useDeep });
+      const r = await dev.develop(phase, { gate, factory, memory, router: modelRouter, deep, recordVerdict, telemetryRead: () => telemetry.read({}), rolloutFlags }, { taskType, maxRounds, deep: useDeep });
       if (!r.ok) return ok(`modo-dev falhou: ${r.error || "erro"}`);
       const status = r.pass ? "PASSOU" : (r.exhausted ? "REPROVOU (esgotou rodadas)" : "REPROVOU");
       const fix = r.mustFix.length ? "\nCorrigir:\n- " + r.mustFix.join("\n- ") : "";
@@ -528,7 +564,10 @@ export const tools = [
       // `limit` é análise-alvo e NÃO marca os spans fora da janela como consumidos (evita desync do nudge).
       if (!limit) { const c = proposals.setCursor({ ts: maxStartedAt(spans) }); if (!c.ok) logHost(`[auto-melhoria] cursor não avançou (sinalizado): ${c.error}`); }
       const precLine = prec.precision != null ? `\n\nPrecisão do sombra (últimas ${prec.injections} injeções): ${(prec.precision * 100).toFixed(0)}% aceitas (${prec.accepted}/${prec.measured} medidas; ${prec.unmeasured} sem medição)` : (prec.injections ? `\n\nPrecisão do sombra: ${prec.injections} injeção(ões), nenhuma medível ainda (acumula)` : "");
-      return ok(`modo-melhoria — gaps=${JSON.stringify(gaps.counts)}; ${res.proposals.length} proposta(s) (${persisted.added} nova(s), ${persisted.duplicates} já conhecida(s); NÃO auto-aplicadas${limit ? "; run com limit → cursor mantido" : ""})\n\n${linhas || "(sem propostas — mesa saudável na janela)"}\n\nSíntese: ${res.summary || "-"}${precLine}`);
+      // 8º EIXO (investigar MAIS sinais): a auditoria de cobertura mostra o que a telemetria JÁ traz por tipo de
+      // span e QUAIS campos faltam — assim a próxima decisão de instrumentação sai de dado, não de palpite.
+      const auditLine = `\n\n${formatSpanAudit(auditSpans(spans))}`;
+      return ok(`modo-melhoria — gaps=${JSON.stringify(gaps.counts)}; ${res.proposals.length} proposta(s) (${persisted.added} nova(s), ${persisted.duplicates} já conhecida(s); NÃO auto-aplicadas${limit ? "; run com limit → cursor mantido" : ""})\n\n${linhas || "(sem propostas — mesa saudável na janela)"}\n\nSíntese: ${res.summary || "-"}${precLine}${auditLine}`);
     },
   },
   {
@@ -543,6 +582,118 @@ export const tools = [
         const spans = telemetry.read(limit ? { limit } : {});
         return ok(renderCostReport(spans, (h) => { try { return getDeliveries().stateOf(h); } catch { return null; } }));
       } catch (e) { return { ok: false, error: `modo_custo: ${e?.message || e}` }; }
+    },
+  },
+  {
+    name: "modo_rotas",
+    description:
+      "TELEMETRIA do roteador de complexidade do ADR (só leitura, determinística): quantas decisões foram por " +
+      "express|mini|full, % que caiu na zona cinzenta (ambíguo) e % que exigiu desempate LLM. Use pra ver se o " +
+      "roteador está economizando a mesa (mais express/mini) e se o safety-net não está operando às cegas.",
+    parameters: { type: "object", properties: { limit: { type: "number", description: "opcional: janela dos últimos N spans (default: todos)" } }, required: [] },
+    handler: async ({ limit }) => {
+      try {
+        const spans = telemetry.read(limit ? { limit } : {});
+        const agg = aggregateRoutes(spans);
+        if (!agg.total) return ok("ADR rotas: nenhuma decisão de roteamento registrada ainda (rode modo_adr).");
+        const tiers = Object.entries(agg.byTier).filter(([, n]) => n > 0).map(([t, n]) => `${t} ${n}`).join(" · ");
+        const alert = routeAlert(agg);
+        return ok(`${formatRouteLine(agg)}\n  por tier: ${tiers || "—"}\n  contagem: express ${agg.byPath.express} · mini ${agg.byPath.mini} · full ${agg.byPath.full} (total ${agg.total})` + (alert ? `\n  ${alert}` : `\n  saúde: OK (dentro da faixa; sem alerta)`));
+      } catch (e) { return { ok: false, error: `modo_rotas: ${e?.message || e}` }; }
+    },
+  },
+  {
+    name: "modo_rollout",
+    description:
+      "RUNBOOK EXECUTÁVEL do rollout das fases de melhoria (F1 pré-filtro, F2 budget do ciclo, F4 gate de " +
+      "complexidade): mostra o ESTADO das feature-flags, o A/B em andamento e o VEREDITO go/no-go MEDIDO nos " +
+      "spans (p95 filtrado × controle + qualidade). Use pra saber SE e QUANDO ligar/desligar cada fase — em vez " +
+      "de decidir no escuro. Só leitura, determinístico.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["status", "set"], description: "status (padrão) = runbook + veredito; set = LIGA/DESLIGA as fases (persistido)" },
+        f1: { type: "boolean", description: "set: liga/desliga o pré-filtro de diff do revisor (F1)" },
+        bypassPct: { type: "number", description: "set: % de ciclos de CONTROLE do A/B do F1 (0..100, default 20)" },
+        f2BudgetMs: { type: "number", description: "set: teto do CICLO de remediação em ms (0 = desligado)" },
+        f4: { type: "boolean", description: "set: liga/desliga o gate de complexidade (F4)" },
+        f4MaxLines: { type: "number", description: "set: override do threshold do F4 em linhas (0 = usa o P25 medido)" },
+      },
+      required: [],
+    },
+    handler: async ({ action, f1, bypassPct, f2BudgetMs, f4, f4MaxLines }) => {
+      try {
+        if (action === "set") {
+          const patch = {};
+          if (f1 != null) patch.f1 = f1;
+          if (bypassPct != null) patch.bypassPct = bypassPct;
+          if (f2BudgetMs != null) patch.f2BudgetMs = f2BudgetMs;
+          if (f4 != null) patch.f4 = f4;
+          if (f4MaxLines != null) patch.f4MaxLines = f4MaxLines;
+          if (!Object.keys(patch).length) return { ok: false, error: "modo_rollout set: nada a mudar (passe f1/bypassPct/f2BudgetMs/f4/f4MaxLines)" };
+          const r = rolloutFlags.set(patch);
+          if (!r.ok) return { ok: false, error: `modo_rollout set: ${r.error}` };
+          const fl = r.flags;
+          return ok(`flags do rollout ATUALIZADAS (persistidas em ${rolloutFlags.path}):\n  F1 pré-filtro=${fl.f1 ? "ON (bypass " + fl.bypassPct + "%)" : "OFF"} · F2 budget=${fl.f2BudgetMs > 0 ? fl.f2BudgetMs + "ms" : "OFF"} · F4 gate=${fl.f4 ? "ON" + (fl.f4MaxLines ? " (limite " + fl.f4MaxLines + " linhas)" : " (P25 medido)") : "OFF"}\n  Valem a partir do PRÓXIMO ciclo de modo_dev. Rode \`modo_rollout\` após ~100 ciclos pro veredito go/no-go.`);
+        }
+        const spans = telemetry.read({});
+        const fl = rolloutFlags.get();
+        const f1On = fl.f1, f2 = fl.f2BudgetMs, f4On = fl.f4;
+        const bypass = fl.bypassPct;
+        const ab = abReport(spans);
+        const f2r = f2Report(spans, { budgetMs: Number.isFinite(f2) && f2 > 0 ? f2 : null });
+        const th = f4Threshold(spans, { override: fl.f4MaxLines || null });
+        const linhas = [
+          `FLAGS (fonte: ${fl.source}): F1 pré-filtro=${f1On ? "ON (bypass " + bypass + "%)" : "OFF"} · F2 budget do ciclo=${f2 > 0 ? f2 + "ms" : "OFF"} · F4 gate=${f4On ? "ON" : "OFF"}`,
+          `F1 A/B: ${ab.ok ? `${ab.go ? "✅ GO" : "⛔ NO-GO"} — p95 filtrado ${ab.p95Filtered}ms × controle ${ab.p95Control}ms (ganho ${ab.gainPct}%), reprovação ${ab.failPctFiltered}% × ${ab.failPctControl}% · ${ab.filtered}/${ab.control} ciclos\n  → ${ab.verdict}` : `aguardando amostra (${ab.reason})`}`,
+          `F2 budget: ${f2r.ok ? `${f2r.go ? "✅ GO" : "⛔ NO-GO"} — ${f2r.blown}/${f2r.cycles} ciclos cortados (${f2r.blownPct}%), p95 ${f2r.p95}ms${f2r.budgetMs ? " vs teto " + f2r.budgetMs + "ms" : ""}\n  → ${f2r.verdict}` : `aguardando amostra (${f2r.reason})`}`,
+          `F4 threshold: ${th == null ? "indisponível — precisa de >= 500 spans v3 OU um override explícito (modo_rollout action=set f4MaxLines=n); gate NÃO atua (fallback seguro)" : Math.round(th) + " linhas" + (fl.f4MaxLines ? " (override do dono)" : " (P25 medido)")}`,
+          `PROCEDIMENTO (prescrito pela mesa): 1) \`modo_rollout action=set f1=true\` (bypass 20%); 2) rodar >= 100 ciclos de modo_dev; ` +
+          `3) rodar \`modo_rollout\`: GO → \`action=set bypassPct=5\`; NO-GO → \`action=set f1=false\`; 4) só então o F2 (\`action=set f2BudgetMs=<ms>\`); ` +
+          `5) F4 só com 500 spans v3 (ou f4MaxLines explícito). F1+F2 juntas são BLOQUEADAS — sem isolar, não dá pra saber qual reverter.`,
+        ];
+        return ok(linhas.join("\n"));
+      } catch (e) { return { ok: false, error: `modo_rollout: ${e?.message || e}` }; }
+    },
+  },
+  {
+    name: "modo_setup",
+    description:
+      "SAÚDE DO SETUP da mesa (autodiagnóstico + conserto guiado): os WORKERS da mesa NÃO usam o binário " +
+      "auto-atualizado do app — eles resolvem o CLI @github/copilot pelo PATH (npm global), que fica para trás e " +
+      "traz um conpty antigo (popup de assertion no spawn rápido de workers). action=status mostra as versões " +
+      "medidas; action=fix roda a atualização (só quando não há workers da mesa rodando).",
+    parameters: {
+      type: "object",
+      properties: { action: { type: "string", enum: ["status", "fix"], description: "status (padrão) ou fix (atualiza o CLI global)" } },
+      required: [],
+    },
+    handler: async ({ action }) => {
+      try {
+        const c = checkSetup();
+        if (action !== "fix") {
+          const extra = c.stale ? `\n  ${c.message}` : (c.reason === "worker-sdk-nao-encontrado" ? `\n  ${c.message}` : "\n  (a mesa vai spawnar workers no CLI atual)");
+          return ok(`${formatSetup(c)}${extra}\n  caminho do CLI dos workers: ${c.packageDir || "(não localizado)"}`);
+        }
+        if (!c.stale) return ok(`nada a consertar — ${formatSetup(c)}`);
+        // GUARDA: no Windows um .node EM USO não é sobrescrito. Se há worker vivo, o update falha pela metade.
+        const vivos = typeof workers.size === "function" ? workers.size() : 0;
+        if (vivos > 0) return { ok: false, error: `modo_setup fix: há ${vivos} worker(s) da mesa em execução — no Windows o .node em uso NÃO é sobrescrito. Espere as mesas terminarem (ou feche-as) e rode de novo.` };
+        logHost(`[setup] aplicando conserto: ${FIX_COMMAND}`);
+        const r = await new Promise((resolve) => {
+          // Windows: desde o hardening do Node, spawnar um .cmd SEM shell dá EINVAL. Por isso shell:true aqui —
+          // e os argumentos são CONSTANTES (nada vem do usuário), então não há superfície de injeção.
+          const p = spawn("npm", ["i", "-g", "@github/copilot@latest"], { windowsHide: true, shell: true });
+          let out = "", err = "";
+          p.stdout.on("data", (d) => { out += d.toString(); });
+          p.stderr.on("data", (d) => { err += d.toString(); });
+          p.on("error", (e) => resolve({ code: -1, out, err: String(e?.message || e) }));
+          p.on("close", (code) => resolve({ code, out, err }));
+        });
+        const depois = checkSetup();
+        if (r.code !== 0) return { ok: false, error: `modo_setup fix: npm saiu com código ${r.code}. ${String(r.err || r.out).split(/\r?\n/).filter(Boolean).slice(-3).join(" | ")}` };
+        return ok(`conserto aplicado (${FIX_COMMAND}).\n  antes: CLI v${c.workerVersion} · depois: CLI v${depois.workerVersion || "?"} (app v${depois.appVersion || "?"})\n  ${depois.stale ? "⚠️ AINDA desatualizado — verifique se outro copilot no PATH está na frente do npm global." : "✅ setup em dia."}`);
+      } catch (e) { return { ok: false, error: `modo_setup: ${e?.message || e}` }; }
     },
   },
   {
@@ -765,16 +916,28 @@ async function joinSessionResilient(joinFn, cfg, armed, baseTools) {
   }
 }
 
+// RE-JOIN pendente: o toggle do modo-auto troca as TOOLS (override ask_user), o que EXIGE re-join (provado:
+// registerTools dinâmico NÃO intercepta). Mas re-join DENTRO do turno da tool derruba o transporte → a tool trava.
+// Então o toggle só MARCA `reflectPending`; o RE-JOIN roda no próximo `session.idle` (turno acabou → seguro). O
+// handler de idle é MESTRE e registrado SEMPRE (mesmo OFF) pra poder consumir o pending quando OFF→ON.
+let reflectPending = false;
+const requestReflect = () => { reflectPending = true; };
+
 // Reflete o estado ON/OFF via RE-JOIN. Idempotente. No smoke (sem SDK) só atualiza o estado.
 async function reflect() {
   if (!sdk) return;
+  reflectPending = false; // este reflect já aplica o estado atual → não há troca pendente após ele
   const { joinSession, approveAll } = sdk;
   try { idleOff?.(); } catch { /* ignore */ }
   idleOff = null;
   try { if (askClaim) { askClaim.release(); askClaim = null; } } catch { /* ignore */ } // solta o claim antes de re-juntar
   closeAskServers();
   askBridge = { role: "off", owner: null };
-  try { await hostSession?.disconnect(); } catch { /* ignore */ }
+  // NÃO chama disconnect() aqui: disconnect() sinaliza ao app Copilot que a extensão quer encerrar →
+  // ele REINICIA o processo inteiro (novo PID), matando o turno em curso. O joinSession abaixo
+  // supersede a sessão antiga naturalmente. disconnect() permanece SÓ no deactivate() (shutdown real).
+  const staleSession = hostSession;
+  hostSession = null;
   const armed = state.get();
   const cfg = { onPermissionRequest: approveAll, tools, hooks };
   if (canvas) cfg.canvases = [canvas];   // painel registrado (criado no guard do startup)
@@ -783,6 +946,11 @@ async function reflect() {
     cfg.onUserInputRequest = buildAskHandler(orch, { log: logHost });
     let claim = null;
     await initAskBridge(logHost); // troca p/ a lib COMPARTILHADA se compatível (idempotente, roda 1×)
+    // SINAL DE CONTROLE AUTÔNOMO (protocolo 1.2.0): DECLARA que esta sessão é regida pela mesa. Plugins de RELAY
+    // (whatsapp-bridge — bind de UMA sessão) devem CEDER a tecla do ask_user aqui. Regra do dono: sessão com
+    // modo-auto ARMADO = a mesa responde; o relay atende as OUTRAS sessões. Best-effort SINALIZADO.
+    try { setArmed(sessionKey(), true, { extensionId: "modo-auto" }); }
+    catch (e) { logHost("[modo-auto] ask-bridge: setArmed falhou (sinalizado): " + (e?.message || e)); }
     try { claim = await acquireOrConnect(sessionKey(), { extensionId: "modo-auto" }); }
     catch (e) { logHost("[modo-auto] ask-bridge acquireOrConnect FALHOU (FAIL LOUD, sinalizado): " + (e?.message || e)); }
     if (!claim || claim.isOwner) {
@@ -811,7 +979,13 @@ async function reflect() {
         try {
           askResponder = createAskBridgeResponder(mesaAnswer, { log: logHost });
           const { url } = await askResponder.start();
-          await registerWithOwner(o.loopbackPort, o.token, { responderId: "modo-auto-mesa", url, priority: 0, answerTimeoutMs: 60000 });
+          // PRAZO DO RESPONDEDOR = quanto a MESA realmente leva pra deliberar. Era 60000 e ERA O BUG: o dono do
+          // ask-bridge honra o answerTimeoutMs que o respondedor DECLARA (não impõe o dele), então a mesa pedia
+          // pra ser cortada em 1 min e deliberava em mais que isso → "timeout:60000" no dispatch e a pergunta
+          // caía no humano. MEDIDO no log do dono (2026-07-28): ask às 17:54:07 → corte às 17:55:07 (60s exatos).
+          // Agora usa a janela canônica do protocolo (mesaAnswerTimeoutMs). first-to-answer segue valendo: se o
+          // humano responder antes, ele ganha — o prazo maior NÃO atrasa ninguém, só evita o corte prematuro.
+          await registerWithOwner(o.loopbackPort, o.token, { responderId: "modo-auto-mesa", url, priority: 0, answerTimeoutMs: ASK_DEFAULTS.mesaAnswerTimeoutMs });
           responderOk = true;
           logHost(`[modo-auto] ask-bridge: registrado como RESPONDEDOR no dono '${o.extensionId}' (a mesa responde via dispatch)`);
         } catch (e) { closeAskServers(); responderReason = "registro no dono falhou: " + (e?.message || e); logHost("[modo-auto] ask-bridge: registro no dono FALHOU (FAIL LOUD, sinalizado): " + (e?.message || e)); }
@@ -821,8 +995,14 @@ async function reflect() {
       }
       askBridge = { role: "responder", registered: responderOk, reason: responderReason, owner: o };
     }
+  } else {
+      // DESARMADO: retira o sinal — o relay (whatsapp) volta a valer nesta sessão (a tecla é dele de novo).
+      try { setArmed(sessionKey(), false, { extensionId: "modo-auto" }); }
+      catch (e) { logHost("[modo-auto] ask-bridge: setArmed(false) falhou (sinalizado): " + (e?.message || e)); }
   }
   hostSession = await joinSessionResilient(joinSession, cfg, armed, tools);
+  // staleSession: NÃO chama disconnect() nem em background — o app Copilot trata qualquer disconnect()
+  // desta extensão como sinal de encerramento e reinicia o processo. Deixa a sessão velha vazar/GC.
   // REKEY: assim que temos a sessionId REAL do host, re-chaveia as toggles/nudge por ela (o env pode não
   // vir → cairia no "default" compartilhado = vazamento entre sessões). Só na 1ª vez (rekeyed guard).
   if (!rekeyed && hostSession?.sessionId) {
@@ -832,7 +1012,18 @@ async function reflect() {
     // Se o estado persistido DESTA sessão difere do que usamos pra montar o cfg, re-reflete pra aplicar.
     if (state.get() !== armed) { logHost(`rekey → estado real da sessão difere; re-refletindo`); return reflect(); }
   }
-  if (armed) idleOff = wireIdle(hostSession, orch, { log: logHost });
+  // Idle-mestre: registrado SEMPRE (armado ou não) — no fim de cada turno consome um RE-JOIN pendente (troca
+  // ON/OFF do override ask_user) de forma SEGURA (turno acabou), e, quando armado, roda o gate de Stop. É o que
+  // impede o travamento: o re-join nunca acontece dentro do turno da tool modo_auto.
+  idleOff = hostSession.on("session.idle", makeIdleHandler({
+    shouldReflect: () => reflectPending,
+    onReflect: async () => { await reflect(); },
+    isArmed: () => state.get(),
+    handleStop: (a) => orch.handleStop(a),
+    sendContinuation: (prompt) => hostSession.send({ prompt }),
+    workspacePath: () => hostSession?.workspacePath,
+    log: logHost,
+  }));
   logHost(armed ? "ARMADO (re-join com handler + idle)" : "inerte (base sem handler)");
 }
 

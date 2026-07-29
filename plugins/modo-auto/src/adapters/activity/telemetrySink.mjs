@@ -31,6 +31,13 @@ export function createTelemetrySink({
     // DEGRADAÇÃO SINALIZADA ({ok:false,error} + log), não crash.
     persist(span) {
       if (!span || typeof span !== "object") return { ok: false, error: "telemetria: span inválido" };
+      // ASSERTION FAIL-LOUD (Fase 0): span v3+ DEVE trazer os 3 obrigatórios — sem eles NÃO persiste (nunca mascara um
+      // span meia-boca que estragaria a análise). v2 (spanVersion ausente ou < 3) passa sem exigência (retrocompat).
+      if (Number(span.spanVersion) >= 3) {
+        for (const k of ["inputTokens", "outputTokens", "inputLines"]) {
+          if (typeof span[k] !== "number") return { ok: false, error: `telemetria: span v3 sem campo obrigatório: ${k}` };
+        }
+      }
       try {
         ensure();
         if (size == null) size = sizeOf(path); // custo 1x: tamanho atual do arquivo ativo

@@ -134,3 +134,38 @@ export function updateOwnerInfo(sessionId, extra = {}, { home = homedir(), myPid
   if (!owner || owner.pid !== myPid) return false; // não sou o dono → não mexo
   try { writeFileSync(join(dir, "owner.json"), JSON.stringify({ ...owner, ...extra }, null, 2)); return true; } catch { return false; }
 }
+
+// ── SINAL DE CONTROLE AUTÔNOMO POR SESSÃO (protocolo 1.2.0, aditivo) ───────────────────────────────────────
+// PROBLEMA: o override do ask_user é ÚNICO por sessão e amarrado no JOIN. Um plugin de RELAY (whatsapp-bridge)
+// tem bind de UMA sessão só; um plugin de CONTROLE AUTÔNOMO (modo-auto) é POR SESSÃO. Quando os dois caem na
+// MESMA sessão, o relay tomava a tecla e a pergunta ia pro humano — travando justamente a sessão que o dono
+// LIGOU para ser autônoma. REGRA DO DONO: na sessão com controle autônomo ARMADO, quem responde é ele.
+// Este sinal é o contrato: quem arma DECLARA (setArmed) e o relay CONSULTA (isArmed) ANTES de registrar.
+
+// Declara/retira o controle autônomo DESTA sessão. armed=false remove o arquivo (o relay volta a valer).
+export function setArmed(sessionId, armed, { extensionId = "modo-auto", home = homedir(), myPid = process.pid } = {}) {
+  const dir = bridgeDir(sessionId, home);
+  const f = join(dir, "armed.json");
+  if (!armed) {
+    const cur = (() => { try { return JSON.parse(readFileSync(f, "utf8")); } catch { return null; } })();
+    if (cur && cur.pid !== myPid) return false; // não desarmo o sinal de OUTRO processo
+    try { if (existsSync(f)) unlinkSync(f); } catch { /* best-effort */ }
+    try { if (existsSync(dir) && readdirSync(dir).length === 0) rmdirSync(dir); } catch { /* em uso */ }
+    return true;
+  }
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(f, JSON.stringify({ pid: myPid, extensionId, sessionId: String(sessionId || ""), armedAt: new Date().toISOString() }, null, 2));
+  return true;
+}
+
+// Há controle autônomo VIVO nesta sessão? Retorna o sinal ou null. `excludeExtensionId` ignora o próprio plugin
+// (quem armou não cede pra si mesmo). Sinal de processo MORTO é ignorado (e limpo) — nunca bloqueia pra sempre.
+export function isArmed(sessionId, { home = homedir(), excludeExtensionId = null } = {}) {
+  const dir = bridgeDir(sessionId, home);
+  const f = join(dir, "armed.json");
+  let a = null;
+  try { a = JSON.parse(readFileSync(f, "utf8")); } catch { return null; }
+  if (!a || (excludeExtensionId && a.extensionId === excludeExtensionId)) return null;
+  if (!pidAlive(a.pid)) { try { unlinkSync(f); } catch { /* best-effort */ } return null; } // órfão → não bloqueia
+  return a;
+}

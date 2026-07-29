@@ -57,11 +57,17 @@ export function createModoAutonomo({ log = () => {} } = {}) {
       const r = await caps.factory.run("facilitador",
         `PERGUNTA ORIGINAL:\n${q}\n\nSÍNTESE:\n${synthesis || "(sem síntese)"}\n\nDELIBERAÇÃO DA MESA (todas as voltas):\n${transcript}\n\n` +
         `Escreva a RESPOSTA FINAL à pergunta, consolidando a DELIBERAÇÃO acima (não um viés). Direta e acionável.`,
-        { timeoutMs: 120000, stage: "alto" });
+        { timeoutMs: 90000, stage: "alto" }); // 90s (era 120s): cabe na janela de 300s do ask-bridge
       if (!r.ok || !r.text) throw new Error("modo-auto vivo: resposta final falhou: " + (r.error || "sem texto"));
       return r.text;
     };
-    const res = await caps.liveMesa.run(subject, { agents, writeDoc, minRounds: 2, maxRounds: 3, facilitatorRole: "facilitador", embedder: caps.embedder });
+    // ORÇAMENTO DE TEMPO DO ask_user (medido 2026-07-28): o dono do ask-bridge corta o respondedor em
+    // mesaAnswerTimeoutMs (300s). Com 2-3 voltas × N agentes vivos + consolidação de 120s a mesa ESTOUROU essa
+    // janela ("timeout:300000" no log do dono) e a pergunta caía no humano — a sessão congelava, que é o oposto
+    // do propósito. Aqui o caminho da PERGUNTA usa 1-2 voltas (o ADR/plano, que não tem essa janela, segue com a
+    // mesa completa). TRADE-OFF CONSCIENTE E SINALIZADO: menos deliberação, mas resposta ENTREGUE — uma pergunta
+    // não respondida vale ZERO e ainda trava o dono. A convergência por embedder pode encerrar já na 1ª volta.
+    const res = await caps.liveMesa.run(subject, { agents, writeDoc, minRounds: 1, maxRounds: 2, facilitatorRole: "facilitador", embedder: caps.embedder, timeoutMs: 90000 });
     log(`[modo-autonomo] mesa VIVA: ${res.rounds} voltas, convergiu=${res.converged}`);
     return res.document;
   }

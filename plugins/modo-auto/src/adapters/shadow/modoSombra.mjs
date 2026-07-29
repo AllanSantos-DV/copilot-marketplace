@@ -45,13 +45,18 @@ export function createModoSombra({ consolidator, log = () => {} } = {}) {
   async function consolidateNow(caps, { tailTurns, deep, threshold, subject, vivo = false }) {
     const text = tailText(caps, tailTurns);
     if (!text) { log("[modo-sombra] sem transcript p/ consolidar"); return null; }
+    const t0 = Date.now();
     const r = await consolidator.consolidate(text, caps, { deep, threshold, subject, vivo, turn: turnCount });
+    const durationMs = Date.now() - t0;
     dossier = r.dossier;
     // F2: registra CADA consolidação como telemetria (shape único stage:"sombra-consolidation") — é o que
     // o injectionTracker usa p/ medir a trajetória de drift (aceitação da injeção). Best-effort SINALIZADO.
+    // ATRIBUIÇÃO + DURAÇÃO (proposta 4 da auto-melhoria): sem `role` e `durationMs` este span era um MARCADOR
+    // cego — dava pra ver o drift, mas NÃO dava pra medir quanto a consolidação custa, que é justamente o que o
+    // gapDetector precisa pra apontar latência aqui. `vivo` distingue o caminho (mesa viva × efêmero).
     try {
       const sid = typeof caps.sessionId === "function" ? caps.sessionId() : caps.sessionId;
-      caps.recordConsolidation?.({ sessionId: sid || null, drift: r.drift, distance: r.distance ?? null, method: r.driftMethod || "?", injected: !!r.flag, flagId: r.gid || null, threshold });
+      caps.recordConsolidation?.({ sessionId: sid || null, role: "sombra-consolidador", durationMs, vivo: !!vivo, deep: !!deep, drift: r.drift, distance: r.distance ?? null, method: r.driftMethod || "?", injected: !!r.flag, flagId: r.gid || null, threshold });
     } catch (e) { log("[modo-sombra] recordConsolidation falhou (sinalizado, não derruba): " + (e?.message || e)); }
     return r;
   }
