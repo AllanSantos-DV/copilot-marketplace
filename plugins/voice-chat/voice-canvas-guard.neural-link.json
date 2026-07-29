@@ -9,5 +9,5 @@
   "timeout": 8000,
   "weight": 0.95,
   "modifiers": [],
-  "project": "voice-chat"
+  "project": "copilot-voice"
 }
