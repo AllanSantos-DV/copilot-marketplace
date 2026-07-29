@@ -44,6 +44,18 @@ def _candidate_dirs() -> "tuple[str, ...]":
     )
 
 
+def _from_pointer() -> "str | None":
+    """O motor PUBLICA onde instalou o CLI (``<raiz>/cli.json``), a partir do executável do
+    próprio venv — sem adivinhar. Consultar isso é o que impede o palpite de layout de voltar a
+    quebrar quando a instalação mudar de forma."""
+    try:
+        with open(os.path.join(_install_root(), "cli.json"), encoding="utf-8") as f:
+            p = json.load(f).get("vox")
+        return p if p and os.path.isfile(p) else None
+    except Exception:  # noqa: BLE001 — ausente antes do 1º boot: cai para o palpite
+        return None
+
+
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
@@ -60,6 +72,9 @@ def find_vox() -> "str | None":
     override = os.environ.get("VOX_CLI")
     if override:
         return override if os.path.isfile(override) else None
+    declarado = _from_pointer()
+    if declarado:
+        return declarado
     for d in _candidate_dirs():
         for name in ("vox.exe", "vox"):
             p = os.path.join(d, name)
