@@ -21,7 +21,7 @@
 // Fail-closed: sem sha256 conferido E assinatura válida, NÃO instala. Degrada SINALIZADO —
 // devolve `{ ok:false, reason }`, nunca finge que instalou.
 
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { createHash, createPublicKey, verify as edVerify } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
@@ -36,26 +36,54 @@ const REGISTRY_MANIFEST = process.env.VOX_REGISTRY_MANIFEST ||
 /** Envelope DER fixo de uma chave Ed25519 (RFC 8410): o Node não importa chave crua. */
 const SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
 
-/** Onde o `vox` aparece depois de instalado (o instalador cria um venv por-usuário). */
+/** Raiz da instalação por-usuário do motor. É o único caminho estável do contrato. */
+const INSTALL_ROOT = join(process.env.LOCALAPPDATA || homedir(), "vox-engine");
+
+/**
+ * Onde o `vox` aparece depois de instalado.
+ *
+ * O instalador cria um venv em `<raiz>/venv` e os console-scripts ficam em `venv/Scripts`.
+ * Eu tinha escrito `<raiz>/Scripts` — sem o segmento `venv` — e o motor ficava "não instalado"
+ * com o executável no disco, disparando reinstalação em loop. O outro palpite (`~/.vox-engine`)
+ * também estava errado: aquilo é o VOX_HOME dos MODELOS, não a raiz de instalação.
+ */
 const CANDIDATE_DIRS = [
-    join(process.env.LOCALAPPDATA || "", "vox-engine", "Scripts"),
-    join(homedir(), ".vox-engine", "Scripts"),
+    join(INSTALL_ROOT, "venv", "Scripts"),   // Windows
+    join(INSTALL_ROOT, "venv", "bin"),       // POSIX
 ];
+
+/**
+ * O motor PUBLICA onde instalou o próprio CLI (`<raiz>/cli.json`), a partir do executável do
+ * venv dele — sem adivinhar. Ler isso primeiro é o que impede este bug de voltar quando o
+ * layout mudar: o consumidor deixa de deduzir e passa a consultar.
+ */
+function fromPointer() {
+    try {
+        const raw = readFileSync(join(INSTALL_ROOT, "cli.json"), "utf-8");
+        const p = JSON.parse(raw)?.vox;
+        return p && existsSync(p) ? p : null;
+    } catch {
+        return null;   // ausente/ilegível é esperado antes do 1º boot — cai para o palpite
+    }
+}
 
 /** Caminho do `vox`, ou null se o motor ainda não está instalado. */
 export function findVox() {
     if (process.env.VOX_CLI && existsSync(process.env.VOX_CLI)) { return process.env.VOX_CLI; }
-    const probe = spawnSync(process.platform === "win32" ? "where" : "which", ["vox"], { encoding: "utf8" });
-    if (probe.status === 0) {
-        const first = String(probe.stdout || "").split(/\r?\n/).map((s) => s.trim()).find(Boolean);
-        if (first && existsSync(first)) { return first; }
-    }
+    const declarado = fromPointer();
+    if (declarado) { return declarado; }
     for (const d of CANDIDATE_DIRS) {
-        if (!d) { continue; }
         for (const name of ["vox.exe", "vox"]) {
             const p = join(d, name);
             if (existsSync(p)) { return p; }
         }
+    }
+    // PATH por último: só resolve se alguém instalou o motor globalmente, e arriscaria pegar um
+    // `vox` de outro projeto antes do motor de que este plugin depende.
+    const probe = spawnSync(process.platform === "win32" ? "where" : "which", ["vox"], { encoding: "utf8" });
+    if (probe.status === 0) {
+        const first = String(probe.stdout || "").split(/\r?\n/).map((s) => s.trim()).find(Boolean);
+        if (first && existsSync(first)) { return first; }
     }
     return null;
 }
