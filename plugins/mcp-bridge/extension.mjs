@@ -9103,17 +9103,22 @@ function sanitizeServers(raw) {
         enabled: typeof s.enabled === "boolean" ? s.enabled : void 0
       });
     } else if (s.type === "http" || s.type === "sse") {
-      if (typeof s.url !== "string" || !s.url.trim()) continue;
-      try {
-        new URL(s.url);
-      } catch {
-        continue;
+      const engine = typeof s.engine === "string" && s.engine.trim() ? s.engine.trim() : void 0;
+      const hasUrl = typeof s.url === "string" && !!s.url.trim();
+      if (!engine && !hasUrl) continue;
+      if (hasUrl) {
+        try {
+          new URL(s.url);
+        } catch {
+          if (!engine) continue;
+        }
       }
       seen.add(s.name);
       out.push({
         name: s.name,
         type: s.type,
-        url: s.url.trim(),
+        url: hasUrl ? s.url.trim() : void 0,
+        engine,
         headers: sanitizeStringMap(s.headers),
         auth: sanitizeOAuth(s.auth),
         enabled: typeof s.enabled === "boolean" ? s.enabled : void 0
@@ -19934,13 +19939,69 @@ var SSEClientTransport = class {
   }
 };
 
-// src/oauth.store.ts
+// src/engine-ref.ts
+import { homedir as homedir2 } from "node:os";
 import { join as join2 } from "node:path";
-import { existsSync as existsSync2, readFileSync as readFileSync2, rmSync } from "node:fs";
+import { readFileSync as readFileSync2 } from "node:fs";
+function engineHome(name) {
+  return join2(homedir2(), `.${name}`);
+}
+function readJson(path) {
+  try {
+    const v = JSON.parse(readFileSync2(path, "utf8"));
+    return v && typeof v === "object" && !Array.isArray(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+function port(home) {
+  for (const file of ["runtime.json", "config.json"]) {
+    const p = readJson(join2(home, file))?.port;
+    if (typeof p === "number" && Number.isInteger(p) && p > 0 && p < 65536) return p;
+  }
+  return null;
+}
+function resolveEndpoint(c) {
+  if (c.engine) {
+    const ep = resolveEngine(c.engine);
+    if (!ep) {
+      throw new Error(
+        `servidor "${c.name}": motor "${c.engine}" n\xE3o est\xE1 instalado/rodando nesta m\xE1quina (esperado ~/.${c.engine}/runtime.json). Suba o motor ou troque para "url" expl\xEDcita.`
+      );
+    }
+    return {
+      url: ep.url,
+      headers: ep.token ? { ...c.headers ?? {}, Authorization: `Bearer ${ep.token}` } : c.headers
+    };
+  }
+  if (!c.url) {
+    throw new Error(`servidor "${c.name}": sem "url" nem "engine" \u2014 nada para conectar.`);
+  }
+  return { url: c.url, headers: c.headers };
+}
+function resolveEngine(name) {
+  const home = engineHome(name);
+  const p = port(home);
+  if (p === null) return null;
+  const rt = readJson(join2(home, "runtime.json"));
+  const path = typeof rt?.endpoint === "string" && rt.endpoint.startsWith("/") ? rt.endpoint : "/mcp";
+  const host = typeof rt?.host === "string" && rt.host.trim() ? rt.host.trim() : "127.0.0.1";
+  let token = null;
+  try {
+    token = readFileSync2(join2(home, "auth-token"), "utf8").trim() || null;
+  } catch {
+    token = null;
+  }
+  return { url: `http://${host}:${p}${path}`, token };
+}
+
+// src/oauth.store.ts
+import { join as join3 } from "node:path";
+import { existsSync as existsSync2, readFileSync as readFileSync3, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { userInfo } from "node:os";
 import { createHash } from "node:crypto";
-var OAUTH_DIR = join2(CONFIG_DIR, "oauth");
+var OAUTH_DIR = join3(CONFIG_DIR, "oauth");
 function fileFor(server) {
   const slug = server.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 40) || "srv";
   const hash = createHash("sha256").update(server).digest("hex").slice(0, 16);
@@ -19958,13 +20019,13 @@ var OAuthStore = class {
   path;
   cache;
   constructor(server) {
-    this.path = join2(OAUTH_DIR, fileFor(server));
+    this.path = join3(OAUTH_DIR, fileFor(server));
   }
   load() {
     if (this.cache) return this.cache;
     try {
       if (existsSync2(this.path)) {
-        const parsed = JSON.parse(readFileSync2(this.path, "utf8"));
+        const parsed = JSON.parse(readFileSync3(this.path, "utf8"));
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
           this.cache = parsed;
         }
@@ -20112,10 +20173,10 @@ function startCallbackServer() {
     server.on("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const addr = server.address();
-      const port = addr && typeof addr === "object" ? addr.port : 0;
+      const port2 = addr && typeof addr === "object" ? addr.port : 0;
       resolve2({
         server,
-        port,
+        port: port2,
         waitForCode: (timeoutMs) => Promise.race([
           codePromise,
           new Promise((r) => setTimeout(() => r({}), timeoutMs))
@@ -20125,8 +20186,9 @@ function startCallbackServer() {
   });
 }
 function makeAuthedTransport(config2, provider) {
-  const url2 = new URL(config2.url);
-  const requestInit = config2.headers ? { headers: config2.headers } : void 0;
+  const ep = resolveEndpoint(config2);
+  const url2 = new URL(ep.url);
+  const requestInit = ep.headers ? { headers: ep.headers } : void 0;
   return config2.type === "http" ? new StreamableHTTPClientTransport(url2, { authProvider: provider, requestInit }) : new SSEClientTransport(url2, { authProvider: provider, requestInit });
 }
 async function runLoginFlow(server, config2, log, timeoutMs = 18e4) {
@@ -20443,9 +20505,10 @@ var ManagedServer = class {
         env: c.env
       });
     }
-    const url2 = new URL(c.url);
+    const { url: target, headers } = resolveEndpoint(c);
+    const url2 = new URL(target);
     const opts = {
-      ...c.headers ? { requestInit: { headers: c.headers } } : {},
+      ...headers ? { requestInit: { headers } } : {},
       ...this.authProvider ? { authProvider: this.authProvider } : {}
     };
     return c.type === "http" ? new StreamableHTTPClientTransport(url2, opts) : new SSEClientTransport(url2, opts);
@@ -20749,9 +20812,9 @@ var HealthTracker = class {
 };
 
 // src/audit.ts
-import { join as join3 } from "node:path";
-import { appendFileSync, existsSync as existsSync3, mkdirSync as mkdirSync3, readFileSync as readFileSync3, writeFileSync as writeFileSync3 } from "node:fs";
-var AUDIT_PATH = join3(CONFIG_DIR, "audit.jsonl");
+import { join as join4 } from "node:path";
+import { appendFileSync, existsSync as existsSync3, mkdirSync as mkdirSync3, readFileSync as readFileSync4, writeFileSync as writeFileSync3 } from "node:fs";
+var AUDIT_PATH = join4(CONFIG_DIR, "audit.jsonl");
 var AuditLog = class {
   constructor(cfg = {}) {
     this.cfg = cfg;
@@ -20792,7 +20855,7 @@ var AuditLog = class {
     let entries = [];
     try {
       if (existsSync3(AUDIT_PATH)) {
-        entries = readFileSync3(AUDIT_PATH, "utf8").split("\n").filter(Boolean).map((l) => {
+        entries = readFileSync4(AUDIT_PATH, "utf8").split("\n").filter(Boolean).map((l) => {
           try {
             return JSON.parse(l);
           } catch {
@@ -20810,7 +20873,7 @@ var AuditLog = class {
   rotateIfNeeded() {
     const max = Math.max(1, this.cfg.maxEntries ?? 1e3);
     try {
-      const lines = readFileSync3(AUDIT_PATH, "utf8").split("\n").filter(Boolean);
+      const lines = readFileSync4(AUDIT_PATH, "utf8").split("\n").filter(Boolean);
       if (lines.length > max) {
         writeFileSync3(AUDIT_PATH, lines.slice(-max).join("\n") + "\n", { mode: 384 });
       }
@@ -20943,8 +21006,8 @@ function startDashboard(getSnapshot) {
     server.on("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const addr = server.address();
-      const port = addr && typeof addr === "object" ? addr.port : 0;
-      resolve2({ url: `http://127.0.0.1:${port}/`, port, close: () => server.close() });
+      const port2 = addr && typeof addr === "object" ? addr.port : 0;
+      resolve2({ url: `http://127.0.0.1:${port2}/`, port: port2, close: () => server.close() });
     });
   });
 }

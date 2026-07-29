@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">voice-chat</h1>
-        <span class="chip" title="versão publicada">v2.3.5</span>
+        <span class="chip" title="versão publicada">v2.3.11</span>
       </div>
       <p class="doc-hero__lede">O <strong>voice-chat</strong> transforma o terminal numa conversa: você segura para falar, o motor único local <strong><code>vox-engine</code></strong> transcreve na sua máquina, o texto vira um turno normal do Copilot e uma voz neural em pt-BR lê o resumo de volta. Fala e voz — <strong>STT e TTS</strong> — passam pelo <strong>mesmo</strong> motor, e <strong>nenhum áudio sai do computador</strong>. A <strong>2.0.0</strong> deixou a extensão <strong>fina</strong>: cada sessão do Copilot agora grava, transcreve, injeta a fala e toca o áudio <strong>na própria sessão</strong>, direto com o motor — sem a antiga camada de roteamento entre sessões que fazia a fala se perder ou duplicar depois de um <strong>Stop</strong>. A <strong>2.0.1</strong> fecha a última corrida entre sessões: como o microfone é <strong>um só</strong> na máquina, agora <strong>só uma sessão grava por vez</strong> — as outras são avisadas na hora, e uma sessão inativa <strong>libera o microfone sozinha</strong>.</p>
       <div class="doc-hero__cta">
@@ -156,11 +156,6 @@
             <div class="tree__head"><span class="prompt__glyph" aria-hidden="true">⌁</span> plugins/voice-chat/</div>
             <ul class="tree__list">
             <li class="tree__row">
-              <code class="tree__name">_ed25519_ref.py</code>
-              <span class="tree__role">Verificador Ed25519 em Python puro (RFC 8032) — confere a assinatura sem depender de biblioteca externa.</span>
-              <span class="tree__size">7.3 KB</span>
-            </li>
-            <li class="tree__row">
               <code class="tree__name">capture_port.py</code>
               <span class="tree__role"></span>
               <span class="tree__size">9.2 KB</span>
@@ -173,7 +168,7 @@
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
               <span class="tree__role">Coração da extensão in-app: painel Voz, a tool <code>falar</code> e a orquestração STT → agente → TTS, tudo na própria sessão — e o <strong>lock de gravação</strong> compartilhado que mantém <strong>uma sessão por microfone</strong>.</span>
-              <span class="tree__size">65 KB</span>
+              <span class="tree__size">64 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">hooks.json</code>
@@ -188,7 +183,7 @@
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
               <span class="tree__role">Metadados do plugin + marcadores do canvas (o painel Voz) e dos hooks.</span>
-              <span class="tree__size">685 B</span>
+              <span class="tree__size">686 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">requirements.txt</code>
@@ -198,7 +193,7 @@
             <li class="tree__row">
               <code class="tree__name">voice_worker.py</code>
               <span class="tree__role">Worker de voz em Python: captura o microfone e faz a ponte STT + TTS com o <code>vox-engine</code> pelo named pipe (VAD local com sherpa-onnx).</span>
-              <span class="tree__size">60 KB</span>
+              <span class="tree__size">62 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice-audio.mjs</code>
@@ -214,6 +209,11 @@
               <code class="tree__name">voice-core.mjs</code>
               <span class="tree__role">Utilitários base: log em arquivo e I/O em disco.</span>
               <span class="tree__size">3.9 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">voice-engine-bootstrap.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">8.8 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">voice-net.mjs</code>
@@ -246,11 +246,6 @@
               <span class="tree__size">3.3 KB</span>
             </li>
             <li class="tree__row">
-              <code class="tree__name">voice-turns.mjs</code>
-              <span class="tree__role">Entrega durável da fala capturada <strong>na própria sessão</strong>: injeta <strong>uma vez só</strong> e na ordem, mesmo com o painel em segundo plano (o que corrige o Stop→fala).</span>
-              <span class="tree__size">11 KB</span>
-            </li>
-            <li class="tree__row">
               <code class="tree__name">voice-update.mjs</code>
               <span class="tree__role">Auto-update da <strong>extensão</strong>: versões, assinatura Ed25519 do manifesto, download resiliente e a decisão de recarregar a quente.</span>
               <span class="tree__size">15 KB</span>
@@ -258,12 +253,7 @@
             <li class="tree__row">
               <code class="tree__name">voice-worker.mjs</code>
               <span class="tree__role">Cuida do worker de voz em Python: sobe, vigia e cura o processo; catálogos de microfone e de vozes.</span>
-              <span class="tree__size">25 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">vox_audio_devices.py</code>
-              <span class="tree__role">Descobre e resolve microfones por <strong>nome</strong> (estável ao trocar de USB), com preferência WASAPI/DirectSound.</span>
-              <span class="tree__size">7.5 KB</span>
+              <span class="tree__size">26 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">vox_capture_adapter.py</code>
@@ -271,29 +261,14 @@
               <span class="tree__size">9.9 KB</span>
             </li>
             <li class="tree__row">
-              <code class="tree__name">vox_capture.py</code>
-              <span class="tree__role">Captura de microfone reutilizável (16 kHz mono), segmentando fora da thread de áudio.</span>
-              <span class="tree__size">13 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">vox_lifecycle.py</code>
+              <code class="tree__name">vox_cli.py</code>
               <span class="tree__role"></span>
-              <span class="tree__size">54 KB</span>
+              <span class="tree__size">7.5 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">vox_sdk.py</code>
               <span class="tree__role">O <strong>vox-SDK</strong>: instala/atualiza/usa o <code>vox-engine</code>, conferindo a <strong>assinatura Ed25519</strong> do instalador antes de rodar (fail-closed).</span>
               <span class="tree__size">59 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">vox_splash.py</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">9.3 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">vox_stream.py</code>
-              <span class="tree__role">STT em tempo quase real: segmenta por pausa e transcreve sobreposto à captura (ditado ao vivo).</span>
-              <span class="tree__size">40 KB</span>
             </li>
             </ul>
           </div>
@@ -357,7 +332,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v2.3.5</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v2.3.11</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
