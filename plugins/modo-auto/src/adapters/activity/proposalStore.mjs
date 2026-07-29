@@ -33,8 +33,9 @@ export function createProposalStore({
   function all() { return sink.read({}); }
 
   function readCursor() {
-    try { return exists(cursorPath) ? { ts: 0, at: null, lastNudgedTs: 0, ...JSON.parse(read(cursorPath) || "{}") } : { ts: 0, at: null, lastNudgedTs: 0 }; }
-    catch (e) { log(`[auto-melhoria] proposalStore.getCursor falhou (assume 0, sinalizado): ${e?.message || e}`); return { ts: 0, at: null, lastNudgedTs: 0 }; }
+    const defaults = { ts: 0, at: null, lastNudgedTs: 0, lastRouteAlertTs: 0, lastRouteAlertSig: null, lastRolloutAlertTs: 0, lastRolloutAlertSig: null };
+    try { return exists(cursorPath) ? { ...defaults, ...JSON.parse(read(cursorPath) || "{}") } : { ...defaults }; }
+    catch (e) { log(`[auto-melhoria] proposalStore.getCursor falhou (assume 0, sinalizado): ${e?.message || e}`); return { ...defaults }; }
   }
 
   return {
@@ -74,6 +75,16 @@ export function createProposalStore({
     markNudged(now = Date.now()) {
       try { ensure(); writeFile(cursorPath, JSON.stringify({ ...readCursor(), lastNudgedTs: Number(now) || 0 })); return { ok: true }; }
       catch (e) { log(`[auto-melhoria] proposalStore.markNudged falhou (sinalizado): ${e?.message || e}`); return { ok: false, error: e?.message || String(e) }; }
+    },
+    // markRouteAlert PRESERVA o resto (merge) — registra o COOLDOWN do alerta de rota (ts + assinatura dos sinais).
+    markRouteAlert(now = Date.now(), sig = null) {
+      try { ensure(); writeFile(cursorPath, JSON.stringify({ ...readCursor(), lastRouteAlertTs: Number(now) || 0, lastRouteAlertSig: sig ?? null })); return { ok: true }; }
+      catch (e) { log(`[auto-melhoria] proposalStore.markRouteAlert falhou (sinalizado): ${e?.message || e}`); return { ok: false, error: e?.message || String(e) }; }
+    },
+    // markRolloutAlert: COOLDOWN do alerta de ROLLOUT (go/no-go das fases F1/F2/F4). Mesmo padrão (merge).
+    markRolloutAlert(now = Date.now(), sig = null) {
+      try { ensure(); writeFile(cursorPath, JSON.stringify({ ...readCursor(), lastRolloutAlertTs: Number(now) || 0, lastRolloutAlertSig: sig ?? null })); return { ok: true }; }
+      catch (e) { log(`[auto-melhoria] proposalStore.markRolloutAlert falhou (sinalizado): ${e?.message || e}`); return { ok: false, error: e?.message || String(e) }; }
     },
   };
 }

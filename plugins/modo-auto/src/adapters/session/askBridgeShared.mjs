@@ -109,7 +109,7 @@ export async function loadAskBridge({ home = homedir(), log = () => {} } = {}) {
 
 function pick(mod) {
   const api = {};
-  for (const k of ["bridgeDir", "pidAlive", "readOwner", "ownerStale", "acquireOrConnect", "releaseClaim", "updateOwnerInfo", "heartbeat", "startHeartbeat", "postJson", "createAskBridgeOwner", "createAskBridgeResponder", "registerWithOwner"]) {
+  for (const k of ["bridgeDir", "pidAlive", "readOwner", "ownerStale", "acquireOrConnect", "releaseClaim", "updateOwnerInfo", "heartbeat", "startHeartbeat", "setArmed", "isArmed", "postJson", "createAskBridgeOwner", "createAskBridgeResponder", "registerWithOwner"]) {
     if (typeof mod[k] === "function") api[k] = mod[k];
   }
   return api;

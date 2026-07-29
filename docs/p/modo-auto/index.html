@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">modo-auto</h1>
-        <span class="chip" title="versão publicada">v0.2.58</span>
+        <span class="chip" title="versão publicada">v0.2.85</span>
       </div>
       <p class="doc-hero__lede">O <strong>modo-auto</strong> substitui o autopilot fraco do Copilot por uma <strong>mesa de agentes</strong>. Quando você <strong>arma</strong> o modo, ele <strong>intercepta o <code>ask_user</code></strong>: no lugar da resposta genérica do autopilot (&quot;usuário indisponível, siga a recomendação&quot;), uma mesa com papéis de <strong>negócio, técnico, pesquisa, revisor e documentação</strong> delibera a resposta — fundamentada em <strong>plano vivo, memória do projeto e pesquisa</strong>. E revisa cada <code>Stop</code>, para o agente não encerrar antes de o plano fechar. Núcleo <strong>hexagonal</strong> (ports &amp; adapters), com perfis plugáveis.</p>
       <div class="doc-hero__cta">
@@ -97,7 +97,7 @@
         <section class="doc-section" id="os-modos">
           <h2 class="doc-h2"><a class="doc-anchor" href="#os-modos" aria-label="Link para A mesa e os modos">#</a>A mesa e os modos</h2>
           <p>Além dos interruptores, o modo-auto traz peças que a mesa aciona conforme o trabalho:</p>
-          <ul class="doc-list"><li><strong>modo-adr</strong> — vira um briefing em <strong>plano vivo por fases</strong>. Um <strong>roteador de complexidade</strong> decide o gasto: um plano simples não paga a mesa inteira — <strong>express</strong>, <strong>mini</strong> ou <strong>mesa completa</strong>.</li><li><strong>modo-dev</strong> — constrói cada fase por <strong>TDD com gates</strong>: o build só avança quando os portões passam (tester → dev → QA → veredito).</li><li><strong>modo-sombra</strong> — <strong>contestação com proveniência</strong>: contesta o &quot;sim, senhor&quot; e exige de onde veio cada afirmação.</li><li><strong>modo-scopo / modo-reuso / modo-segurança</strong> — recortam o escopo, forçam <strong>reúso</strong> antes de inventar e checam <strong>segurança</strong>.</li><li><strong>pipeline paralela</strong> — fases independentes rodam em paralelo, em <strong>worktrees git isolados</strong>, com merge no fim.</li></ul>
+          <ul class="doc-list"><li><strong>modo-adr</strong> — vira um briefing em <strong>plano vivo por fases</strong>. Um <strong>roteador de complexidade</strong> decide o gasto: um plano simples não paga a mesa inteira — <strong>express</strong>, <strong>mini</strong> ou <strong>mesa completa</strong>.</li><li><strong>modo-dev</strong> — constrói cada fase por <strong>TDD com gates</strong>: o build só avança quando os portões passam (tester → dev → QA → veredito).</li><li><strong>modo-sombra</strong> — <strong>contestação com proveniência</strong>: contesta o &quot;sim, senhor&quot; e exige de onde veio cada afirmação.</li><li><strong>modo-scopo / modo-reuso / modo-segurança</strong> — recortam o escopo, forçam <strong>reúso</strong> antes de inventar e checam <strong>segurança</strong>.</li><li><strong>pipeline paralela</strong> — fases independentes rodam em paralelo, em <strong>worktrees git isolados</strong>, com merge no fim.</li><li><strong>modo-setup</strong> — <strong>autocura de setup</strong>: a mesa confere se o CLI que hospeda os workers ficou para tras e, se ficou, avisa com o conserto (um CLI velho derruba a mesa em toda sessao).</li><li><strong>modo-rollout</strong> — liga as melhorias <strong>de forma gradual</strong>: teste A/B com grupo de controle e um veredito <strong>segue / nao segue</strong> medido, em vez de ligar tudo no escuro.</li></ul>
         </section>
 
         <section class="doc-section" id="como-funciona">
@@ -149,7 +149,7 @@
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
               <span class="tree__role">Extensão in-app: intercepta o <code>ask_user</code>, revisa o <code>Stop</code> e liga a mesa à sessão viva.</span>
-              <span class="tree__size">68 KB</span>
+              <span class="tree__size">84 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">LICENSE</code>
@@ -159,12 +159,12 @@
             <li class="tree__row">
               <code class="tree__name">package.json</code>
               <span class="tree__role"></span>
-              <span class="tree__size">781 B</span>
+              <span class="tree__size">825 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
               <span class="tree__role">Metadados do plugin + marcadores (extensions / hooks).</span>
-              <span class="tree__size">829 B</span>
+              <span class="tree__size">854 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">README.md</code>
@@ -197,9 +197,14 @@
               <span class="tree__size">910 B</span>
             </li>
             <li class="tree__row">
+              <code class="tree__name">src/soma-pares.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">216 B</span>
+            </li>
+            <li class="tree__row">
               <code class="tree__name">src/adapters/activity/activityRegistry.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">4.9 KB</span>
+              <span class="tree__size">5.6 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/activity/costMeter.mjs</code>
@@ -214,7 +219,7 @@
             <li class="tree__row">
               <code class="tree__name">src/adapters/activity/gapDetector.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">4.3 KB</span>
+              <span class="tree__size">8.4 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/activity/injectionTracker.mjs</code>
@@ -224,7 +229,7 @@
             <li class="tree__row">
               <code class="tree__name">src/adapters/activity/proposalStore.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">6.1 KB</span>
+              <span class="tree__size">7.2 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/activity/selfImprove.mjs</code>
@@ -232,9 +237,14 @@
               <span class="tree__size">4.6 KB</span>
             </li>
             <li class="tree__row">
+              <code class="tree__name">src/adapters/activity/spanSchema.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">4.4 KB</span>
+            </li>
+            <li class="tree__row">
               <code class="tree__name">src/adapters/activity/telemetrySink.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">3.8 KB</span>
+              <span class="tree__size">4.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/adr/adrNudge.mjs</code>
@@ -270,6 +280,11 @@
               <code class="tree__name">src/adapters/adr/outlineBuilder.mjs</code>
               <span class="tree__role"></span>
               <span class="tree__size">4.2 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/adr/routerTelemetry.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">7.0 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/adr/slotFiller.mjs</code>
@@ -309,7 +324,7 @@
             <li class="tree__row">
               <code class="tree__name">src/adapters/agents/liveWorker.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">8.1 KB</span>
+              <span class="tree__size">8.5 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/agents/liveWorkerClient.mjs</code>
@@ -344,12 +359,12 @@
             <li class="tree__row">
               <code class="tree__name">src/adapters/agents/worker.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">6.9 KB</span>
+              <span class="tree__size">7.4 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/agents/workerLib.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">6.3 KB</span>
+              <span class="tree__size">7.8 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/canvas/guide.mjs</code>
@@ -393,6 +408,11 @@
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/git/gitOrchestrator.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">5.9 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/health/setupCheck.mjs</code>
               <span class="tree__role"></span>
               <span class="tree__size">5.9 KB</span>
             </li>
@@ -459,7 +479,7 @@
             <li class="tree__row">
               <code class="tree__name">src/adapters/plan/planPort.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">3.9 KB</span>
+              <span class="tree__size">6.7 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/plan/transcript.mjs</code>
@@ -484,12 +504,12 @@
             <li class="tree__row">
               <code class="tree__name">src/adapters/profiles/modoAutonomo.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">12 KB</span>
+              <span class="tree__size">13 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/profiles/modoDev.mjs</code>
               <span class="tree__role">Perfil modo-dev: constrói cada fase por TDD, só avança com os gates verdes.</span>
-              <span class="tree__size">12 KB</span>
+              <span class="tree__size">16 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/profiles/modoReuso.mjs</code>
@@ -552,19 +572,39 @@
               <span class="tree__size">1.5 KB</span>
             </li>
             <li class="tree__row">
+              <code class="tree__name">src/adapters/review/circuitBreaker.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">3.8 KB</span>
+            </li>
+            <li class="tree__row">
               <code class="tree__name">src/adapters/review/deepPanel.mjs</code>
               <span class="tree__role"></span>
               <span class="tree__size">7.2 KB</span>
             </li>
             <li class="tree__row">
+              <code class="tree__name">src/adapters/review/diffContext.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">5.3 KB</span>
+            </li>
+            <li class="tree__row">
               <code class="tree__name">src/adapters/review/remediation.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">2.6 KB</span>
+              <span class="tree__size">4.1 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/review/reviewerRotation.mjs</code>
               <span class="tree__role"></span>
               <span class="tree__size">2.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/review/rolloutFlags.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">4.7 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/review/rolloutGate.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">11 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/scope/codeAnalysis.mjs</code>
@@ -584,12 +624,12 @@
             <li class="tree__row">
               <code class="tree__name">src/adapters/session/askBridgeClaim.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">8.0 KB</span>
+              <span class="tree__size">10 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/session/askBridgeProtocol.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">2.0 KB</span>
+              <span class="tree__size">3.1 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/session/askBridgeServer.mjs</code>
@@ -604,7 +644,7 @@
             <li class="tree__row">
               <code class="tree__name">src/adapters/session/joinSessionAdapter.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">4.3 KB</span>
+              <span class="tree__size">5.2 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/shadow/contestationView.mjs</code>
@@ -619,7 +659,7 @@
             <li class="tree__row">
               <code class="tree__name">src/adapters/shadow/modoSombra.mjs</code>
               <span class="tree__role">Modo-sombra: contesta a bajulação e cobra proveniência.</span>
-              <span class="tree__size">8.9 KB</span>
+              <span class="tree__size">9.4 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/shadow/provenanceSchema.mjs</code>
@@ -629,7 +669,7 @@
             <li class="tree__row">
               <code class="tree__name">src/adapters/shadow/shadowConsolidator.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">27 KB</span>
+              <span class="tree__size">29 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/shadow/shadowTranscript.mjs</code>
@@ -745,11 +785,11 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.2.58</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.2.85</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
-            <div class="meta__row"><dt>tipo</dt><dd><span class="pill">canvas</span> <span class="pill">hooks</span></dd></div>
+            <div class="meta__row"><dt>tipo</dt><dd><span class="pill">canvas</span></dd></div>
             <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>GitHub Copilot CLI/app (carrega o canvas)</li><li>Node 18+ (runtime da extensão)</li><li>copilot-memory — opcional (memória e grafo do projeto)</li></ul></dd></div>
             <div class="meta__row"><dt>tags</dt><dd><ul class="tags tags--meta"><li>autonomo</li><li>mesa</li><li>ask_user</li><li>stop</li><li>agentes</li><li>ports-adapters</li></ul></dd></div>
           </dl>

@@ -1,7 +1,7 @@
 {
   "name": "modo-auto",
-  "version": "0.2.58",
-  "description": "Modo autonomo por sessao para o Copilot: uma MESA de agentes responde os ask_user e revisa os Stop (nao deixa o agente parar antes do plano terminar), com base em plano vivo, memoria e pesquisa. Nucleo hexagonal (ports & adapters) com perfis plugaveis: modo-autonomo agora, modo-planejamento depois.",
+  "version": "0.2.85",
+  "description": "Modo autonomo por sessao para o Copilot: uma MESA de agentes responde os ask_user e revisa os Stop, entao o agente nao para antes do plano terminar. Planeja em fases (ADR), constroi por TDD com revisao adversarial, audita reuso e seguranca, e um modo-sombra contesta a direcao em segundo plano. Nucleo hexagonal; cada modo e um interruptor da sessao.",
   "author": {
     "name": "Allan Santos",
     "url": "https://github.com/AllanSantos-DV"
@@ -20,6 +20,5 @@
   "category": "productivity",
   "extensions": [
     "."
-  ],
-  "hooks": "hooks.json"
+  ]
 }

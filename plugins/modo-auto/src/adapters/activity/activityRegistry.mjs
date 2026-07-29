@@ -41,7 +41,7 @@ export function createActivityRegistry({ cap = 50, now = () => Date.now(), onEnd
     // selfImprove enxergarem TRAVAMENTOS (era o objetivo da telemetria). `usage` (tokens/nanoAiu do worker) é o
     // custo REAL da run — null SINALIZADO se a medição faltou (fail-loud; nunca 0 fake). Emite o span COMPLETO no
     // hook `onEnd`. O hook é ENRIQUECIMENTO: se lançar, é SINALIZADO (log) e NÃO derruba a observabilidade (nem o run).
-    end(id, { ok = true, text = "", error = null, endReason = null, usage = null } = {}) {
+    end(id, { ok = true, text = "", error = null, endReason = null, usage = null, metrics = null } = {}) {
       const e = entries.get(id);
       if (!e || e.status !== "running") return; // já concluído/podado → no-op (não mascara: é race legítima)
       e.status = ok ? "done" : "fail";
@@ -50,6 +50,14 @@ export function createActivityRegistry({ cap = 50, now = () => Date.now(), onEnd
       e.endReason = endReason || (ok ? "idle" : "error");
       e.snippet = String(ok ? text : (error || "")).replace(/\s+/g, " ").trim().slice(0, 200);
       if (usage && typeof usage === "object") e.usage = usage; // custo medido; ausente → fica null (fail-loud visível)
+      // TELEMETRIA v3 (Fase 0): campos ADITIVOS pro gapDetector medir o gargalo (revisor/deep + loop de remediation).
+      // AUTO-GATE do spanVersion: o span vira v3 SÓ quando carrega os 3 obrigatórios (inputTokens/outputTokens/
+      // inputLines) — assim os emissores que ainda não passam métricas seguem em v2 (VÁLIDOS; não quebram a assertion
+      // do sink; rollout gradual sem flag). Risco E4 do painel deep endereçado por construção.
+      if (metrics && typeof metrics === "object") {
+        for (const [k, v] of Object.entries(metrics)) if (v != null) e[k] = v;
+        if (["inputTokens", "outputTokens", "inputLines"].every((k) => typeof e[k] === "number")) e.spanVersion = 3;
+      }
       if (onEnd) { try { onEnd({ ...e }); } catch (err) { log(`[telemetria] onEnd falhou (sinalizado, não derruba): ${err?.message || err}`); } }
     },
 

@@ -58,20 +58,34 @@ export function buildAskUserOverrideTool(orch, { log = () => {} } = {}) {
   };
 }
 
-// Liga o gatilho de PARADA. FAIL LOUD: se a revisão quebra, loga o erro real em nível ERROR e NÃO
-// injeta nada nem finge "done" — o erro fica VISÍVEL, não mascarado por um "concluído" silencioso.
-export function wireIdle(session, orch, { log = () => {} } = {}) {
-  return session.on("session.idle", async () => {
+// Handler do session.idle (turn-end). MESTRE: consome PRIMEIRO um RE-JOIN pendente (troca do override ask_user
+// entre ON/OFF), porque o re-join só é seguro FORA de um turno ativo — fazê-lo dentro do turno da tool modo_auto
+// derruba o transporte e a tool "trava". Se não há re-join pendente e está armado, roda o gate de Stop. É puro
+// (deps injetadas) → testável sem SDK. FAIL LOUD: erro logado em nível ERROR, nunca finge "done".
+export function makeIdleHandler({ shouldReflect = () => false, onReflect, isArmed = () => false, handleStop, sendContinuation, workspacePath = () => undefined, log = () => {} } = {}) {
+  return async () => {
     try {
-      const v = await orch.handleStop({ planDir: session.workspacePath });
-      if (v && v.done === false && v.continuation) {
-        log("stop incompleto → injetando continuação");
-        await session.send({ prompt: v.continuation });
+      // Prioridade: aplicar a troca de tools pendente (turno acabou → re-join seguro). Pula o gate NESTE idle.
+      if (shouldReflect()) { if (typeof onReflect === "function") await onReflect(); return; }
+      if (isArmed()) {
+        const v = await handleStop({ planDir: workspacePath() });
+        if (v && v.done === false && v.continuation) { log("stop incompleto → injetando continuação"); await sendContinuation(v.continuation); }
       }
     } catch (e) {
       const detail = e?.stack || e?.message || String(e);
-      try { session.log?.("[modo-auto] ERRO no stop review (NÃO mascarado — corrija): " + detail, { level: "error" }); } catch { /* sem canal de log */ }
-      log("ERRO no stop review: " + detail);
+      log("[modo-auto] ERRO no idle (NÃO mascarado — corrija): " + detail);
     }
-  });
+  };
+}
+
+// Liga o gatilho de PARADA (compat): registra o idle-mestre só com o gate de Stop (sempre armado). O extension
+// usa makeIdleHandler direto (com o consumo de re-join pendente); este wrapper fica pra reuso/testes.
+export function wireIdle(session, orch, { log = () => {} } = {}) {
+  return session.on("session.idle", makeIdleHandler({
+    isArmed: () => true,
+    handleStop: (a) => orch.handleStop(a),
+    sendContinuation: (prompt) => session.send({ prompt }),
+    workspacePath: () => session.workspacePath,
+    log,
+  }));
 }

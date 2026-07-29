@@ -4,8 +4,22 @@
 import { pathToFileURL } from "node:url";
 import { join, delimiter } from "node:path";
 import { existsSync } from "node:fs";
+import { homedir, platform, arch } from "node:os";
 
-// Resolve o index.js do Copilot SDK GLOBAL a partir do `copilot` no PATH (o worker é node LIMPO).
+// LAYOUTS do SDK dentro do pacote @github/copilot, em ordem de preferência. O layout mudou: até ~1.0.5 o SDK
+// vinha em `<pkg>/copilot-sdk/index.js`; das versões novas (medido na 1.0.75) ele migrou para um pacote POR
+// PLATAFORMA: `<pkg>/node_modules/@github/copilot-<plat>-<arch>/copilot-sdk/index.js`. Suportar OS DOIS é o que
+// impede a mesa de quebrar quando o CLI é atualizado (foi exatamente o que aconteceu ao subir 1.0.5 → 1.0.75).
+function sdkCandidatesIn(pkgDir) {
+  const plat = `${platform()}-${arch()}`; // ex.: win32-x64
+  return [
+    join(pkgDir, "node_modules", "@github", `copilot-${plat}`, "copilot-sdk", "index.js"), // layout NOVO
+    join(pkgDir, "copilot-sdk", "index.js"),                                               // layout ANTIGO
+  ];
+}
+
+// Resolve o index.js do Copilot SDK a partir do `copilot` no PATH (o worker é node LIMPO). Ordem: override
+// explícito → pacote global no PATH (novo/antigo layout) → SDK do APP instalado (fallback) → bare specifier.
 export function sdkIndexUrl() {
   const env = String(process.env.MODO_AUTO_SDK_PATH || "").trim();
   if (env && existsSync(env)) return pathToFileURL(env).href;
@@ -14,11 +28,18 @@ export function sdkIndexUrl() {
     for (const marker of ["copilot.ps1", "copilot.cmd", "copilot"]) {
       try {
         if (existsSync(join(dir, marker))) {
-          const sdk = join(dir, "node_modules", "@github", "copilot", "copilot-sdk", "index.js");
-          if (existsSync(sdk)) return pathToFileURL(sdk).href;
+          const pkgDir = join(dir, "node_modules", "@github", "copilot");
+          for (const sdk of sdkCandidatesIn(pkgDir)) if (existsSync(sdk)) return pathToFileURL(sdk).href;
         }
       } catch { /* segue */ }
     }
+  }
+  // FALLBACK: o SDK que acompanha o APP instalado. Não é o caminho preferido (o worker roda em node limpo), mas
+  // é MUITO melhor que falhar — e cobre o caso de o npm global estar num layout desconhecido.
+  for (const p of [process.env.COPILOT_SDK_PATH, join(homedir(), "AppData", "Local", "Programs", "GitHub Copilot", "copilot-sdk")]) {
+    if (!p) continue;
+    const idx = /index\.js$/i.test(p) ? p : join(String(p).replace(/^\\\\\?\\/, ""), "index.js");
+    try { if (existsSync(idx)) return pathToFileURL(idx).href; } catch { /* segue */ }
   }
   return "@github/copilot-sdk";
 }

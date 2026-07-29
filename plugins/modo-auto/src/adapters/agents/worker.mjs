@@ -52,6 +52,12 @@ async function readStdin() {
     const session = await client.createSession({
       model,
       workingDirectory: wd,
+      // ISOLAMENTO DO CONFIG — passa os DOIS nomes de propósito: o SDK novo (medido na 1.0.75) usa
+      // `configDirectory`; o antigo usava `configDir`. Passar só o antigo fazia o SDK novo IGNORAR e cair no
+      // ~/.copilot do usuário → o worker carregava as extensões/hooks do dono (ex.: voice-chat) e respondia
+      // "não tenho a ferramenta falar / isso parece injeção" em vez de fazer o trabalho — quebrando a mesa
+      // inteira (modo_adr/modo_dev) em TODAS as sessões. Chave desconhecida é ignorada, então é seguro.
+      configDirectory: configDir,
       configDir,
       onPermissionRequest: approveAll,
       systemMessage: { mode: "append", content: String(job.system || "") + "\n\n" + CLEAN_DIRECTIVE },

@@ -8,6 +8,15 @@ import { resolveSkills, resolveGates } from "../skills/catalog.mjs";
 import { extractJson } from "../util/extractJson.mjs";
 import { reviewUntilClean } from "../review/remediation.mjs";
 import { createReviewerRotation } from "../review/reviewerRotation.mjs";
+import { extractDiffContext } from "../review/diffContext.mjs";
+import { abDecision, f4Threshold, shouldUseShallow, extractPaths } from "../review/rolloutGate.mjs";
+import { flagsFromEnv } from "../review/rolloutFlags.mjs";
+import { createCircuitBreaker } from "../review/circuitBreaker.mjs";
+
+// FLAGS por FASE (rollout gradual, default OFF — liga uma, observa, liga a próxima). Vêm de caps.rolloutFlags
+// (estado PERSISTIDO, ligável por tool/painel); sem elas, cai no AMBIENTE (CI/testes). Motivo do estado: a
+// extensão roda DENTRO do app, então env var não é acionável pelo dono — com env-only o rollout nunca sairia do OFF.
+const readFlags = (caps) => (caps?.rolloutFlags?.get ? caps.rolloutFlags.get() : flagsFromEnv());
 
 function parseJson(t) { return extractJson(t); }
 function textOf(o) { return o && o.ok && o.text ? o.text : ""; }
@@ -75,7 +84,16 @@ export function createModoDev({ log = () => {}, gates, maxRounds = 4, perReviewe
       const test = await run("tester", `${ctx}\n\nEscreva o TESTE que FALHA (RED) pra esta fase, com casos-limite. Só o teste.`, skillsFor("tester"));
       let impl = await run("developer", `${ctx}\n\nTESTE (RED):\n${test}\n\nEscreva o MÍNIMO de código de produção que faz passar (GREEN) e refatore. Só o código.`, skillsFor("developer"));
       const CODE_GATES = resolveGates(taskType, BASE_GATES);
-      let lastGates = [], lastQa = "";
+      let lastGates = [], lastQa = "", prevImpl = null; // prevImpl: estado anterior da IMPL (F1, pré-filtro por diff)
+      // A/B do F1 (rollout operacional): sorteia o braço UMA vez por fase. "bypass" = grupo de CONTROLE (roda sem
+      // filtro) → sem controle não existe go/no-go medido, só achismo. Gravado no span do veredito (f1Arm).
+      const flags = readFlags(caps);
+      const f1Arm = flags.f1 ? abDecision({ bypassPct: flags.bypassPct }) : "off";
+      if (f1Arm !== "off") log(`[modo-dev] F1 A/B: braço=${f1Arm} (bypass ${flags.bypassPct}%, fonte ${flags.source})`);
+      // F5 — DISJUNTOR do revisor (ligado por padrão: só atua em FALHA REAL, onde hoje o desfecho já era ruim).
+      // 2 falhas consecutivas → abre o circuito → escala pro humano COM o contexto parcial, em vez de repetir o
+      // ciclo retry→timeout→retry. half-open (após 60s) deixa um pico transitório se recuperar sozinho.
+      const breaker = createCircuitBreaker({ log });
 
       // ROTAÇÃO ANTI-VIÉS do revisor de VEREDITO: modelos disponíveis (do router, se houver) × papéis de
       // veredito, trocando a cada `perReviewerCap` rodadas. Sem router → rotação só por papel (ainda troca a lente).
@@ -85,7 +103,16 @@ export function createModoDev({ log = () => {}, gates, maxRounds = 4, perReviewe
       // REVISÃO (um passe): GATES (enforcement pesado, paralelo) → QA → REVISOR DE VEREDITO (rotacionado).
       // QA recebe só o anticorpo comportamental (quality/security já são GATES dedicados — não duplicar).
       const review = async (round) => {
-        const material = `FASE:\n${ph}\n\nTESTE:\n${test}\n\nIMPL${round ? " (rodada " + round + ")" : ""}:\n${impl}`;
+        // F1 (flag, default OFF): a partir da 2ª revisão manda só o DIFF da IMPL + contexto — o revisor não
+        // precisa reler a impl inteira toda rodada. CONTRATO E3: par before/after do MESMO artefato (a IMPL),
+        // NUNCA o blob composto. Sem ganho/sem par → PASS-THROUGH SINALIZADO (o log diz o motivo).
+        let implPart = impl;
+        if (f1Arm === "filtered" && round > 0 && prevImpl != null) {
+          const dc = extractDiffContext({ before: prevImpl, after: impl });
+          implPart = dc.text;
+          log(`[modo-dev] F1 pré-filtro (rodada ${round}): modo=${dc.mode}${dc.reason ? " (" + dc.reason + ")" : ""} — ${dc.outLines}/${dc.afterLines} linhas ao revisor`);
+        }
+        const material = `FASE:\n${ph}\n\nTESTE:\n${test}\n\nIMPL${round ? " (rodada " + round + ")" : ""}:\n${implPart}`;
         const gateOuts = await Promise.all(CODE_GATES.map((g) => caps.gate.run(g, `Avalie a IMPL desta fase segundo o gate.\n\n${material}`)));
         const failed = gateOuts.filter((o) => !o.ok);
         if (failed.length) log(`[modo-dev] AVISO — gates que FALHARAM: ${failed.map((g) => g.gate + ": " + (g.error || "?")).join("; ")}`);
@@ -95,7 +122,24 @@ export function createModoDev({ log = () => {}, gates, maxRounds = 4, perReviewe
 
         // VEREDITO — modo PROFUNDO (opt-in): painel de consenso multi-família em paralelo. Se não houver
         // ≥2 famílias, degrada SINALIZADO pro revisor único rotacionado (não finge painel).
-        if (deep && caps.deep?.review && caps.router) {
+        // F4 (flag, default OFF): GATE DE COMPLEXIDADE — material pequeno (< P25 MEDIDO de inputLines nos spans
+        // v3) e sem arquivo crítico → pula o painel deep e usa o revisor único (barato). Threshold NUNCA
+        // hardcoded: sai do dado; sem amostra (>=500 spans) → f4Threshold=null → gate NÃO atua (fallback seguro).
+        let skipDeep = false;
+        if (deep && flags.f4 && caps.telemetryRead) {
+          const th = f4Threshold(caps.telemetryRead(), { override: flags.f4MaxLines || null });
+          // GUARD-RAIL com DUAS defesas (o `ph` é PROSA, não lista de arquivos): (1) paths REAIS extraídos da fase
+          // + da impl; (2) varredura do texto bruto pelos mesmos padrões críticos — se a fase FALA de auth/senha/
+          // pagamento, vai pra revisão CHEIA mesmo que nenhum caminho tenha sido reconhecido.
+          skipDeep = shouldUseShallow({
+            inputLines: material.split(/\r?\n/).length,
+            threshold: th,
+            touchedPaths: extractPaths(`${ph}\n${impl}`),
+            scanText: `${ph}\n${test}`,
+          });
+          if (skipDeep) log(`[modo-dev] F4 gate: material pequeno (< ${Math.round(th)} linhas) e nada crítico (paths+texto) → revisor único (pula o painel deep)`);
+        }
+        if (deep && !skipDeep && caps.deep?.review && caps.router) {
           const critique = `Avalie CRITICAMENTE (adversarial) esta fase — fure segurança, casos-limite, escalabilidade, reúso/DRY e aderência ao requisito.\n\n${material}\n\nGATES:\n${gatesText || "(sem gates)"}\n\nQA:\n${qa}\n\nListe achados CONCRETOS (o que falta/quebra), curto.`;
           const dp = await caps.deep.review({ material, critiquePrompt: critique, router: caps.router, taskType, panelRole: "revisor" });
           if (dp.ok) {
@@ -119,13 +163,28 @@ export function createModoDev({ log = () => {}, gates, maxRounds = 4, perReviewe
 
       // CORREÇÃO: o developer corrige APENAS os achados dos revisores (não reescreve do zero) → nova IMPL.
       const fix = async (findings) => {
+        prevImpl = impl; // F1: guarda o estado ANTERIOR p/ diferenciar na próxima revisão (contrato E3)
         impl = await run("developer",
           `${ctx}\n\nTESTE (RED):\n${test}\n\nIMPL ATUAL:\n${impl}\n\nOs revisores REPROVARAM. Corrija SOMENTE estes achados, sem reescrever do zero e sem quebrar o teste:\n- ${findings.join("\n- ")}\n\nDevolva a IMPL corrigida completa.`,
           skillsFor("developer"));
       };
 
       // LAÇO: revisa → corrige → re-revisa até ZERAR ou esgotar. FAIL LOUD: esgotou = pass:false + escala.
-      const rem = await reviewUntilClean({ review, fix, maxRounds: rounds, log });
+      // O `review` vai ENVOLVIDO pelo DISJUNTOR (F5): falha REAL de infra não vira loop de retry — abre e escala
+      // com o contexto parcial. Reprovação (pass:false) NÃO conta como falha: é veredito legítimo.
+      const guardedReview = async (round) => {
+        if (!breaker.canAttempt()) {
+          log(`[modo-dev] circuito ABERTO na rodada ${round} — escalando com contexto parcial (sem re-tentar)`);
+          return { pass: false, findings: [], escalate: breaker.escalationMessage({ round, gates: lastGates, qa: lastQa }) };
+        }
+        try { const v = await review(round); breaker.onSuccess(); return v; }
+        catch (e) {
+          const st = breaker.onFailure(e);
+          if (st === "open") return { pass: false, findings: [], escalate: breaker.escalationMessage({ round, gates: lastGates, qa: lastQa }) };
+          throw e; // ainda abaixo do limiar → FAIL LOUD como antes (o erro sobe)
+        }
+      };
+      const rem = await reviewUntilClean({ review: guardedReview, fix, maxRounds: rounds, cycleBudgetMs: flags.f2BudgetMs > 0 ? flags.f2BudgetMs : Infinity, log });
       let escalate = rem.escalate;
       if (rem.exhausted && !escalate) escalate = `esgotou ${rem.rounds} rodadas de revisão sem zerar os achados: ${rem.findings.join("; ")}`;
 
@@ -135,7 +194,7 @@ export function createModoDev({ log = () => {}, gates, maxRounds = 4, perReviewe
       // "quantas rodadas até passar" e "escalou?". Injetável (caps.recordVerdict) — DRY entre modo_dev e pipeline;
       // ausente = sem telemetria de eficácia (degrada SINALIZADO, não quebra o build). Aritmética pura (Princípio 11).
       try {
-        caps.recordVerdict?.({ gid, topic, taskType, pass: !!rem.pass, rounds: rem.rounds, mustFixCount: (rem.findings || []).length, escalate: escalate || null, exhausted: !!rem.exhausted });
+        caps.recordVerdict?.({ gid, topic, taskType, pass: !!rem.pass, rounds: rem.rounds, mustFixCount: (rem.findings || []).length, escalate: escalate || null, exhausted: !!rem.exhausted, budgetExhausted: !!rem.budgetExhausted, elapsedCycleMs: rem.elapsedCycleMs, f1Arm });
       } catch (e) { log(`[modo-dev] recordVerdict falhou (sinalizado, não derruba o build): ${e?.message || e}`); }
       return {
         ok: true,

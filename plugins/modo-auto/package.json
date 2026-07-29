@@ -1,13 +1,14 @@
 {
   "name": "modo-auto",
-  "version": "0.2.58",
+  "version": "0.2.85",
   "description": "Modo autonomo por sessao para o Copilot: uma MESA de agentes responde os ask_user e revisa os Stop, com plano vivo, memoria e pesquisa. Nucleo hexagonal (ports & adapters).",
   "type": "module",
   "main": "extension.mjs",
   "scripts": {
     "test": "node test/run-all.mjs",
     "test:core": "node test/smoke.mjs",
-    "lint:dead": "knip --no-progress"
+    "lint:dead": "knip --no-progress",
+    "test:live": "node test/run-live.mjs"
   },
   "keywords": [
     "autonomo",

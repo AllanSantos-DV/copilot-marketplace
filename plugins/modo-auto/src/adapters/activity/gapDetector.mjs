@@ -3,7 +3,7 @@
 // latência e churn (mesmo papel repetido demais numa run = re-tentativas/re-fills sem convergir). Agrupa por
 // traceId (a run inteira). O agente de auto-melhoria (tel-3) consome esse relatório. Puro/testável.
 
-const DEFAULTS = { latencyMs: 150000, churnCount: 3, efficacyRounds: 3 };
+const DEFAULTS = { latencyMs: 150000, churnCount: 3, efficacyRounds: 3, loopLatencyMs: 300000, qualityDropPct: 30, minBaseline: 50, compareN: 50, baselineWindowMs: 30 * 24 * 3600 * 1000, f5EscalationPct: 1, f5MinSample: 200 };
 
 function countByType(gaps) { const c = {}; for (const g of gaps) c[g.type] = (c[g.type] || 0) + 1; return c; }
 
@@ -13,7 +13,8 @@ function countByType(gaps) { const c = {}; for (const g of gaps) c[g.type] = (c[
  * @returns {{ gaps:object[], byTrace:Record<string,object[]>, counts:Record<string,number> }}
  */
 export function detectGaps(spans, opts = {}) {
-  const { latencyMs, churnCount, efficacyRounds } = { ...DEFAULTS, ...opts };
+  const { latencyMs, churnCount, efficacyRounds, loopLatencyMs, qualityDropPct, minBaseline, compareN, baselineWindowMs, f5EscalationPct, f5MinSample } = { ...DEFAULTS, ...opts };
+  const now = Number(opts.now) || Date.now();
   const list = Array.isArray(spans) ? spans : [];
   const gaps = [];
   const perTraceRole = new Map(); // `${traceId}|${role}` → nº de execuções (churn)
@@ -29,6 +30,9 @@ export function detectGaps(spans, opts = {}) {
       const v = s.verdict;
       if (v.escalate) gaps.push({ type: "escalation", traceId, role: s.role || "tech-lead", stage: s.stage || "dev", detail: String(v.escalate).slice(0, 160) });
       if (v.exhausted || (typeof v.rounds === "number" && v.rounds > efficacyRounds)) gaps.push({ type: "low-efficacy", traceId, role: s.role || "tech-lead", stage: s.stage || "dev", detail: `${v.rounds} rodada(s)${v.exhausted ? " (ESGOTOU sem passar)" : ""}${v.mustFixCount ? ", " + v.mustFixCount + " mustFix" : ""}` });
+      // LOOP-LATENCY (E1): o CICLO de remediation (todos os rounds) estourou — o LOOP é o multiplicador, não a chamada
+      // única. elapsedCycleMs vem do reviewUntilClean via recordVerdict. Surfaça o gargalo que o totalMs sozinho não cobre.
+      if (typeof v.elapsedCycleMs === "number" && v.elapsedCycleMs > loopLatencyMs) gaps.push({ type: "loop-latency", traceId, role: s.role || "tech-lead", stage: s.stage || "dev", detail: `ciclo de remediation ${v.elapsedCycleMs}ms > ${loopLatencyMs}ms em ${v.rounds ?? "?"} rodada(s) — o LOOP é o multiplicador (E1)` });
     }
     if (s.status === "fail") {
       // ESTRUTURADO-PRIMEIRO (Princípio 11): o campo `endReason` (idle|hung|hardcap|error) foi criado
@@ -55,6 +59,22 @@ export function detectGaps(spans, opts = {}) {
     if (n >= churnCount) gaps.push({ type: "churn", traceId, role: k.slice(i + 1), detail: `${n} execuções do mesmo papel na run (re-tentativas/re-fills)` });
   }
 
+  // QUALITY-REGRESSION (Fase 0, E2): canário de queda catastrófica de findingsCount (proxy de regressão de qualidade
+  // quando otimizamos latência) — SEM os furos do painel deep: (a) cold-start (baseline < minBaseline → null); (b)
+  // threshold ÚNICO qualityDropPct (aceite==alerta, sem dead-zone); (c) anticontaminação POR CONTAGEM.
+  const qr = detectQualityRegression(list, { qualityDropPct, minBaseline, compareN, baselineWindowMs, now });
+  if (qr) gaps.push(qr);
+
+  // TRIGGER AUTOMÁTICO DE REAVALIAÇÃO DO F5 (circuit-breaker): a fase foi ADIADA por ROI (2 escalações em 2871
+  // spans = 0,07%). O adiamento só é honesto se houver um GATILHO que avise quando a premissa MUDAR — senão a
+  // decisão "condicional" vira esquecimento. Aqui: se a taxa de escalação cruzar o limiar com amostra mínima,
+  // emite o gap que o modo_melhoria consome ("reavaliar o circuit-breaker AGORA").
+  const escalations = gaps.filter((g) => g.type === "escalation").length;
+  if (list.length >= f5MinSample) {
+    const pct = (escalations / list.length) * 100;
+    if (pct >= f5EscalationPct) gaps.push({ type: "revisit-circuit-breaker", traceId: null, role: "mesa", stage: "dev", detail: `escalações em ${pct.toFixed(2)}% (${escalations}/${list.length}) >= ${f5EscalationPct}% — a premissa do adiamento do F5 (ROI negativo a 0,07%) MUDOU: reavaliar o circuit-breaker` });
+  }
+
   const byTrace = {};
   for (const g of gaps) (byTrace[g.traceId || "?"] ||= []).push(g);
   return { gaps, byTrace, counts: countByType(gaps) };
@@ -64,4 +84,25 @@ export function detectGaps(spans, opts = {}) {
 export function gapsFromSink(sink, { limit = 0, ...opts } = {}) {
   if (!sink || typeof sink.read !== "function") throw new Error("gapsFromSink: sink inválido");
   return detectGaps(sink.read({ limit }), opts);
+}
+
+// CANÁRIO de regressão de qualidade (puro). Retorna o gap ou null (incl. null SINALIZADO em cold-start). Endereça os 3
+// furos do painel deep: (a) COLD-START — sem baseline suficiente NÃO emite; (b) THRESHOLD ÚNICO — aceite==alerta, sem
+// dead-zone; (c) ANTICONTAMINAÇÃO POR CONTAGEM — recent = últimos compareN; baseline = os ANTERIORES a esses, dentro
+// de baselineWindowMs → NUNCA se sobrepõem (independe de quantos dias passaram).
+export function detectQualityRegression(spans, { qualityDropPct = 30, minBaseline = 50, compareN = 50, baselineWindowMs = 30 * 24 * 3600 * 1000, now = Date.now() } = {}) {
+  const v3 = (Array.isArray(spans) ? spans : [])
+    .filter((s) => s && Number(s.spanVersion) >= 3 && typeof s.findingsCount === "number")
+    .sort((a, b) => (Number(a.startedAt) || 0) - (Number(b.startedAt) || 0));
+  if (v3.length <= compareN) return null; // sem histórico além da janela de comparação → cold-start
+  const recent = v3.slice(-compareN);
+  const floor = now - baselineWindowMs;
+  const baseline = v3.slice(0, v3.length - compareN).filter((s) => (Number(s.startedAt) || 0) >= floor);
+  if (baseline.length < minBaseline) return null; // COLD-START: baseline insuficiente → sem gap (não é ruído)
+  const avg = (arr) => arr.reduce((m, s) => m + Number(s.findingsCount || 0), 0) / arr.length;
+  const base = avg(baseline), rec = avg(recent);
+  if (base <= 0) return null; // sem sinal no baseline → não dá pra afirmar queda
+  const dropPct = ((base - rec) / base) * 100;
+  if (dropPct <= qualityDropPct) return null;
+  return { type: "quality-regression", traceId: null, role: "mesa", stage: "quality", detail: `findingsCount caiu ${dropPct.toFixed(1)}% (baseline ${base.toFixed(1)} → recente ${rec.toFixed(1)}; > ${qualityDropPct}%, ${baseline.length} spans de baseline)` };
 }
