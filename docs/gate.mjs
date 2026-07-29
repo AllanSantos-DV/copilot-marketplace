@@ -228,6 +228,15 @@ function touchedPlugins(base, tip) {
 }
 
 function verifyAtRev(name, tip) {
+  // Plugin REMOVIDO não tem o que revisar. `touchedPlugins` coleta o nome a partir dos
+  // arquivos tocados, e um arquivo APAGADO também é um arquivo tocado — então tirar um
+  // plugin da vitrine caía aqui pedindo a página de conteúdo de quem deixou de existir.
+  // Nessa forma, remoção era impossível: o gate cobrava para sempre um artefato que o
+  // próprio commit removeu. A fonte da verdade de "está publicado" é o manifesto no tip.
+  if (!manifestNames(gitShow(tip, ".github/plugin/marketplace.json") ?? "").includes(name)) {
+    return null;
+  }
+
   const pj = gitShow(tip, `plugins/${name}/plugin.json`);
   const cj = gitShow(tip, `docs/content/${name}.json`);
   const marker = loadMarkerFrom(gitShow(tip, "docs/.reviewed.json"));
