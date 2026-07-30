@@ -31,7 +31,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 // Versão do canvas-sync. O boot embutido em cada plugin compara esta versão com
 // a do sync em cache e re-baixa quando a vitrine tem uma mais nova (auto-update).
-export const CANVAS_SYNC_VERSION = "0.5.0";
+export const CANVAS_SYNC_VERSION = "0.6.0";
 
 // Impressão digital do PRÓPRIO arquivo em execução. Existiram três cópias divergentes
 // deste motor rodando na mesma máquina (0.3.0 cego para _direct no hook, 0.4.0 no cache)
@@ -241,20 +241,46 @@ function copyDir(src, dst) {
     }
 }
 
-// Espelha src -> target. Em "adopt" (assumir uma cópia dev/obsoleta sem stamp),
-// limpa o destino antes (best-effort, ignora arquivos travados) para remover o
-// lixo da versão antiga; nos demais casos sobrescreve por cima.
-function mirrorInto(srcDir, target, clean) {
-    if (clean && existsSync(target)) {
-        try { rmSync(target, { recursive: true, force: true }); } catch { /* travado: sobrescreve por cima */ }
+// Espelha src -> target. ESPELHO EXATO (0.6.0): além de copiar, REMOVE do destino o que não existe mais na
+// origem. Antes só o "adopt" limpava, e o "update" copiava POR CIMA — então todo arquivo apagado na origem
+// ficava órfão no destino PARA SEMPRE. Isso não é teórico: um artefato de teste (`src/soma-pares.mjs`) já
+// tinha sido removido da fonte, da vitrine e do install, e MESMO ASSIM continuava no mirror instalado,
+// fazendo auditoria acusar código que não existe mais. Espelho que não remove não é espelho, é acúmulo.
+// O carimbo e o marcador de opt-out são PRESERVADOS (são metadados do destino, não conteúdo da origem).
+function pruneOrphans(srcDir, target) {
+  const removed = [];
+  const walk = (rel) => {
+    const dstDir = rel ? join(target, rel) : target;
+    let entries;
+    try { entries = readdirSync(dstDir, { withFileTypes: true }); } catch { return; }
+    for (const ent of entries) {
+      if (SKIP_ENTRIES.has(ent.name)) continue; // .git/node_modules/stamp/ignore-marker: metadados, não conteúdo
+      const childRel = rel ? join(rel, ent.name) : ent.name;
+      const srcPath = join(srcDir, childRel);
+      if (ent.isDirectory()) {
+        if (!existsSync(srcPath)) { try { rmSync(join(target, childRel), { recursive: true, force: true }); removed.push(childRel); } catch { /* travado: fica */ } }
+        else walk(childRel);
+      } else if (!existsSync(srcPath)) {
+        try { rmSync(join(target, childRel), { force: true }); removed.push(childRel); } catch { /* travado: fica */ }
+      }
     }
-    copyDir(srcDir, target);
+  };
+  walk("");
+  return removed;
+}
+
+function mirrorInto(srcDir, target, clean) {
+  if (clean && existsSync(target)) {
+    try { rmSync(target, { recursive: true, force: true }); } catch { /* travado: sobrescreve por cima */ }
+  }
+  copyDir(srcDir, target);
+  return clean ? [] : pruneOrphans(srcDir, target);
 }
 
 export function syncCanvases(home, opts = {}) {
     const plan = planSync(home);
     const engine = engineFingerprint();
-    const result = { mirrored: [], adopted: [], skipped: [], protected: [], blocked: [], shadowed: [], errors: [], engine: CANVAS_SYNC_VERSION, engineHash: engine, items: plan };
+    const result = { mirrored: [], adopted: [], skipped: [], protected: [], blocked: [], shadowed: [], pruned: [], errors: [], engine: CANVAS_SYNC_VERSION, engineHash: engine, items: plan };
     for (const item of plan) {
         if (item.status === "dev-protected") { result.protected.push(item.name); continue; }
         if (item.status === "shadowed") { result.shadowed.push({ name: item.name, srcDir: item.srcDir, version: item.version, reason: item.reason }); continue; }
@@ -268,7 +294,8 @@ export function syncCanvases(home, opts = {}) {
         if (item.action === "uptodate" && !opts.force) { result.skipped.push(item.name); continue; }
         if (opts.dryRun) { result.mirrored.push(item.name); if (item.action === "adopt") result.adopted.push(item.name); continue; }
         try {
-            mirrorInto(item.srcDir, item.target, item.action === "adopt");
+            const orphans = mirrorInto(item.srcDir, item.target, item.action === "adopt");
+            if (orphans && orphans.length) result.pruned.push({ name: item.name, files: orphans });
             writeFileSync(join(item.target, STAMP), JSON.stringify({
                 source: item.srcDir, version: item.version, action: item.action,
                 syncedAt: new Date().toISOString(), managedBy: "canvas-sync",
@@ -301,7 +328,7 @@ export function runAsHook() {
     let result = null, line;
     try {
         result = syncCanvases(home, {});
-        line = JSON.stringify({ at: new Date().toISOString(), v: CANVAS_SYNC_VERSION, engineHash: engineFingerprint(), mirrored: result.mirrored, skipped: result.skipped, blocked: result.blocked, shadowed: result.shadowed, unmanaged: result.unmanaged, errors: result.errors });
+        line = JSON.stringify({ at: new Date().toISOString(), v: CANVAS_SYNC_VERSION, engineHash: engineFingerprint(), mirrored: result.mirrored, skipped: result.skipped, blocked: result.blocked, shadowed: result.shadowed, pruned: result.pruned, unmanaged: result.unmanaged, errors: result.errors });
     } catch (e) {
         line = JSON.stringify({ at: new Date().toISOString(), fatal: String(e?.message || e) });
     }

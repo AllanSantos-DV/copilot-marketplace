@@ -96,5 +96,44 @@ try {
     try { rmSync(home, { recursive: true, force: true }); } catch { /* temp */ }
 }
 
+// ---- 0.6.0: ESPELHO EXATO (o bug do soma-pares: arquivo apagado na origem ficava no mirror pra sempre) ----
+console.log("e2e: arquivo removido da origem tem que sumir do espelho");
+const home2 = mkdtempSync(join(tmpdir(), "canvas-sync-prune-"));
+try {
+    const installed = join(home2, "installed-plugins", "copilot-marketplace", "demo");
+    mkdirSync(join(installed, "src"), { recursive: true });
+    writeFileSync(join(installed, "plugin.json"), JSON.stringify({ name: "demo", version: "1.0.0", extensions: ["."] }));
+    writeFileSync(join(installed, "extension.mjs"), "// demo\n");
+    writeFileSync(join(installed, "src", "util.mjs"), "export const a = 1;\n");
+    writeFileSync(join(installed, "src", "soma-pares.mjs"), "// artefato de teste ao vivo\n");
+    writeFileSync(join(home2, "settings.json"), JSON.stringify({ enabledPlugins: { "demo@copilot-marketplace": true } }));
+
+    syncCanvases(home2);
+    const alvo = join(home2, "extensions", "demo");
+    check("1a sincronia leva os dois arquivos", existsSync(join(alvo, "src", "util.mjs")) && existsSync(join(alvo, "src", "soma-pares.mjs")));
+
+    // o artefato é removido da ORIGEM e a versão sobe (release seguinte)
+    rmSync(join(installed, "src", "soma-pares.mjs"), { force: true });
+    writeFileSync(join(installed, "plugin.json"), JSON.stringify({ name: "demo", version: "1.0.1", extensions: ["."] }));
+    const r = syncCanvases(home2);
+
+    check("o arquivo apagado na origem SOME do espelho", !existsSync(join(alvo, "src", "soma-pares.mjs")));
+    check("o que continua na origem PERMANECE", existsSync(join(alvo, "src", "util.mjs")));
+    check("a remoção é REPORTADA (não silenciosa)", r.pruned.length === 1 && r.pruned[0].files.some((x) => x.includes("soma-pares")));
+    check("o carimbo NÃO é removido como órfão", existsSync(join(alvo, ".canvas-sync.json")));
+
+    // pasta inteira sumindo na origem também tem que sumir
+    mkdirSync(join(installed, "extra"), { recursive: true });
+    writeFileSync(join(installed, "extra", "x.mjs"), "1");
+    writeFileSync(join(installed, "plugin.json"), JSON.stringify({ name: "demo", version: "1.0.2", extensions: ["."] }));
+    syncCanvases(home2);
+    check("pasta nova aparece no espelho", existsSync(join(alvo, "extra", "x.mjs")));
+    rmSync(join(installed, "extra"), { recursive: true, force: true });
+    writeFileSync(join(installed, "plugin.json"), JSON.stringify({ name: "demo", version: "1.0.3", extensions: ["."] }));
+    syncCanvases(home2);
+    check("pasta removida na origem SOME do espelho", !existsSync(join(alvo, "extra")));
+} finally {
+    try { rmSync(home2, { recursive: true, force: true }); } catch { /* temp */ }
+}
 console.log(`\n${pass} ok · ${fail} falha(s)`);
 process.exit(fail === 0 ? 0 : 1);
