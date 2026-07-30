@@ -82,24 +82,3 @@ export function pidAlive(pid) {
     if (n === process.pid) return true;
     try { process.kill(n, 0); return true; } catch (e) { return !!(e && e.code === "EPERM"); }
 }
-
-// Quais painéis abertos no host ficaram ÓRFÃOS — apontando para uma fork que já morreu.
-//
-// Contexto (medido, com carimbo): o session-unloader descarrega a sessão ociosa; ao voltar, o host
-// RETOMA a sessão e re-forka as extensões, mas a UI continua com o painel na porta EFÊMERA da fork
-// anterior. O iframe carrega uma porta onde ninguém escuta e o usuário vê "Failed to open canvas /
-// O pipe está sendo fechado. (os error 232)". A porta efêmera é deliberada (cliente fino por fork:
-// sem porta canônica, sem eleição) — o que faltava era RECONCILIAR a UI depois do re-fork.
-//
-// O discriminador é exato, não heurístico: `servidos` é a memória DESTA fork (o mapa `_servers`).
-// Painel que o host lista como aberto e que esta fork não serve é, por definição, da fork anterior.
-//
-// Vive aqui, e não na entry, por um motivo prático: importar a entry executa o `joinSession` e
-// falha fora do CLI, então a decisão ficaria sem teste de verdade. Aqui ela é pura e testável.
-export function decideOrphanPanels(abertos, servidos, canvasId = "voice-chat") {
-    if (!Array.isArray(abertos)) return [];
-    const serve = servidos && typeof servidos.has === "function" ? servidos : new Set();
-    return abertos
-        .filter((i) => i && i.canvasId === canvasId && i.instanceId && !serve.has(i.instanceId))
-        .map((i) => i.instanceId);
-}
