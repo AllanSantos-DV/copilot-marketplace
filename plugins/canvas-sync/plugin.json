@@ -1,7 +1,7 @@
 {
   "name": "canvas-sync",
-  "version": "0.3.0",
-  "description": "Infra da vitrine: espelha canvas extensions (installed-plugins) para ~/.copilot/extensions via hook de SessionStart. Instale junto ou deixe um plugin baixar sozinho.",
+  "version": "0.5.0",
+  "description": "Infra da vitrine: espelha as canvas extensions instaladas (installed-plugins, incluindo installs diretos) para ~/.copilot/extensions no SessionStart. Nunca rebaixa: compara a versao que entra com a do carimbo e recusa a mais velha, de forma visivel. Quando duas origens miram o mesmo canvas, vence a maior versao e a perdedora e reportada. Carimbo e log registram qual motor escreveu.",
   "author": {
     "name": "Allan Santos",
     "url": "https://github.com/AllanSantos-DV"

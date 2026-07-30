@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">canvas-sync</h1>
-        <span class="chip" title="versão publicada">v0.3.0</span>
+        <span class="chip" title="versão publicada">v0.5.0</span>
       </div>
       <p class="doc-hero__lede">O app GUI só carrega canvases de <code>~/.copilot/extensions/</code>, mas instalar pelo marketplace cai em <code>installed-plugins/</code>. O <strong>canvas-sync</strong> fecha essa lacuna: num hook de <code>SessionStart</code>, espelha os plugins marcados como canvas para a pasta certa. Idempotente e seguro — você só escolhe o plugin.</p>
       <div class="doc-hero__cta">
@@ -65,6 +65,10 @@
           <h3 class="hl__title">Zero passo manual</h3>
           <p class="hl__body">Cada plugin canvas traz um <code>boot.mjs</code> que baixa o canvas-sync sozinho quando ele falta.</p>
         </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Nunca rebaixa</h3>
+          <p class="hl__body">Compara a versao que entra com a do stamp: uma copia mais velha e <strong>recusada e reportada</strong>, nunca aplicada em silencio. Duas origens no mesmo canvas? Vence a maior versao.</p>
+        </li>
       </ul>
     </header>
 
@@ -85,7 +89,7 @@
 
         <section class="doc-section" id="como-funciona">
           <h2 class="doc-h2"><a class="doc-anchor" href="#como-funciona" aria-label="Link para Como funciona">#</a>Como funciona</h2>
-          <ol class="doc-steps"><li><h4>Roda no SessionStart</h4><p>O hook executa <code>node sync.mjs</code> no início de cada sessão.</p></li><li><h4>Lê os plugins ativos</h4><p>Filtra em <code>settings.json → enabledPlugins</code> os que têm o marcador <code>extensions</code>.</p></li><li><h4>Espelha para extensions/</h4><p>Copia <code>installed-plugins/&lt;mp&gt;/&lt;plugin&gt;/</code> → <code>extensions/&lt;plugin&gt;/</code>.</p></li><li><h4>Marca com stamp</h4><p>Grava <code>.canvas-sync.json</code>; é idempotente e nunca sobrescreve uma pasta sem stamp.</p></li></ol>
+          <ol class="doc-steps"><li><h4>Roda no SessionStart</h4><p>O hook executa <code>node sync.mjs</code> no início de cada sessão.</p></li><li><h4>Lê os plugins ativos</h4><p>Filtra em <code>settings.json → enabledPlugins</code> os que têm o marcador <code>extensions</code>.</p></li><li><h4>Espelha para extensions/</h4><p>Copia <code>installed-plugins/&lt;mp&gt;/&lt;plugin&gt;/</code> → <code>extensions/&lt;plugin&gt;/</code>.</p></li><li><h4>Marca com stamp</h4><p>Grava <code>.canvas-sync.json</code>; é idempotente e nunca sobrescreve uma pasta sem stamp.</p></li><li><h4>Confere a versao antes de escrever</h4><p>A versao semantica e a unica chave de decisao (mtime nunca entra). Entrada mais velha que o stamp e bloqueada; rollback deliberado exige llowDowngrade explicito.</p></li><li><h4>Registra qual motor escreveu</h4><p>Stamp e log gravam a versao e o hash do sync.mjs em execucao, para que copias divergentes do proprio canvas-sync fiquem visiveis.</p></li></ol>
           <aside class="note note--warn"><span class="note__mark" aria-hidden="true">!</span><p>Após instalar ou atualizar plugins, <strong>reinicie o app uma vez</strong>: o hook popula <code>extensions/</code> no início da sessão e o app descobre os canvases no próximo boot.</p></aside>
         </section>
 
@@ -120,7 +124,7 @@
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
               <span class="tree__role">Metadados do plugin + marcadores (extensions / hooks).</span>
-              <span class="tree__size">640 B</span>
+              <span class="tree__size">878 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">README.md</code>
@@ -130,12 +134,17 @@
             <li class="tree__row">
               <code class="tree__name">sync.mjs</code>
               <span class="tree__role">Espelha canvas extensions instaladas para ~/.copilot/extensions.</span>
-              <span class="tree__size">9.4 KB</span>
+              <span class="tree__size">17 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">sync.neural-link.json</code>
               <span class="tree__role"></span>
               <span class="tree__size">354 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">test-guard.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">6.7 KB</span>
             </li>
             </ul>
           </div>
@@ -167,7 +176,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.3.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.5.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
