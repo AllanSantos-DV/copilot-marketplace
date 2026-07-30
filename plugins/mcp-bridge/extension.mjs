@@ -20026,11 +20026,22 @@ async function engineDegradations(name, timeoutMs = 3e3) {
     const res = await fetch(`${base}/health`, { signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) return null;
     const h = await res.json();
-    if (!Array.isArray(h.degraded)) return null;
-    return h.degraded.map((d) => {
-      const tentativas = typeof d.retries === "number" && d.retries > 0 ? `, ${d.retries} tentativa(s)` : "";
-      return `${d.server ?? "?"} [${d.status ?? "?"}${tentativas}]${d.error ? `: ${d.error}` : ""}`;
-    });
+    const itens = [];
+    if (Array.isArray(h.degraded)) {
+      for (const d of h.degraded) {
+        const tentativas = typeof d.retries === "number" && d.retries > 0 ? `, ${d.retries} tentativa(s)` : "";
+        itens.push(`${d.server ?? "?"} [${d.status ?? "?"}${tentativas}]${d.error ? `: ${d.error}` : ""}`);
+      }
+    }
+    if (Array.isArray(h.warnings)) {
+      for (const w of h.warnings) {
+        itens.push(`config: ${w}`);
+      }
+    }
+    if (!Array.isArray(h.degraded) && !Array.isArray(h.warnings)) {
+      return null;
+    }
+    return itens;
   } catch {
     return null;
   }
@@ -20517,7 +20528,7 @@ async function listAllPages(call, key, timeoutMs, label) {
   } while (cursor && ++guard < 1e3);
   return items;
 }
-var ManagedServer = class {
+var ManagedServer = class _ManagedServer {
   name;
   config;
   status = "disconnected";
@@ -20654,7 +20665,33 @@ var ManagedServer = class {
       throw err;
     }
   }
+  /**
+   * Reconhece a sessão que o servidor não tem mais.
+   *
+   * O gateway responde HTTP 404 (spec: Streamable HTTP / Session Management) e o SDK propaga isso
+   * como erro comum. Sem distinguir esse caso, o retry do circuit breaker repete a chamada com a
+   * MESMA sessão morta — falha de novo, abre o circuito, e o servidor fica inacessível até o
+   * usuário reiniciar o host. Foi exatamente o sintoma observado: o daemon reinicia a cada
+   * atualização e toda sessão aberta morria junto.
+   */
+  static sessaoMorta(err) {
+    const m = String(err?.message ?? err);
+    return /Session not found|-32001|HTTP 404|\b404\b/i.test(m);
+  }
   async callTool(toolName, args, timeoutMs = 6e4) {
+    if (!this.client) throw new Error(`servidor "${this.name}" n\xE3o conectado`);
+    try {
+      return await this.chamar(toolName, args, timeoutMs);
+    } catch (err) {
+      if (!_ManagedServer.sessaoMorta(err)) {
+        throw err;
+      }
+      this.lastError = void 0;
+      await this.connect(timeoutMs);
+      return await this.chamar(toolName, args, timeoutMs);
+    }
+  }
+  async chamar(toolName, args, timeoutMs) {
     if (!this.client) throw new Error(`servidor "${this.name}" n\xE3o conectado`);
     const result = await this.client.callTool(
       { name: toolName, arguments: args ?? {} },
