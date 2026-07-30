@@ -21,16 +21,22 @@ const WORKER = join(HERE, "worker.mjs");
 // torna os workers IMUNES a um shell que zerou GH_TOKEN depois. Ver o comentário no spawn.
 const PINNED_AUTH_TOKEN = String(process.env.GH_TOKEN || "").trim() || null;
 
-// CONTEXTO DE TELEMETRIA da deliberação em curso. Medido: `taskType` chegava em apenas 1,4% dos spans, o que
-// INVALIDA qualquer análise causal (não dá para comparar variantes se não se sabe o TIPO da tarefa). A causa não
-// era o registro — ele já aceita o campo — e sim que passá-lo dependia de lembrar em ~31 pontos de chamada.
-// Exigir isso de cada chamador é boilerplate que falha silenciosamente. Aqui o perfil declara o contexto UMA vez
-// e todo worker daquela deliberação herda. Não é estado global disfarçado: é escopo de execução explícito, com
-// `clearRunContext` para não vazar de uma deliberação para a seguinte.
-let RUN_CONTEXT = {};
-export function setRunContext(ctx = {}) { RUN_CONTEXT = { ...ctx }; return RUN_CONTEXT; }
-export function getRunContext() { return { ...RUN_CONTEXT }; }
-export function clearRunContext() { RUN_CONTEXT = {}; }
+// CONTEXTO DE TELEMETRIA da deliberação em curso. Medido: `taskType` chegava em ~1,4% dos spans, o que INVALIDA
+// qualquer análise causal (não dá para comparar variantes do revisor sem saber o TIPO da tarefa). A causa não era
+// o registro — ele já aceita o campo — e sim que passá-lo dependia de lembrar em ~31 pontos de chamada; e os que
+// mais produzem span (deepPanel: 1545, sombra: 539) simplesmente não passavam.
+//
+// POR QUE AsyncLocalStorage e não uma variável de módulo: o modo-sombra roda EM PARALELO com a mesa. Um contexto
+// global seria uma CORRIDA — a consolidação do sombra sobrescreveria o contexto do modo_dev e carimbaria spans com
+// o taskType errado, que é PIOR que campo nulo (dado errado passa por dado bom numa análise). ALS dá escopo por
+// cadeia assíncrona: cada deliberação enxerga o SEU contexto, sem vazar para a vizinha.
+import { AsyncLocalStorage } from "node:async_hooks";
+const RUN_ALS = new AsyncLocalStorage();
+
+/** Executa `fn` com o contexto de telemetria da deliberação. Todo worker disparado dentro dela herda. */
+export function withRunContext(ctx, fn) { return RUN_ALS.run({ ...(ctx || {}) }, fn); }
+/** Contexto da deliberação atual (vazio fora de uma). Sempre CÓPIA — mutar o retorno não contamina. */
+export function getRunContext() { return { ...(RUN_ALS.getStore() || {}) }; }
 
 // Limpa o stderr do worker p/ o diagnóstico: descarta o RUÍDO do Node (ExperimentalWarning do node:sqlite
 // do CLI, dicas de --trace-warnings) que MASCARAVA o erro real (aparecia no lugar do "worker erro:"/timeout).
@@ -117,7 +123,8 @@ export function createAgentFactory({ cwdProvider = () => process.cwd(), model, g
     }
     // Observabilidade (opcional, no-op se ausente): registra o worker no painel. `end` grava em TODOS os
     // caminhos de conclusão (via finish) — spawn error, timeout, close, stdin error.
-    const act = activity ? activity.start({ role: roleId, taskType: taskType || RUN_CONTEXT.taskType || null, model: chosenModel || null, stage: stage || RUN_CONTEXT.stage || null, group: group || null, topic: topic || RUN_CONTEXT.topic || null, traceId: traceId || RUN_CONTEXT.traceId || null }) : null;
+    const ctx = getRunContext();
+    const act = activity ? activity.start({ role: roleId, taskType: taskType || ctx.taskType || null, model: chosenModel || null, stage: stage || ctx.stage || null, group: group || null, topic: topic || ctx.topic || null, traceId: traceId || ctx.traceId || null }) : null;
     return new Promise((resolve) => {
       const env = { ...process.env };
       delete env.NODE_OPTIONS;      // não herdar o resolver hook do fork
