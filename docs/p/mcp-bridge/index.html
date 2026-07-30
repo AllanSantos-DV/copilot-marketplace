@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">mcp-bridge</h1>
-        <span class="chip" title="versão publicada">v0.2.4</span>
+        <span class="chip" title="versão publicada">v0.2.5</span>
       </div>
       <p class="doc-hero__lede">Onde o MCP é bloqueado por política mas extensões são permitidas, o <strong>mcp-bridge</strong> reabre a porta: conecta a servidores MCP (<code>stdio</code>, <code>http</code>, <code>sse</code> — com login OAuth) e entrega as tools, prompts e resources deles <strong>nativamente</strong> ao agente, com reconexão, auditoria e um painel de saúde. E um motor que já roda na sua máquina entra pelo campo <code>engine</code>, <strong>só pelo nome</strong>: endereço e credencial são resolvidos na hora da conexão, nunca guardados no config.</p>
       <div class="doc-hero__cta">
@@ -125,10 +125,11 @@
 
         <section class="doc-section" id="painel">
           <h2 class="doc-h2"><a class="doc-anchor" href="#painel" aria-label="Link para Painel e auditoria">#</a>Painel e auditoria</h2>
-          <p>A ponte registra o painel <strong>MCP Bridge — Dashboard</strong> no app: a foto do que está de pé — servidor, transporte, status, quantas tools, prompts e resources cada um trouxe, latência média, erros e as últimas chamadas auditadas.</p>
+          <p>A ponte registra o painel <strong>MCP Bridge — Dashboard</strong> no app: a foto do que está de pé — servidor, transporte, status, quantas tools, prompts e resources cada um trouxe, latência média, erros e as últimas chamadas auditadas. E a foto não congela no boot: quando um servidor avisa que mexeu nas próprias tools (<code>notifications/tools/list_changed</code>), a ponte relê o catálogo dele e atualiza o que mostra.</p>
           <p>As mesmas respostas vêm por tools, sem sair do chat:</p>
           <ul class="doc-list"><li><code>mcpbridge_list_servers</code> — o diagnóstico da ponte: status, erro da última tentativa e o que cada servidor expôs.</li><li><code>mcpbridge_audit</code> — as últimas chamadas (servidor/tool, status, duração), com filtro por servidor ou tool.</li><li><code>mcpbridge_profiles</code> e <code>mcpbridge_use_profile</code> — vê e troca o perfil ativo.</li><li><code>mcpbridge_login</code> e <code>mcpbridge_logout</code> — entra e sai dos servidores com OAuth.</li><li><code>mcpbridge_list_resources</code> e <code>mcpbridge_read_resource</code> — lista e lê os resources dos servidores conectados.</li></ul>
           <p>No início de cada sessão a ponte anuncia quantos servidores conectaram e quantas capacidades entraram. Se algum falhou, o aviso nomeia o servidor e o motivo — em vez de sumir com ele da lista.</p>
+          <aside class="note note--warn"><span class="note__mark" aria-hidden="true">!</span><p>A lista de tools que o <strong>agente</strong> enxerga é montada uma vez, na abertura da sessão. Uma tool que nasceu depois disso aparece na hora para você — no painel e no <code>mcpbridge_list_servers</code> —, mas só chega ao agente no próximo <code>/clear</code> ou reinício da sessão.</p></aside>
         </section>
 
         <section class="doc-section" id="instalar">
@@ -173,7 +174,7 @@
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
               <span class="tree__role">A ponte: conecta os servidores do config, resolve o motor pelo nome, expõe tools/prompts/resources ao agente e abre o painel.</span>
-              <span class="tree__size">755 KB</span>
+              <span class="tree__size">765 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
@@ -237,7 +238,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.2.4</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.2.5</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>

@@ -95,7 +95,7 @@
       "id": "painel",
       "title": "Painel e auditoria",
       "blocks": [
-        { "type": "p", "text": "A ponte registra o painel **MCP Bridge — Dashboard** no app: a foto do que está de pé — servidor, transporte, status, quantas tools, prompts e resources cada um trouxe, latência média, erros e as últimas chamadas auditadas." },
+        { "type": "p", "text": "A ponte registra o painel **MCP Bridge — Dashboard** no app: a foto do que está de pé — servidor, transporte, status, quantas tools, prompts e resources cada um trouxe, latência média, erros e as últimas chamadas auditadas. E a foto não congela no boot: quando um servidor avisa que mexeu nas próprias tools (`notifications/tools/list_changed`), a ponte relê o catálogo dele e atualiza o que mostra." },
         { "type": "p", "text": "As mesmas respostas vêm por tools, sem sair do chat:" },
         {
           "type": "list",
@@ -107,7 +107,8 @@
             "`mcpbridge_list_resources` e `mcpbridge_read_resource` — lista e lê os resources dos servidores conectados."
           ]
         },
-        { "type": "p", "text": "No início de cada sessão a ponte anuncia quantos servidores conectaram e quantas capacidades entraram. Se algum falhou, o aviso nomeia o servidor e o motivo — em vez de sumir com ele da lista." }
+        { "type": "p", "text": "No início de cada sessão a ponte anuncia quantos servidores conectaram e quantas capacidades entraram. Se algum falhou, o aviso nomeia o servidor e o motivo — em vez de sumir com ele da lista." },
+        { "type": "note", "tone": "warn", "text": "A lista de tools que o **agente** enxerga é montada uma vez, na abertura da sessão. Uma tool que nasceu depois disso aparece na hora para você — no painel e no `mcpbridge_list_servers` —, mas só chega ao agente no próximo `/clear` ou reinício da sessão." }
       ]
     }
   ],
