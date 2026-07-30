@@ -24,7 +24,7 @@
         {
           "type": "steps",
           "items": [
-            { "title": "Instale o plugin", "text": "Pelo marketplace (comando na seção Instalar) e reinicie o app uma vez — o painel entra no próximo boot." },
+            { "title": "Instale o plugin", "text": "Pelo marketplace (comando na seção Instalar) e reinicie o app uma vez — o painel entra no próximo boot. A cada atualização, reinicie de novo: o app só executa a versão nova no boot seguinte." },
             { "title": "Declare seus servidores", "text": "Abra o `config.json` e liste o que quer conectar: `stdio` para processos locais, `http` ou `sse` para os remotos." },
             { "title": "Aponte pelo motor, quando houver um", "text": "Num servidor `http`/`sse`, troque `url` e `headers` pelo campo `engine` com o nome do motor. A ponte resolve endereço e credencial sozinha." },
             { "title": "Entre nos que pedem login", "text": "`mcpbridge_login <servidor>` abre o navegador para autorizar (OAuth 2.1). Depois, rode `/clear` ou reinicie a sessão." },
@@ -110,6 +110,7 @@
         },
         { "type": "p", "text": "No início de cada sessão a ponte anuncia quantos servidores conectaram e quantas capacidades entraram. Se algum falhou, o aviso nomeia o servidor e o motivo — em vez de sumir com ele da lista. Quando o servidor vem de um motor, ela ainda pergunta a saúde dele e repassa o que ouvir: backend degradado e o que o motor reclama da **própria** configuração, como uma proteção declarada mas desligada." },
         { "type": "p", "text": "Proteção desligada não dá sintoma — é por isso que ela chega até você na sessão, e não numa linha de log de inicialização que ninguém lê." },
+        { "type": "p", "text": "Antes de qualquer diagnóstico vem a pergunta mais básica: **é a versão que instalei que está rodando?** Ao abrir a conexão, a ponte se apresenta com a versão que está de fato carregada no processo — o servidor do outro lado, um motor como o `mcp-gateway` inclusive, recebe esse número, e não um valor chumbado no código. Atualizar o plugin troca os arquivos no disco; o app só passa a executar a versão nova no próximo boot." },
         { "type": "note", "tone": "warn", "text": "A lista de tools que o **agente** enxerga é montada uma vez, na abertura da sessão. Uma tool que nasceu depois disso aparece na hora para você — no painel e no `mcpbridge_list_servers` —, mas só chega ao agente no próximo `/clear` ou reinício da sessão." }
       ]
     }
@@ -126,6 +127,7 @@
     { "q": "O plugin instala o motor para mim?", "a": "Não, e é de propósito: a ponte só **usa** um motor que já está na máquina. Instalar ou atualizar continua sendo ação explícita sua — o bootstrap do plugin é offline e não baixa nem executa código remoto, porque esta ponte roda justamente onde isso não é aceitável." },
     { "q": "E se o motor estiver parado?", "a": "Aquele servidor falha com erro explícito, dizendo o arquivo que faltou (`~/.<motor>/runtime.json`) e as duas saídas: subir o motor ou trocar para uma `url` explícita. Os outros servidores conectam normalmente — a ponte não adivinha porta nem tenta conectar sem credencial." },
     { "q": "Atualizei o motor. Preciso reiniciar o app?", "a": "Não. Atualizar o motor reinicia o daemon e derruba a sessão MCP aberta; na chamada seguinte a ponte percebe que a sessão não existe mais, reconecta e refaz a chamada — sem erro na sua frente e sem circuito aberto. Isso vale **só** para esse caso: um erro de verdade continua falhando, à vista." },
+    { "q": "Atualizei o plugin. Preciso reiniciar o app?", "a": "Precisa, uma vez. O `copilot plugin update` troca os arquivos no disco, mas o app carregou a extensão no boot e segue executando a versão anterior até você reiniciá-lo — **pasta nova não é versão nova em execução**. Depois do reinício, o `canvas-sync` espelha a extensão e o app sobe com a versão nova: a mesma que a ponte passa a anunciar ao conectar em cada servidor." },
     { "q": "Posso continuar usando `url` e `headers`?", "a": "Pode. Uma `url` explícita continua valendo exatamente como você escreveu; o campo `engine` só entra quando você o declara. Se os dois aparecerem no mesmo servidor, o motor vivo vence — para que um endereço velho no config não sequestre a conexão." },
     { "q": "Meu token fica salvo no config?", "a": "Não. Com `engine`, a ponte lê o bearer do cofre do motor na hora de conectar e o usa em memória — nada é gravado no `config.json`. Os tokens de OAuth ficam à parte, em `~/.copilot/mcp-bridge/oauth/`, com permissão restrita ao seu usuário." },
     { "q": "Que transportes suporta?", "a": "`stdio` para processos locais, `http` e `sse` para remotos — com login OAuth 2.1 (PKCE e registro dinâmico de cliente) quando o servidor exige." }
