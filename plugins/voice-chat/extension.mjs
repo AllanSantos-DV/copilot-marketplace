@@ -10,7 +10,7 @@ import { setPriority, constants as osConstants, homedir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
 import shared from "./voice-shared.cjs";
-import { dbg, mkdirp, readJson, writeJsonAtomic, pidAlive } from "./voice-core.mjs";
+import { dbg, mkdirp, readJson, writeJsonAtomic, pidAlive, decideOrphanPanels } from "./voice-core.mjs";
 import { buildPythonCandidates, savePythonPath } from "./voice-python.mjs";
 import { cleanForSpeech, makeSpoken } from "./voice-text.mjs";
 import {
@@ -50,7 +50,7 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 
-export const CURRENT_VERSION = "2.3.14";
+export const CURRENT_VERSION = "2.3.15";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -928,6 +928,26 @@ export function quiesceClosedPanelCapture(sid, opts = {}) {
 
 
 
+// Identidade do painel ABERTO desta sessão, persistida em disco.
+//
+// É o que permite reconciliar depois de um kill: o `openCanvases` que o host devolve no boot vem
+// VAZIO (medido), então a fork nova não descobre pelo host qual painel reapontar. O disco sobrevive
+// à morte do processo e responde isso.
+//
+// Escrito quando o host abre o painel; apagado no onClose. Se a fork for MORTA (o caso do
+// session-unloader), o onClose nunca roda e o arquivo permanece — que é exatamente o sinal de
+// "havia um painel aberto quando eu morri". Se o dono fechou o painel, o arquivo já não existe e
+// nada é reaberto.
+function panelStateFile(sid) { return join(ARTIFACTS, "panels", `${String(sid).replace(/[^\w.-]/g, "_")}.json`); }
+
+function rememberPanel(sid, instanceId) {
+    try { mkdirp(join(ARTIFACTS, "panels")); writeJsonAtomic(panelStateFile(sid), { instanceId, at: Date.now() }); } catch { /* best-effort */ }
+}
+
+function forgetPanel(sid) {
+    try { unlinkSync(panelStateFile(sid)); } catch { /* já não existia */ }
+}
+
 const canvas = createCanvas({
     id: "voice-chat",
     displayName: "Voz",
@@ -1001,6 +1021,7 @@ const canvas = createCanvas({
         }
         ensureWorker();
         checkForUpdate({ detectOnly: true }).catch(() => {});
+        rememberPanel(panelSid, ctx.instanceId);
         return {
             title: "Voz",
             url: withSid(entry.url, panelSid),
@@ -1009,6 +1030,7 @@ const canvas = createCanvas({
     },
     onClose: async (ctx) => {
         const sid = String((ctx && ctx.sessionId) || mySid());
+        forgetPanel(sid);
         quiesceClosedPanelCapture(sid);
         const entry = _servers.get(ctx.instanceId);
         if (!entry) return;
@@ -1169,10 +1191,52 @@ restoreAudioHistory();
 // (senão o guard de canvas leria "restart pendente" pra sempre e a UI re-ofereceria "Ativar" à toa).
 // Prova de sucesso do self-reload: o processo NOVO boota com CURRENT_VERSION novo -> aqui reconcilia.
 try { const _us = readUpdateState(); if (_us && _us.pendingVersion && !verGt(String(_us.pendingVersion), CURRENT_VERSION)) { delete _us.pendingVersion; writeUpdateState(_us); dbg("boot: pendingVersion <= CURRENT_VERSION -> limpo (self-reload/restart concluído)"); } } catch { }
+// PAINEL ÓRFÃO: reaponta, no boot, o painel que ficou apontando para a fork ANTERIOR.
+//
+// O bug (medido na máquina do dono, com carimbo): o session-unloader descarrega a sessão ociosa —
+// 5 vezes numa única sessão, num único dia. Ao voltar, o host RETOMA a sessão e re-forka as
+// extensões, mas a UI continua com o painel apontando para a porta EFÊMERA da fork morta.
+// Verificado ao vivo: a UI apontava para a porta 60024 e ninguém escutava lá. O dono via:
+//     Failed to open canvas / O pipe está sendo fechado. (os error 232)
+//
+// A porta efêmera é DELIBERADA (cliente fino por fork: sem porta canônica, sem eleição, sem
+// registry) e não deve mudar — o que faltava era RECONCILIAR a UI depois do re-fork.
+//
+// Sobre a API, que eu já errei uma vez aqui: `joinSession()` devolve um `CopilotSession` completo,
+// então a extensão TEM o caminho de volta — mas ele é `session.rpc.canvas.open()`, não
+// `session.canvas.open()`. Sondar `session.canvas` dá `undefined` e leva à conclusão errada de que
+// a extensão não pode fazer nada. Reabrir com o MESMO instanceId é o gesto que o host usa para
+// focar um painel existente; o handler `open` roda de novo e devolve a URL NOVA ao renderer.
+//
+// De onde vem o instanceId: do DISCO, não do host. `session.openCanvases` volta VAZIO no boot
+// (medido: `abertos=[]` mesmo com o painel aberto na tela), então o host não é fonte confiável
+// aqui. O arquivo em panels/<sid>.json sobrevive à morte do processo e responde "havia um painel
+// aberto quando eu morri" — porque o onClose, que o apagaria, não roda quando a fork é MORTA.
+async function reclaimOrphanPanels() {
+    try {
+        // Sinaliza a AUSÊNCIA da API em vez de sumir por encadeamento opcional: sem isto, um host
+        // sem esse caminho faria a reconciliação virar no-op silencioso — a correção pareceria
+        // instalada e nunca rodaria, que é a mesma classe de falha que originou este bug.
+        if (typeof session?.rpc?.canvas?.open !== "function") {
+            dbg("reclaimOrphanPanels: host sem rpc.canvas.open — reconciliação de painel INDISPONÍVEL nesta versão");
+            return;
+        }
+        const sid = mySid();
+        const st = readJson(panelStateFile(sid), null);
+        if (!st || !st.instanceId) { dbg("reclaimOrphanPanels: nenhum painel registrado para esta sessão"); return; }
+        if (_servers.has(st.instanceId)) { dbg(`reclaimOrphanPanels: ${st.instanceId} já servido por ESTA fork — nada a reapontar`); return; }
+        await session.rpc.canvas.open({ canvasId: "voice-chat", instanceId: st.instanceId });
+        log(`painel órfão reapontado para esta fork: ${st.instanceId} (a URL anterior morreu com a fork antiga)`);
+    } catch (e) {
+        dbg("reclaimOrphanPanels: " + (e && e.message));
+    }
+}
+
 startHeartbeat();
 writeForkHeartbeat("ready");   // canvas registrado (joinSession OK) -> marca esta fork viva p/ o Stop hook
 const _forkHb = setInterval(() => writeForkHeartbeat("ready"), 5000);
 if (_forkHb.unref) _forkHb.unref();
+reclaimOrphanPanels();
 // Sweep que drena a fila-em-arquivo do Stop hook (pending/<sid>.jsonl) a cada 2s: sem ele o resumo 🔊
 // escrito no disco pelo hook ficaria sem tocar quando nenhum outro gatilho (hello/foco) dispara no turno.
 const _speakSweep = setInterval(() => { drainPendingSpeak(mySid()).catch(() => { }); }, 2000);
