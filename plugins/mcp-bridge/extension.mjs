@@ -1,6 +1,6 @@
 import { createRequire as __createRequire } from "node:module";
 const require = globalThis.require ?? __createRequire(import.meta.url);
-// mcp-bridge v0.1.0 — Copilot CLI extension (MCP SDK embutido; @github/copilot-sdk external). Gerado por esbuild — não editar à mão.
+// mcp-bridge v0.2.1 — Copilot CLI extension (MCP SDK embutido; @github/copilot-sdk external). Gerado por esbuild — não editar à mão.
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -9081,17 +9081,33 @@ function sanitizeStringMap(m) {
   }
   return Object.keys(out).length ? out : void 0;
 }
-function sanitizeServers(raw) {
+function sanitizeServers(raw, onDiscard) {
+  const discard = (name, reason) => {
+    onDiscard?.(name, reason);
+    return void 0;
+  };
   if (!Array.isArray(raw)) return [];
   const seen = /* @__PURE__ */ new Set();
   const out = [];
   for (const item of raw) {
-    if (!item || typeof item !== "object") continue;
+    if (!item || typeof item !== "object") {
+      discard("(entrada n\xE3o-objeto)", "n\xE3o \xE9 um objeto");
+      continue;
+    }
     const s = item;
-    if (typeof s.name !== "string" || !s.name.trim()) continue;
-    if (seen.has(s.name)) continue;
+    if (typeof s.name !== "string" || !s.name.trim()) {
+      discard("(sem nome)", "campo `name` ausente ou vazio");
+      continue;
+    }
+    if (seen.has(s.name)) {
+      discard(s.name, "nome duplicado nesta lista \u2014 o primeiro vence");
+      continue;
+    }
     if (s.type === "stdio") {
-      if (typeof s.command !== "string" || !s.command.trim()) continue;
+      if (typeof s.command !== "string" || !s.command.trim()) {
+        discard(s.name, "type=stdio exige `command`");
+        continue;
+      }
       seen.add(s.name);
       out.push({
         name: s.name,
@@ -9105,12 +9121,18 @@ function sanitizeServers(raw) {
     } else if (s.type === "http" || s.type === "sse") {
       const engine = typeof s.engine === "string" && s.engine.trim() ? s.engine.trim() : void 0;
       const hasUrl = typeof s.url === "string" && !!s.url.trim();
-      if (!engine && !hasUrl) continue;
+      if (!engine && !hasUrl) {
+        discard(s.name, `type=${s.type} exige \`url\` ou \`engine\``);
+        continue;
+      }
       if (hasUrl) {
         try {
           new URL(s.url);
         } catch {
-          if (!engine) continue;
+          if (!engine) {
+            discard(s.name, `url inv\xE1lida: ${String(s.url)}`);
+            continue;
+          }
         }
       }
       seen.add(s.name);
@@ -9123,6 +9145,8 @@ function sanitizeServers(raw) {
         auth: sanitizeOAuth(s.auth),
         enabled: typeof s.enabled === "boolean" ? s.enabled : void 0
       });
+    } else {
+      discard(s.name, `type "${String(s.type)}" n\xE3o reconhecido (esperado: stdio | http | sse)`);
     }
   }
   return out;
@@ -9189,7 +9213,7 @@ function sanitizeProfiles(raw) {
   }
   return Object.keys(out).length ? out : void 0;
 }
-function loadConfig() {
+function loadConfig(onDiscard) {
   try {
     if (!existsSync(CONFIG_PATH)) {
       mkdirSync2(CONFIG_DIR, { recursive: true, mode: 448 });
@@ -9202,7 +9226,7 @@ function loadConfig() {
       toolNaming: parsed.toolNaming ?? "namespaced",
       connectTimeoutMs: clampTimeout(parsed.connectTimeoutMs),
       callTimeoutMs: clampTimeout(parsed.callTimeoutMs),
-      servers: sanitizeServers(parsed.servers),
+      servers: sanitizeServers(parsed.servers, onDiscard),
       resilience: sanitizeResilience(parsed.resilience),
       audit: sanitizeAudit(parsed.audit),
       responseLimit: sanitizeLimiter(parsed.responseLimit),
@@ -21099,7 +21123,10 @@ function failResult(message) {
   return { textResultForLlm: message, resultType: "failure", error: message };
 }
 async function main() {
-  const cfg = loadConfig();
+  const discarded = [];
+  const cfg = loadConfig((name, reason) => {
+    discarded.push(`${name}: ${reason}`);
+  });
   const activeProfile = cfg.activeProfile;
   const profileSet = activeProfile ? cfg.profiles?.[activeProfile] : void 0;
   const enabled = cfg.servers.filter(
@@ -21463,9 +21490,12 @@ ${logs.join("\n")}` : "";
   const mcpToolCount = [...servers.values()].reduce((n, s) => n + s.tools.length + s.prompts.length, 0);
   const resourceCount = [...servers.values()].reduce((n, s) => n + s.resources.length + s.resourceTemplates.length, 0);
   await session.log(
-    `MCP Bridge ativo \u2014 ${connected}/${enabled.length} servidor(es), ${mcpToolCount} tool(s)/prompt(s) e ${resourceCount} resource(s) expostos.`,
-    { level: failed.length ? "warning" : "info" }
+    `MCP Bridge ativo \u2014 ${connected}/${enabled.length} servidor(es), ${mcpToolCount} tool(s)/prompt(s) e ${resourceCount} resource(s) expostos.` + (discarded.length ? ` ${discarded.length} entrada(s) DESCARTADA(S) do config.` : ""),
+    { level: failed.length || discarded.length ? "warning" : "info" }
   );
+  for (const d of discarded) {
+    await session.log(`MCP Bridge: entrada de config ignorada \u2014 ${d}`, { level: "warning" });
+  }
   for (const f of failed) {
     await session.log(`MCP Bridge: falha ao conectar "${f.name}": ${f.lastError}`, {
       level: "warning"

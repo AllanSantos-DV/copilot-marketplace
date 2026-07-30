@@ -4,7 +4,7 @@
   "highlights": [
     { "title": "MCP onde a política bloqueia", "body": "Reconecta o agente a servidores MCP pelo canal de extensões — o que a política permite — e expõe **tools, prompts e resources** como capacidades nativas." },
     { "title": "O config guarda nome, não segredo", "body": "`engine: mcp-gateway` no lugar de `url` + `headers`. A ponte lê o `runtime.json` e o cofre do motor **na hora de conectar** — o token nunca é escrito por ela." },
-    { "title": "Falha alto, nunca no escuro", "body": "Motor parado ou ausente derruba **aquele** servidor com erro explícito. Sem adivinhar porta e sem conectar sem credencial: erro claro agora vale mais que erro silencioso depois." },
+    { "title": "Falha alto, nunca no escuro", "body": "Motor parado ou ausente derruba **aquele** servidor com erro explícito. E entrada de config que a ponte não entende aparece como aviso na sessão — nunca some calada, levando as tools junto. Erro claro agora vale mais que erro silencioso depois." },
     { "title": "Tudo à vista", "body": "Painel de saúde no app, auditoria linha a linha de cada chamada, perfis de servidores, retry com circuit breaker e limite de resposta." }
   ],
   "sections": [
