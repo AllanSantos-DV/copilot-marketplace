@@ -1,6 +1,6 @@
 import { createRequire as __createRequire } from "node:module";
 const require = globalThis.require ?? __createRequire(import.meta.url);
-// mcp-bridge v0.2.3 — Copilot CLI extension (MCP SDK embutido; @github/copilot-sdk external). Gerado por esbuild — não editar à mão.
+// mcp-bridge v0.2.4 — Copilot CLI extension (MCP SDK embutido; @github/copilot-sdk external). Gerado por esbuild — não editar à mão.
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -20018,6 +20018,23 @@ function resolveEngine(name) {
   }
   return { url: `http://${host}:${p}${path}`, token };
 }
+async function engineDegradations(name, timeoutMs = 3e3) {
+  const ep = resolveEngine(name);
+  if (!ep) return null;
+  try {
+    const base = ep.url.replace(/\/[^/]*$/, "");
+    const res = await fetch(`${base}/health`, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) return null;
+    const h = await res.json();
+    if (!Array.isArray(h.degraded)) return null;
+    return h.degraded.map((d) => {
+      const tentativas = typeof d.retries === "number" && d.retries > 0 ? `, ${d.retries} tentativa(s)` : "";
+      return `${d.server ?? "?"} [${d.status ?? "?"}${tentativas}]${d.error ? `: ${d.error}` : ""}`;
+    });
+  } catch {
+    return null;
+  }
+}
 
 // src/oauth.store.ts
 import { join as join3 } from "node:path";
@@ -21500,6 +21517,17 @@ ${logs.join("\n")}` : "";
     await session.log(`MCP Bridge: falha ao conectar "${f.name}": ${f.lastError}`, {
       level: "warning"
     });
+  }
+  for (const s of enabled) {
+    const motor = s.engine;
+    if (!motor) continue;
+    const degradado = await engineDegradations(motor);
+    if (degradado?.length) {
+      await session.log(
+        `MCP Bridge: motor "${motor}" est\xE1 DEGRADADO \u2014 ${degradado.length} backend(s) sem servir: ${degradado.join("; ")}. As tools deles n\xE3o est\xE3o dispon\xEDveis nesta sess\xE3o.`,
+        { level: "warning" }
+      );
+    }
   }
 }
 main().catch((err) => {
