@@ -10,7 +10,7 @@ import { setPriority, constants as osConstants, homedir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
 import shared from "./voice-shared.cjs";
-import { dbg, mkdirp, readJson, writeJsonAtomic, pidAlive } from "./voice-core.mjs";
+import { dbg, mkdirp, readJson, writeJsonAtomic, pidAlive, decideOrphanPanels } from "./voice-core.mjs";
 import { buildPythonCandidates, savePythonPath } from "./voice-python.mjs";
 import { cleanForSpeech, makeSpoken } from "./voice-text.mjs";
 import {
@@ -50,7 +50,7 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 
-export const CURRENT_VERSION = "2.3.12";
+export const CURRENT_VERSION = "2.3.13";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -1168,11 +1168,46 @@ restoreAudioHistory();
 // BOOT reconcile do update: se a versão em execução já alcançou/passou o pendingVersion, limpa-o
 // (senão o guard de canvas leria "restart pendente" pra sempre e a UI re-ofereceria "Ativar" à toa).
 // Prova de sucesso do self-reload: o processo NOVO boota com CURRENT_VERSION novo -> aqui reconcilia.
-try { const _us = readUpdateState(); if (_us && _us.pendingVersion && !verGt(String(_us.pendingVersion), CURRENT_VERSION)) { delete _us.pendingVersion; writeUpdateState(_us); dbg("boot: pendingVersion <= CURRENT_VERSION -> limpo (self-reload/restart concluído)"); } } catch { }
+try { const _us = readUpdateState(); if (_us && _us.pendingVersion && !verGt(String(_us.pendingVersion), CURRENT_VERSION)) { delete _us.pendingVersion; writeUpdateState(_us); dbg("boot: pendingVersion <= CURRENT_VERSION -> limpo (self-reload/restart concluído)"); } } catch { }// PAINEL ÓRFÃO: reaponta, no boot, o painel que ficou apontando para a fork ANTERIOR.
+//
+// O problema que isto resolve (medido na máquina do dono, com carimbo): o session-unloader
+// descarrega a sessão ociosa — 5 vezes numa única sessão, num único dia. Ao voltar, o host RETOMA
+// a sessão e re-forka as extensões, mas a UI continua com o painel apontando para a porta EFÊMERA
+// da fork morta. O iframe carrega uma porta onde ninguém escuta e o dono vê:
+//     Failed to open canvas / O pipe está sendo fechado. (os error 232)
+//
+// A porta efêmera é DELIBERADA (cliente fino por fork: sem porta canônica, sem eleição, sem
+// registry) e não deve mudar — o que faltava era alguém RECONCILIAR a UI depois do re-fork.
+//
+// Discriminador exato, sem heurística: `_servers` é a memória DESTA fork. Se o host lista uma
+// instância aberta do canvas "voice-chat" que esta fork NÃO serve, aquele painel é órfão — a URL
+// dele é da fork anterior. Reabrir com o MESMO instanceId devolve a URL nova.
+// A decisão é pura e vive em voice-core (`decideOrphanPanels`), onde tem teste de verdade:
+// importar esta entry executaria o joinSession e falharia fora do CLI.
+//
+// Por que não abre painel à toa: numa sessão onde o dono nunca abriu a voz, `listOpen()` não traz
+// instância nossa e a função não faz nada. Só reconcilia o que a UI JÁ tem na tela.
+//
+// Best-effort e SILENCIOSO no fracasso: é uma cortesia de boot, não um invariante. Se o host não
+// expuser a API (versão antiga), o caminho antigo continua valendo — o hook postToolUseFailure
+// (voice-canvas-guard.cjs) segue instruindo o agente a repetir o open_canvas.
+async function reclaimOrphanPanels() {
+    try {
+        const abertos = (await session?.canvas?.listOpen?.())?.openCanvases;
+        for (const instanceId of decideOrphanPanels(abertos, _servers)) {
+            await session.canvas.open({ canvasId: "voice-chat", instanceId });
+            log(`painel órfão reapontado para esta fork: ${instanceId} (a URL anterior morreu com a fork antiga)`);
+        }
+    } catch (e) {
+        dbg("reclaimOrphanPanels: " + (e && e.message));
+    }
+}
+
 startHeartbeat();
 writeForkHeartbeat("ready");   // canvas registrado (joinSession OK) -> marca esta fork viva p/ o Stop hook
 const _forkHb = setInterval(() => writeForkHeartbeat("ready"), 5000);
 if (_forkHb.unref) _forkHb.unref();
+reclaimOrphanPanels();
 // Sweep que drena a fila-em-arquivo do Stop hook (pending/<sid>.jsonl) a cada 2s: sem ele o resumo 🔊
 // escrito no disco pelo hook ficaria sem tocar quando nenhum outro gatilho (hello/foco) dispara no turno.
 const _speakSweep = setInterval(() => { drainPendingSpeak(mySid()).catch(() => { }); }, 2000);
