@@ -18,6 +18,7 @@ import { createRolloutFlags } from "./src/adapters/review/rolloutFlags.mjs";
 import { auditSpans, formatSpanAudit } from "./src/adapters/activity/spanSchema.mjs";
 import { checkSetup, formatSetup, FIX_COMMAND } from "./src/adapters/health/setupCheck.mjs";
 import { pruneWorkerSessions, formatPrune } from "./src/adapters/agents/workerConfigPrune.mjs";
+import { readProvenance, formatProvenance } from "./src/adapters/health/buildProvenance.mjs";
 import { createToggleState } from "./src/toggle/state.mjs";
 import { createMemoryPort } from "./src/adapters/memory/memoryPort.mjs";
 import { createPlanPort } from "./src/adapters/plan/planPort.mjs";
@@ -680,7 +681,13 @@ export const tools = [
         const c = checkSetup();
         if (action !== "fix") {
           const extra = c.stale ? `\n  ${c.message}` : (c.reason === "worker-sdk-nao-encontrado" ? `\n  ${c.message}` : "\n  (a mesa vai spawnar workers no CLI atual)");
-          return ok(`${formatSetup(c)}${extra}\n  caminho do CLI dos workers: ${c.packageDir || "(não localizado)"}`);
+          // PROVENIÊNCIA: quem audita o runtime (mirror podado, sem .git e sem test/) não consegue distinguir
+          // "o commit não existe" de "não dá pra medir daqui" — e conclui o primeiro. O carimbo responde isso.
+          let prov = "";
+          try { prov = `\n  ${formatProvenance(readProvenance(HERE))}`; } catch (e) { prov = `\n  proveniência do build: falha ao ler (sinalizado): ${e?.message || e}`; }
+          let hyg = "";
+          try { hyg = `\n  ${formatPrune(pruneWorkerSessions())}`; } catch (e) { hyg = `\n  poda: falhou (sinalizado): ${e?.message || e}`; }
+          return ok(`${formatSetup(c)}${extra}\n  caminho do CLI dos workers: ${c.packageDir || "(não localizado)"}${prov}${hyg}`);
         }
         if (!c.stale) return ok(`nada a consertar — ${formatSetup(c)}`);
         // GUARDA: no Windows um .node EM USO não é sobrescrito. Se há worker vivo, o update falha pela metade.

@@ -13,6 +13,7 @@ import { existsSync as fsExists, readFileSync as fsRead, readdirSync as fsReaddi
 import { join, delimiter, dirname } from "node:path";
 import { homedir } from "node:os";
 import { isNewer } from "../session/askBridgeProtocol.mjs"; // REÚSO: comparador semver-ish já existente
+import { readVersion } from "./readVersion.mjs"; // REÚSO: mesmo leitor injetável usado por buildProvenance.mjs
 
 export const FIX_COMMAND = "npm i -g @github/copilot@latest";
 
@@ -34,11 +35,6 @@ export function resolveWorkerPackageDir({ env = process.env, exists = fsExists }
   }
   return null;
 }
-
-const readVersion = (pkgJsonPath, { exists = fsExists, read = fsRead } = {}) => {
-  try { return exists(pkgJsonPath) ? (JSON.parse(String(read(pkgJsonPath, "utf8"))).version || null) : null; }
-  catch { return null; }
-};
 
 // Versão do APP instalado (referência de "atual"): o maior diretório em %LOCALAPPDATA%\copilot\pkg\<plat>.
 export function resolveAppVersion({ env = process.env, exists = fsExists, readdir = fsReaddir, home = homedir() } = {}) {
