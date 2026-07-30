@@ -3,7 +3,7 @@
 // DRY-RUN por padrão (só lista candidatas). Nunca lança para o hook (o caller decide propagar).
 import { scanServers } from "./scan.mjs";
 import { getProcMap } from "./procmap.mjs";
-import { ancestorsOf, guardKill } from "./guards.mjs";
+import { ancestorsOf, guardKill, tokensPorSessao } from "./guards.mjs";
 import { readSnapshot, writeSnapshot, removeSnapshot, isIdle } from "./snapshot.mjs";
 import { acquireLock, releaseLock } from "./lock.mjs";
 import { resolveCopilotHome } from "./home.mjs";
@@ -33,6 +33,9 @@ export async function unloadIdle({
     const procMap = await procMapFn();
     const selfPid = process.pid;
     const selfAncestors = ancestorsOf(selfPid, procMap);
+    // Quais tokens são POR SESSÃO nesta foto (ex.: um MCP stdio que existe um por servidor). Calculado
+    // UMA vez para a varredura inteira — é uma propriedade da árvore, não de cada servidor.
+    const perSessionTokens = tokensPorSessao(procMap);
     // protege também a sessão que disparou a ação pelo painel (nunca mata quem clicou)
     if (callerPid) { for (const p of ancestorsOf(callerPid, procMap)) selfAncestors.add(p); selfAncestors.add(callerPid); }
 
@@ -49,7 +52,7 @@ export async function unloadIdle({
       candidates.push({ sessionId: s.sessionId, pid: s.pid });
       if (dryRun) { log({ action: "dry-run", sessionId: s.sessionId, pid: s.pid, reason: "candidata" }); rebase(s); continue; }
 
-      const g = guardKill(s, { selfPid, selfAncestors, procMap, pidAlive: alive });
+      const g = guardKill(s, { selfPid, selfAncestors, procMap, pidAlive: alive, perSessionTokens });
       if (!g.ok) {
         skipped.push({ sessionId: s.sessionId, pid: s.pid, reason: g.reason });
         log({ level: "WARN", action: "skipped", sessionId: s.sessionId, pid: s.pid, reason: g.reason });
