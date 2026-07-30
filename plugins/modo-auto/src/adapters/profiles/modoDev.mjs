@@ -12,7 +12,7 @@ import { extractDiffContext } from "../review/diffContext.mjs";
 import { abDecision, f4Threshold, shouldUseShallow, extractPaths } from "../review/rolloutGate.mjs";
 import { flagsFromEnv } from "../review/rolloutFlags.mjs";
 import { createCircuitBreaker } from "../review/circuitBreaker.mjs";
-import { setRunContext, clearRunContext } from "../agents/agentFactory.mjs";
+import { withRunContext } from "../agents/agentFactory.mjs";
 
 // FLAGS por FASE (rollout gradual, default OFF — liga uma, observa, liga a próxima). Vêm de caps.rolloutFlags
 // (estado PERSISTIDO, ligável por tool/painel); sem elas, cai no AMBIENTE (CI/testes). Motivo do estado: a
@@ -56,15 +56,21 @@ export function createModoDev({ log = () => {}, gates, maxRounds = 4, perReviewe
      * @param {{ taskType?: string, cwd?: string, maxRounds?: number, deep?: boolean }} [opts]  deep = painel multi-família no veredito
      */
     async develop(phase, caps = {}, { taskType = null, cwd = null, maxRounds: rounds = maxRounds, deep = false } = {}) {
+      // Toda a deliberação roda DENTRO do contexto de telemetria: os workers disparados aqui — inclusive os do
+      // painel PROFUNDO (`deepPanel`, que sozinho responde por ~1545 spans e não passava `taskType`) — herdam o
+      // tipo da tarefa sem que cada ponto de chamada precise lembrar de repassá-lo.
+      const gid0 = "dev-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+      return withRunContext({ taskType, stage: "dev", traceId: gid0, topic: String(phase || "").slice(0, 160) }, () =>
+        this.__develop(phase, caps, { taskType, cwd, maxRounds: rounds, deep, gid: gid0 }));
+    },
+    async __develop(phase, caps = {}, { taskType = null, cwd = null, maxRounds: rounds = maxRounds, deep = false, gid: gidIn = null } = {}) {
       const ph = String(phase || "").slice(0, 2000);
       if (!ph) throw new Error("modo-dev.develop: fase vazia");
       if (!caps.factory?.run) throw new Error("modo-dev.develop: caps.factory ausente");
       if (!caps.gate?.run) throw new Error("modo-dev.develop: caps.gate ausente");
       // DELIBERAÇÃO (thread do dev): amarra tester/dev/QA/tech-lead/revisor da fase num só grupo.
-      const gid = "dev-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
-    // CONTEXTO DE TELEMETRIA declarado UMA vez para toda a deliberação: sem isso o `taskType` chegava em 1,4%
-    // dos spans e invalidava qualquer comparação por variante (o A/B do F1 mede o quê, se não sabe o tipo?).
-    try { setRunContext({ taskType, stage: "dev", traceId: gid, topic: String(phase || "").slice(0, 160) }); } catch { /* telemetria nunca derruba o build */ }
+      const gid = gidIn || ("dev-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6));
+
       const topic = ph.slice(0, 160);
       // roda um papel; FAIL LOUD se falhar (não segue com texto vazio mascarando a falha do papel).
       // skills[] são INJETADAS no system do papel — o dev herda os mesmos anticorpos (fail-loud etc.).
@@ -202,8 +208,7 @@ export function createModoDev({ log = () => {}, gates, maxRounds = 4, perReviewe
         // histórico por rodada, que é o que permite ver se a remediação CONVERGE (achados caindo) ou patina.
         caps.recordVerdict?.({ gid, topic, taskType, pass: !!rem.pass, rounds: rem.rounds, mustFixCount: (rem.findings || []).length, findingsCount: (rem.findings || []).length, findingsByRound: (rem.history || []).map((h) => (h.findings || []).length), escalate: escalate || null, exhausted: !!rem.exhausted, budgetExhausted: !!rem.budgetExhausted, elapsedCycleMs: rem.elapsedCycleMs, f1Arm });
       } catch (e) { log(`[modo-dev] recordVerdict falhou (sinalizado, não derruba o build): ${e?.message || e}`); }
-      // O contexto vale só para ESTA deliberação — não pode vazar para a próxima e contaminar a telemetria dela.
-      try { clearRunContext(); } catch { /* nunca derruba o build */ }
+
       return {
         ok: true,
         pass: !!rem.pass,

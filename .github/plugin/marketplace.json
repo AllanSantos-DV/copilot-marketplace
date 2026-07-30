@@ -56,7 +56,7 @@
     {
       "name": "modo-auto",
       "description": "Modo autonomo por sessao para o Copilot: uma MESA de agentes responde os ask_user e revisa os Stop, entao o agente nao para antes do plano terminar. Planeja em fases (ADR), constroi por TDD com revisao adversarial, audita reuso e seguranca, e um modo-sombra contesta a direcao em segundo plano. Nucleo hexagonal; cada modo e um interruptor da sessao.",
-      "version": "0.2.90",
+      "version": "0.2.91",
       "source": "./plugins/modo-auto",
       "author": {
         "name": "Allan Santos"
@@ -205,7 +205,7 @@
     {
       "name": "mcp-bridge",
       "description": "Restaura o MCP no GitHub Copilot onde ele é bloqueado por política mas as extensões são permitidas: conecta a servidores MCP (stdio/http/sse, com login OAuth) e expõe tools, prompts e resources nativamente ao agente. Aponta para um MOTOR local (ex.: mcp-gateway) só pelo nome — sem URL nem token no config.",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "source": "./plugins/mcp-bridge",
       "author": {
         "name": "Allan Santos"

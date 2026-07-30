@@ -7,6 +7,7 @@
 // outro, documentador escreve com a DELIBERAÇÃO INTEIRA). Senão → fan-out/fan-in LEGADO (fallback).
 
 import { getRole } from "../agents/roles.mjs";
+import { withRunContext } from "../agents/agentFactory.mjs";
 import { selectSeed } from "../adr/templateRegistry.mjs";
 import { triage } from "../adr/complexityTriage.mjs";
 import { createOutlineBuilder } from "../adr/outlineBuilder.mjs";
@@ -47,6 +48,12 @@ export function createModoAdr({ log = () => {}, roles } = {}) {
   // MESA VIVA: monta os agentes vivos (papéis base + facilitador), roda o debate turno a turno, e o
   // documentador escreve o plano COM a deliberação inteira. Persiste o snapshot (sessionIds) p/ reabrir.
   async function buildPlanVivo(bf, existing, caps, { deep, taskType = null, path = "full", triageInfo = null }) {
+  // Mesma razão do modo_dev: a deliberação do ADR produzia ~258 spans SEM `taskType`, inutilizando qualquer
+  // comparação por tipo de tarefa. Com o contexto por cadeia assíncrona, todo papel disparado aqui herda.
+  return withRunContext({ taskType, stage: "adr" }, () => buildPlanVivoInner(bf, existing, caps, { deep, taskType, path, triageInfo }));
+}
+
+async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, path = "full", triageInfo = null }) {
     const cfg = PATH_CFG[path] || PATH_CFG.full;
     const agents = cfg.roles.map((id) => {
       const r = getRole(id);
