@@ -9,6 +9,7 @@
 // background é best-effort SINALIZADA (loga a falha, não derruba a sessão — é enriquecimento opcional).
 
 import { cleanShadowTranscript, renderShadow } from "./shadowTranscript.mjs";
+import { withRunContext } from "../agents/agentFactory.mjs";
 import { extractJson } from "../util/extractJson.mjs";
 
 function parseJson(t) { return extractJson(t); }
@@ -43,6 +44,15 @@ export function createModoSombra({ consolidator, log = () => {} } = {}) {
   }
 
   async function consolidateNow(caps, { tailTurns, deep, threshold, subject, vivo = false }) {
+  // A MAIOR fonte de spans do produto (~539 do sombra + 237 da consolidação) rodava SEM `taskType`, e era
+  // justamente ela que faltava depois do conserto da v0.2.91 — o achado do sombra sobre o meu próprio fix.
+  // `contestacao` é o tipo REAL desta deliberação (não é dev nem adr), e rotulá-la é o que permite comparar
+  // variantes do revisor SEM misturar a mesa com a contestação na mesma média.
+  return withRunContext({ taskType: "contestacao", stage: "sombra", topic: String(subject || "").slice(0, 160) },
+    () => consolidateNowInner(caps, { tailTurns, deep, threshold, subject, vivo }));
+}
+
+async function consolidateNowInner(caps, { tailTurns, deep, threshold, subject, vivo = false }) {
     const text = tailText(caps, tailTurns);
     if (!text) { log("[modo-sombra] sem transcript p/ consolidar"); return null; }
     const t0 = Date.now();
@@ -97,6 +107,12 @@ export function createModoSombra({ consolidator, log = () => {} } = {}) {
       const plan = String(sessionPlan || "").trim();
       if (!plan) throw new Error("modo-sombra.handoff: plano da sessão vazio");
       if (!caps.factory?.run) throw new Error("modo-sombra.handoff: caps.factory ausente");
+      // O handoff dispara papéis FORA do consolidateNow (veredito + pré-ADR), então precisa do seu próprio
+      // contexto — senão esses spans continuariam sem rótulo mesmo com a consolidação já rotulada.
+      return withRunContext({ taskType: "contestacao", stage: "sombra-handoff", topic: plan.slice(0, 160) },
+        () => this.__handoff(plan, caps, { tailTurns, deep, threshold }));
+    },
+    async __handoff(plan, caps = {}, { tailTurns = 8, deep = true, threshold = "high" } = {}) {
       await this.flush(); // não corre com uma consolidação de background em andamento
       // vivo:true — no handoff (FOCAL, o usuário espera o pré-ADR) a contestação roda como MESA VIVA
       // (questionador → advogado-diabo → âncora se veem turno a turno). O onTurn de background segue LEVE.
