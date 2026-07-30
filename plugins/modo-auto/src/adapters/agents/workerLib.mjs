@@ -103,6 +103,20 @@ export function sdkIndexUrl() {
   return resolveWorkerSdk().url;
 }
 
+// Erro de cota/auth com credencial AUSENTE aponta para o lugar errado: parece "acabou a cota da conta"
+// quando na verdade o worker autenticou como outra identidade (ou nenhuma). Medido: com o token do app
+// o worker responde normalmente; com a variável zerada no shell, o MESMO worker, no MESMO minuto e no
+// MESMO modelo, devolve "monthly quota exceeded". Aqui o erro passa a dizer isso em vez de deixar o
+// diagnóstico virar caça ao fantasma.
+export function authHint(errorType, { env = process.env } = {}) {
+  if (!/quota|auth|unauthor|forbidden|credential/i.test(String(errorType || ""))) return "";
+  if (env.GH_TOKEN) return "";
+  const pinned = env.MODO_AUTO_AUTH_PINNED === "0";
+  return ` — ATENÇÃO: este worker rodou SEM GH_TOKEN no ambiente${pinned ? " (e a extensão também não tinha um token para fixar)" : ""}. ` +
+    `Sem ele o CLI cai numa credencial diferente, possivelmente sem cota — o erro acima pode NÃO ser cota real da sua conta. ` +
+    `Se você zerou GH_TOKEN/GITHUB_TOKEN no shell (gesto correto para git/gh de conta pessoal), NÃO faça isso no mesmo shell que sobe worker.`;
+}
+
 // Extrai o TEXTO de uma resposta do SDK (content string | array de partes | {text}).
 export function textOf(res) {
   const c = res?.data?.content ?? res?.content;
@@ -156,7 +170,7 @@ export function runTurnWithHeartbeat(session, prompt, opts = {}) {
         const t = event?.type;
         if (t === "assistant.message") finalMsg = event;                 // resposta final (mesma forma do sendAndWait)
         else if (t === "session.idle") { if (sent) settle(resolve, finalMsg); } // turno concluiu
-        else if (t === "session.error") settle(reject, new Error(`session.error [${event?.data?.errorType || "?"}]: ${event?.data?.message || "erro na sessão"} (modelo ${model})`));
+        else if (t === "session.error") settle(reject, new Error(`session.error [${event?.data?.errorType || "?"}]: ${event?.data?.message || "erro na sessão"} (modelo ${model})${authHint(event?.data?.errorType)}`));
       });
     } catch (e) { return reject(new Error(`on(event) falhou: ${e?.message || e} (modelo ${model})`)); }
 

@@ -17,6 +17,7 @@ import { abReport, f2Report, f4Threshold, rolloutAlert } from "./src/adapters/re
 import { createRolloutFlags } from "./src/adapters/review/rolloutFlags.mjs";
 import { auditSpans, formatSpanAudit } from "./src/adapters/activity/spanSchema.mjs";
 import { checkSetup, formatSetup, FIX_COMMAND } from "./src/adapters/health/setupCheck.mjs";
+import { pruneWorkerSessions, formatPrune } from "./src/adapters/agents/workerConfigPrune.mjs";
 import { createToggleState } from "./src/toggle/state.mjs";
 import { createMemoryPort } from "./src/adapters/memory/memoryPort.mjs";
 import { createPlanPort } from "./src/adapters/plan/planPort.mjs";
@@ -277,6 +278,12 @@ export const hooks = {
       const setup = checkSetup();
       if (setup.message) parts.push(setup.message);
     } catch (e) { logHost("[setup] autodiagnóstico falhou (sinalizado): " + (e?.message || e)); }
+    // HIGIENE: sessão de worker é fire-and-die e nada as removia (medido: 6135 pastas órfãs). Poda por
+    // idade no início da sessão — barato, e lixo acumulado mascara estado. Nunca derruba o boot.
+    try {
+      const pr = pruneWorkerSessions();
+      if (pr.removed || !pr.ok) logHost("[prune] " + formatPrune(pr));
+    } catch (e) { logHost("[prune] poda de sessões de worker falhou (sinalizado): " + (e?.message || e)); }
     return parts.length ? { additionalContext: parts.join("\n\n") } : undefined;
   },
   onUserPromptSubmitted: async () => {

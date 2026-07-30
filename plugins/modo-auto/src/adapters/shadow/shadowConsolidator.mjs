@@ -76,7 +76,25 @@ function sanitizePlan(text) {
     .replace(/```/g, "'''")
     .split("\n").map((l) => `| ${l}`).join("\n");
 }
-function truncatePlan(text) { return text.length > 2048 ? `${text.slice(0, 512)}\n| [...]\n${text.slice(-1536)}` : text; }
+// ORÇAMENTO do plano dentro do prompt do sombra. Era 2048 chars (512 do topo + 1536 do fim) — starvation:
+// num plano VIVO de ~86 KB o sombra enxergava ~2%, e sempre o pedaço mais VELHO (o topo) mais o rabo. O
+// MIOLO — que é exatamente onde ficam os registros de entrega — era invisível, e o marcador "[...]" não
+// dizia que faltava nada. Efeito MEDIDO: o sombra acusava em loop "o plano para na v0.2.64" e "a entrega X
+// não existe", auditando um recorte como se fosse o todo. Duas correções: (1) orçamento realista com peso
+// na CAUDA (o estado recente é o que decide) e (2) marcador que DECLARA o tamanho do buraco e proíbe
+// concluir ausência a partir do recorte — truncar em silêncio é fail-silent com cara de contexto.
+export const PLAN_BUDGET_CHARS = 12000;
+
+export function truncatePlan(text, budget = PLAN_BUDGET_CHARS) {
+  const s = String(text ?? "");
+  if (s.length <= budget) return s;
+  const head = Math.floor(budget * 0.2);
+  const tail = budget - head;
+  const middle = s.slice(head, s.length - tail);
+  return `${s.slice(0, head)}\n| [RECORTE POR ORÇAMENTO: ${middle.length} caracteres (~${middle.split("\n").length} linhas) do MEIO ` +
+    `deste plano foram OMITIDOS. Você está vendo o INÍCIO e o FIM, não o todo. NÃO conclua que algo "não existe", "não foi feito" ` +
+    `ou "o plano para na versão X" a partir deste recorte — os registros de entrega ficam no meio omitido.]\n${s.slice(-tail)}`;
+}
 
 // GUARD DE LANE (fix da cegueira do sombra): o consolidador vê APENAS a conversa (o shadowTranscript
 // descarta resultados de tool — git/grep/teste/diff). Sem esse guard, o adversário anti-bajulação FABRICAVA
