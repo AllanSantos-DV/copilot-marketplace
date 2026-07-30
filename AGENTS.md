@@ -325,5 +325,36 @@ papel inline seguindo o `vitrine`). Detalhes na seção "Como delegar" do `publi
 - [ ] `node docs/build.mjs` rodado (index.html + `docs/p/<nome>/` + tabela do README atualizados).
 - [ ] `node docs/gate.mjs mark <nome>` rodado e `docs/.reviewed.json` incluído no commit (§6.2).
 - [ ] `node docs/gate.mjs check` diz "ok" (senão o push é bloqueado pelo gate).
+- [ ] Mexeu no `boot.mjs`? Editou a **fonte** (`plugins/canvas-sync/boot.mjs`) e rodou
+      `node tools/sync-boot.mjs --fix` — nunca uma cópia isolada (§10).
 - [ ] Nada editado à mão em `plugins/<nome>/` nem nos `.html` gerados (`index.html`, `p/<nome>/`).
 - [ ] Commit em Conventional Commits, uma linha, com o trailer.
+
+## 10. O bootstrap tem UMA fonte (`tools/sync-boot.mjs`)
+
+Cinco plugins carregam o **mesmo** `boot.mjs` — o bootstrap que garante o `canvas-sync` no
+`SessionStart`. A cópia é **requisito do runtime** (o dispatcher roda `boot.mjs` relativo à pasta
+do plugin) e resolve o ovo-e-galinha: quem instala só o `action-bridge`, sem o `canvas-sync`,
+precisa de alguém que baixe o espelhador.
+
+O problema nunca foi a cópia — foi a **divergência**: cinco lugares para corrigir, e uma correção
+que chega em quatro e esquece o quinto (medido em 2026-07-30).
+
+**Regra:**
+
+| | |
+|---|---|
+| **Fonte canônica** | `plugins/canvas-sync/boot.mjs` — o dono do bootstrap |
+| **Editar** | sempre a fonte, nunca uma cópia |
+| **Propagar** | `node tools/sync-boot.mjs --fix` |
+| **Verificar** | `node tools/sync-boot.mjs` (exit 1 se divergir) — **e o `docs/gate.mjs check` já roda isso**, então divergência bloqueia o push |
+
+**Bootstrap próprio ≠ divergência.** Três plugins têm o seu por decisão registrada — `mcp-bridge`
+(sem rede, requisito enterprise), `modo-auto` e `visual-explainer`. Estão na lista `PROPRIOS` de
+`tools/sync-boot.mjs`, com o motivo escrito; o verificador os ignora de propósito. Ao dar bootstrap
+próprio a um plugin, **registre lá** — senão o gate vai acusar divergência todo dia.
+
+A comparação é por **conteúdo normalizado** (CRLF/LF/BOM fora). Comparar bytes crus acusaria
+divergência onde só há o `.gitattributes` fazendo o trabalho dele — foi esse erro que, na primeira
+medição, escondeu a quinta cópia.
+

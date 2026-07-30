@@ -156,12 +156,32 @@ function cmdMark(arg) {
 }
 
 // ---------- mode: check (working tree) ----------
+/**
+ * Bootstrap divergente entre plugins. Cinco plugins carregam o MESMO `boot.mjs`; sem esta trava,
+ * uma correção chega em quatro e esquece o quinto — e ninguém percebe até quebrar na máquina de
+ * alguém. Fonte canônica e regras de exceção vivem em `tools/sync-boot.mjs`.
+ */
+function bootstrapFails() {
+  try {
+    execFileSync(process.execPath, [join(ROOT, "tools", "sync-boot.mjs")], { encoding: "utf8", stdio: "pipe" });
+    return [];
+  } catch (err) {
+    // exit != 0 → há divergência; a saída lista quais.
+    const out = `${err?.stdout ?? ""}`;
+    const linhas = out.split("\n").filter((l) => l.includes("DIVERGE"));
+    return linhas.length
+      ? linhas.map((l) => `bootstrap: ${l.trim()} — rode: node tools/sync-boot.mjs --fix`)
+      : []; // ferramenta ausente/erro de infra não trava a vitrine
+  }
+}
+
 function cmdCheck() {
   const names = manifestNames(readText(MANIFEST) ?? "");
   const marker = loadMarkerFrom(readText(MARKER));
   const fails = [];
   // Trava de tamanho de description (protege a vitrine inteira, não um plugin só).
   for (const f of descriptionOverflows(readText(MANIFEST))) fails.push(f);
+  for (const f of bootstrapFails()) fails.push(f);
   for (const name of names) {
     const pj = readText(join(PLUGINS, name, "plugin.json"));
     const cj = readText(join(CONTENT, `${name}.json`));
