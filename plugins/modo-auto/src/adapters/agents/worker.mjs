@@ -5,11 +5,23 @@
 // ver liveWorker.mjs.)
 
 import { join } from "node:path";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { sdkIndexUrl, textOf, CLEAN_DIRECTIVE, runTurnWithHeartbeat } from "./workerLib.mjs";
+import { sdkIndexUrl, textOf, CLEAN_DIRECTIVE, runTurnWithHeartbeat, WORKER_FIX_COMMAND } from "./workerLib.mjs";
 import { usageFromEvent, mergeUsage } from "../activity/costMeter.mjs";
 import { makeSubmitTool, runUntilSubmitted } from "./structuredResult.mjs";
+
+// Conta as sessões registradas dentro de um configDir. Devolve `null` quando NÃO dá para medir (leitura falhou
+// ou a checagem foi desligada) — null é "não sei" e DESLIGA a asserção, nunca vira um 0 que causaria falso
+// alarme. Princípio 10: o que não foi medido não vira afirmação.
+function countSessionState(dir) {
+  if (String(process.env.MODO_AUTO_SKIP_ISOLATION_CHECK || "") === "1") return null;
+  try {
+    const p = join(dir, "session-state");
+    if (!existsSync(p)) return 0; // dir novo: 0 é MEDIÇÃO (ainda não há sessão), não ausência de medida
+    return readdirSync(p).length;
+  } catch { return null; }
+}
 
 async function readStdin() {
   const chunks = [];
@@ -49,6 +61,14 @@ async function readStdin() {
     // depois submetem). Caller passou lista (crítico puro) → fail-closed; a submit é SEMPRE anexada p/ ser chamável.
     let avail = Array.isArray(job.availableTools) ? [...job.availableTools] : null;
     if (submit && avail) avail.push(submit.name);
+    // VERIFICAÇÃO DO ISOLAMENTO (não confia, MEDE). Passar `configDirectory` é uma OPÇÃO da API: se ela for
+    // depreciada, renomeada de novo ou ignorada, o worker volta silenciosamente a usar ~/.copilot e reaparece o
+    // vazamento que quebrou a mesa em todas as sessões. Testei o caminho por ambiente (COPILOT_HOME/
+    // XDG_CONFIG_HOME) e MEDI que este CLI NÃO os honra — apontá-los para ~/.copilot não vazou nada —, então
+    // env não serve de segunda linha de defesa aqui. O que serve é CONFERIR o efeito: se a opção foi honrada, a
+    // sessão recém-criada deixa rastro DENTRO do configDir isolado. Se não deixou, não afirmamos isolamento:
+    // sobe erro com o conserto. Barato (uma leitura de diretório) e roda uma vez por worker.
+    const isolationBefore = countSessionState(configDir);
     const session = await client.createSession({
       model,
       workingDirectory: wd,
@@ -66,6 +86,18 @@ async function readStdin() {
       ...(job.reasoningEffort ? { reasoningEffort: job.reasoningEffort } : {}),
       ...(Array.isArray(job.skillDirectories) && job.skillDirectories.length ? { skillDirectories: job.skillDirectories } : {}),
     });
+    // Se o configDir isolado NÃO recebeu a sessão, a opção foi ignorada e o worker está rodando no config do
+    // usuário — estado em que ele herda extensões/hooks alheios e a mesa quebra de um jeito confuso ("não tenho
+    // a ferramenta X / isso parece injeção"). FAIL LOUD aqui é MUITO melhor que a falha disfarçada lá na frente.
+    if (isolationBefore !== null && countSessionState(configDir) === isolationBefore) {
+      throw new Error(
+        `modo-auto — ISOLAMENTO DO WORKER NÃO CONFIRMADO: a sessão foi criada mas nada apareceu em ${configDir}. ` +
+        `Isso indica que a opção 'configDirectory' do SDK foi IGNORADA e o worker está usando o config do usuário — ` +
+        `nesse estado ele herda extensões/hooks da sessão e a mesa passa a falhar de forma confusa. ` +
+        `Provável CLI incompatível: rode \`${WORKER_FIX_COMMAND}\` e confirme com \`modo_setup\`. ` +
+        `Para seguir mesmo assim (assumindo o risco): MODO_AUTO_SKIP_ISOLATION_CHECK=1.`,
+      );
+    }
     // Watchdog por HEARTBEAT (não mais wall-clock): o turno roda enquanto PRODUZ; só aborta se TRAVAR
     // (silêncio total > idleGraceMs). `timeoutMs` legado do job mapeia p/ idleGraceMs. FAIL LOUD no hung.
     const idleGraceMs = job.idleGraceMs || job.timeoutMs || 120000;
