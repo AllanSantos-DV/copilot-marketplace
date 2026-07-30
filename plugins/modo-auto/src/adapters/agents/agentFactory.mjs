@@ -15,6 +15,11 @@ import { createUsageChannel } from "./usageChannel.mjs";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WORKER = join(HERE, "worker.mjs");
 
+// Credencial PINADA no carregamento do módulo — momento em que a extensão roda como filha do app e o
+// token injetado por ele está garantidamente presente. Fixar aqui (em memória, nunca em disco) é o que
+// torna os workers IMUNES a um shell que zerou GH_TOKEN depois. Ver o comentário no spawn.
+const PINNED_AUTH_TOKEN = String(process.env.GH_TOKEN || "").trim() || null;
+
 // Limpa o stderr do worker p/ o diagnóstico: descarta o RUÍDO do Node (ExperimentalWarning do node:sqlite
 // do CLI, dicas de --trace-warnings) que MASCARAVA o erro real (aparecia no lugar do "worker erro:"/timeout).
 // Prefere a linha "worker erro:" quando existe; senão devolve as linhas úteis. Recorta a 300 chars.
@@ -108,6 +113,14 @@ export function createAgentFactory({ cwdProvider = () => process.cwd(), model, g
       env.NODE_NO_WARNINGS = "1";   // silencia ExperimentalWarning do Node (ex.: node:sqlite do CLI) que poluía o stderr e MASCARAVA o erro real no diagnóstico. Propaga ao subprocesso do CLI (env herdado).
       env.MODO_AUTO_WORKER_CWD = cwd || cwdProvider();
       if (chosenModel) env.MODO_AUTO_WORKER_MODEL = chosenModel;
+      // CREDENCIAL PINADA (não herdada do shell do momento). O worker autentica pelo GH_TOKEN que o app
+      // injeta; um shell que zerou essa variável — gesto CORRETO e necessário para `git`/`gh` de conta
+      // pessoal — fazia o worker cair numa credencial sem cota e devolver "monthly quota exceeded", um erro
+      // que aponta para o lugar errado. Aqui o token é fixado no CARREGAMENTO da extensão (quando o app
+      // garantidamente o forneceu) e reinjetado no filho, então o worker deixa de depender de disciplina
+      // manual de env. Nada é persistido em disco: vive só em memória deste processo.
+      if (PINNED_AUTH_TOKEN && !env.GH_TOKEN) env.GH_TOKEN = PINNED_AUTH_TOKEN;
+      env.MODO_AUTO_AUTH_PINNED = env.GH_TOKEN ? "1" : "0"; // o worker usa isto para diagnosticar erro de cota/auth
 
       let out = "", err = "", done = false, lastBeat = Date.now(), capturedUsage = null;
       let killer = null, reaper = null;
