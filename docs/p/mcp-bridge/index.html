@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">mcp-bridge</h1>
-        <span class="chip" title="versão publicada">v0.2.5</span>
+        <span class="chip" title="versão publicada">v0.2.6</span>
       </div>
       <p class="doc-hero__lede">Onde o MCP é bloqueado por política mas extensões são permitidas, o <strong>mcp-bridge</strong> reabre a porta: conecta a servidores MCP (<code>stdio</code>, <code>http</code>, <code>sse</code> — com login OAuth) e entrega as tools, prompts e resources deles <strong>nativamente</strong> ao agente, com reconexão, auditoria e um painel de saúde. E um motor que já roda na sua máquina entra pelo campo <code>engine</code>, <strong>só pelo nome</strong>: endereço e credencial são resolvidos na hora da conexão, nunca guardados no config.</p>
       <div class="doc-hero__cta">
@@ -63,7 +63,7 @@
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Falha alto, nunca no escuro</h3>
-          <p class="hl__body">Motor parado ou ausente derruba <strong>aquele</strong> servidor com erro explícito. E entrada de config que a ponte não entende aparece como aviso na sessão — nunca some calada, levando as tools junto. Erro claro agora vale mais que erro silencioso depois.</p>
+          <p class="hl__body">Motor parado ou ausente derruba <strong>aquele</strong> servidor com erro explícito. Entrada de config que a ponte não entende, backend degradado, proteção do motor desligada: tudo aparece como aviso na sessão — nunca some calado, levando as tools junto. Erro claro agora vale mais que erro silencioso depois.</p>
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Tudo à vista</h3>
@@ -111,8 +111,8 @@
   &quot;enabled&quot;: true
 }</code></pre></div>
           <p>Na hora de conectar, a ponte lê <code>~/.mcp-gateway/runtime.json</code> para saber host, porta e caminho, e pega o bearer no cofre do motor (<code>~/.mcp-gateway/auth-token</code>, com ACL só do dono). Monta a conexão em memória e segue: <strong>o segredo nunca é persistido pela ponte</strong>, e a porta acompanha o motor se ele mudar.</p>
-          <ul class="doc-list"><li><strong><code>engine</code> vence <code>url</code>.</strong> Se os dois estiverem no mesmo servidor, quem decide é o motor vivo — uma URL velha esquecida no config não ganha dele.</li><li><strong>Motor parado ou ausente falha alto.</strong> Só aquele servidor cai, com o erro dizendo o arquivo que faltou (<code>~/.&lt;motor&gt;/runtime.json</code>) e as duas saídas: subir o motor ou voltar para uma <code>url</code> explícita. Os demais conectam normalmente.</li><li><strong>Sem fallback silencioso.</strong> Adivinhar uma porta, ou conectar sem o bearer, trocaria um erro claro agora por um erro obscuro no meio do trabalho.</li><li><strong>A ponte não instala motor.</strong> Ela só <strong>usa</strong> o que já está na máquina: instalar e atualizar continuam sendo ação explícita sua, e o bootstrap do plugin é <strong>offline</strong> — não baixa nem executa código remoto, requisito do ambiente onde esta ponte existe.</li></ul>
-          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Conferido nesta versão: <strong>8/8</strong> no harness do <code>engine</code> — motor ausente, precedência sobre <code>url</code>, motor sem token, <code>runtime.json</code> corrompido e <code>url</code> literal intacta — mais <strong>72/72</strong> no gate de qualidade e <strong>4/4</strong> na verificação de instalação ponta a ponta.</p></aside>
+          <ul class="doc-list"><li><strong><code>engine</code> vence <code>url</code>.</strong> Se os dois estiverem no mesmo servidor, quem decide é o motor vivo — uma URL velha esquecida no config não ganha dele.</li><li><strong>Motor parado ou ausente falha alto.</strong> Só aquele servidor cai, com o erro dizendo o arquivo que faltou (<code>~/.&lt;motor&gt;/runtime.json</code>) e as duas saídas: subir o motor ou voltar para uma <code>url</code> explícita. Os demais conectam normalmente.</li><li><strong>Motor reiniciado não te derruba.</strong> Atualizar o motor reinicia o daemon dele e mata a sessão MCP aberta. Quando a próxima chamada esbarra numa sessão que o servidor não tem mais, a ponte reconecta e refaz a chamada — sem erro na sua frente, sem reiniciar o app. Só nesse caso: erro de verdade continua falhando.</li><li><strong>Sem fallback silencioso.</strong> Adivinhar uma porta, ou conectar sem o bearer, trocaria um erro claro agora por um erro obscuro no meio do trabalho.</li><li><strong>A ponte não instala motor.</strong> Ela só <strong>usa</strong> o que já está na máquina: instalar e atualizar continuam sendo ação explícita sua, e o bootstrap do plugin é <strong>offline</strong> — não baixa nem executa código remoto, requisito do ambiente onde esta ponte existe.</li></ul>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>O caminho do <code>engine</code> não é conferido no olho: tem harness próprio — motor ausente, precedência sobre <code>url</code>, motor sem token, <code>runtime.json</code> corrompido e <code>url</code> literal intacta —, mais o gate de qualidade do plugin e uma verificação de instalação ponta a ponta.</p></aside>
         </section>
 
         <section class="doc-section" id="servidores">
@@ -120,7 +120,7 @@
           <p>Um <code>config.json</code>, um objeto por servidor. Os transportes:</p>
           <ul class="doc-list"><li><strong><code>stdio</code></strong> — processos MCP locais, com <code>command</code>, <code>args</code>, <code>env</code> e <code>cwd</code>.</li><li><strong><code>http</code></strong> e <strong><code>sse</code></strong> — servidores remotos, por <code>url</code> explícita ou pelo nome do motor em <code>engine</code>.</li><li><strong>OAuth 2.1</strong> — para quem exige login: fluxo com PKCE e registro dinâmico de cliente. <code>mcpbridge_login</code> abre o navegador; <code>mcpbridge_logout</code> apaga os tokens salvos.</li></ul>
           <p>E os ajustes que impedem um servidor ruim de estragar a sessão:</p>
-          <ul class="doc-list"><li><strong>Perfis</strong> — conjuntos nomeados de servidores (<code>dev</code>, <code>prod</code>); <code>mcpbridge_use_profile</code> troca o ativo e persiste a escolha.</li><li><strong>Resiliência</strong> — retry com backoff e <strong>circuit breaker</strong> por servidor: quem está caindo é isolado em vez de arrastar todo mundo.</li><li><strong>Limite de resposta</strong> — resposta gigante é truncada ou paginada, com aviso, para não estourar o contexto do agente.</li><li><strong>Timeouts</strong> — um para abrir a conexão, outro por chamada de tool.</li><li><strong>Auditoria</strong> — cada chamada vira uma linha em <code>~/.copilot/mcp-bridge/audit.jsonl</code>, com opção de ocultar os argumentos.</li></ul>
+          <ul class="doc-list"><li><strong>Perfis</strong> — conjuntos nomeados de servidores (<code>dev</code>, <code>prod</code>); <code>mcpbridge_use_profile</code> troca o ativo e persiste a escolha.</li><li><strong>Resiliência</strong> — retry com backoff e <strong>circuit breaker</strong> por servidor: quem está caindo é isolado em vez de arrastar todo mundo. Sessão derrubada do outro lado é caso à parte — reconecta na hora, sem gastar tentativa nem abrir o circuito.</li><li><strong>Limite de resposta</strong> — resposta gigante é truncada ou paginada, com aviso, para não estourar o contexto do agente.</li><li><strong>Timeouts</strong> — um para abrir a conexão, outro por chamada de tool.</li><li><strong>Auditoria</strong> — cada chamada vira uma linha em <code>~/.copilot/mcp-bridge/audit.jsonl</code>, com opção de ocultar os argumentos.</li></ul>
         </section>
 
         <section class="doc-section" id="painel">
@@ -128,7 +128,8 @@
           <p>A ponte registra o painel <strong>MCP Bridge — Dashboard</strong> no app: a foto do que está de pé — servidor, transporte, status, quantas tools, prompts e resources cada um trouxe, latência média, erros e as últimas chamadas auditadas. E a foto não congela no boot: quando um servidor avisa que mexeu nas próprias tools (<code>notifications/tools/list_changed</code>), a ponte relê o catálogo dele e atualiza o que mostra.</p>
           <p>As mesmas respostas vêm por tools, sem sair do chat:</p>
           <ul class="doc-list"><li><code>mcpbridge_list_servers</code> — o diagnóstico da ponte: status, erro da última tentativa e o que cada servidor expôs.</li><li><code>mcpbridge_audit</code> — as últimas chamadas (servidor/tool, status, duração), com filtro por servidor ou tool.</li><li><code>mcpbridge_profiles</code> e <code>mcpbridge_use_profile</code> — vê e troca o perfil ativo.</li><li><code>mcpbridge_login</code> e <code>mcpbridge_logout</code> — entra e sai dos servidores com OAuth.</li><li><code>mcpbridge_list_resources</code> e <code>mcpbridge_read_resource</code> — lista e lê os resources dos servidores conectados.</li></ul>
-          <p>No início de cada sessão a ponte anuncia quantos servidores conectaram e quantas capacidades entraram. Se algum falhou, o aviso nomeia o servidor e o motivo — em vez de sumir com ele da lista.</p>
+          <p>No início de cada sessão a ponte anuncia quantos servidores conectaram e quantas capacidades entraram. Se algum falhou, o aviso nomeia o servidor e o motivo — em vez de sumir com ele da lista. Quando o servidor vem de um motor, ela ainda pergunta a saúde dele e repassa o que ouvir: backend degradado e o que o motor reclama da <strong>própria</strong> configuração, como uma proteção declarada mas desligada.</p>
+          <p>Proteção desligada não dá sintoma — é por isso que ela chega até você na sessão, e não numa linha de log de inicialização que ninguém lê.</p>
           <aside class="note note--warn"><span class="note__mark" aria-hidden="true">!</span><p>A lista de tools que o <strong>agente</strong> enxerga é montada uma vez, na abertura da sessão. Uma tool que nasceu depois disso aparece na hora para você — no painel e no <code>mcpbridge_list_servers</code> —, mas só chega ao agente no próximo <code>/clear</code> ou reinício da sessão.</p></aside>
         </section>
 
@@ -174,7 +175,7 @@
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
               <span class="tree__role">A ponte: conecta os servidores do config, resolve o motor pelo nome, expõe tools/prompts/resources ao agente e abre o painel.</span>
-              <span class="tree__size">765 KB</span>
+              <span class="tree__size">766 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
@@ -209,6 +210,10 @@
             <p>Aquele servidor falha com erro explícito, dizendo o arquivo que faltou (<code>~/.&lt;motor&gt;/runtime.json</code>) e as duas saídas: subir o motor ou trocar para uma <code>url</code> explícita. Os outros servidores conectam normalmente — a ponte não adivinha porta nem tenta conectar sem credencial.</p>
           </details>
           <details class="faq">
+            <summary>Atualizei o motor. Preciso reiniciar o app?</summary>
+            <p>Não. Atualizar o motor reinicia o daemon e derruba a sessão MCP aberta; na chamada seguinte a ponte percebe que a sessão não existe mais, reconecta e refaz a chamada — sem erro na sua frente e sem circuito aberto. Isso vale <strong>só</strong> para esse caso: um erro de verdade continua falhando, à vista.</p>
+          </details>
+          <details class="faq">
             <summary>Posso continuar usando <code>url</code> e <code>headers</code>?</summary>
             <p>Pode. Uma <code>url</code> explícita continua valendo exatamente como você escreveu; o campo <code>engine</code> só entra quando você o declara. Se os dois aparecerem no mesmo servidor, o motor vivo vence — para que um endereço velho no config não sequestre a conexão.</p>
           </details>
@@ -238,7 +243,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.2.5</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.2.6</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
