@@ -18,10 +18,23 @@
 // Tools de canvas do host cuja falha nos interessa.
 const CANVAS_TOOLS = new Set(['open_canvas', 'invoke_canvas_action', 'list_canvas_capabilities']);
 
-// Assinatura do erro do host de canvas (CanvasRuntimeError) para os casos "ainda não pronto".
-// Cobre: "No canvas \"voice-chat\" is registered." / "instance ... is not open. No canvases are
-// currently open" — todos transitórios durante o relaunch do host de extensão.
-const NOT_READY_RE = /(canvasruntimeerror|is not open|no canvases? are currently open|no canvas[\s\S]*is registered|not registered)/i;
+// Assinatura do erro do host de canvas para os casos "ainda não pronto".
+// Cobre duas famílias, ambas transitórias durante o relaunch do host de extensão:
+//
+//  (1) CANVAS NÃO REGISTRADO — "No canvas \"voice-chat\" is registered." / "instance ... is not
+//      open. No canvases are currently open". O fork novo ainda não registrou o canvas.
+//
+//  (2) PIPE MORTO — "O pipe está sendo fechado. (os error 232)". Erro 232 é ERROR_NO_DATA no
+//      Windows: o pedido foi para o pipe do fork ANTERIOR, que já morreu. Acontece ao RETOMAR
+//      uma sessão que foi descarregada (o session-unloader mata o processo da sessão ociosa; ao
+//      voltar, o host retoma e re-forka as extensões, mas o pedido ainda vai para a conexão
+//      velha). O sintoma é diferente, a causa é a mesma — fork trocando — e o remédio é o mesmo.
+//      Sem esta família, o agente não recebia instrução nenhuma e o erro ficava na tela.
+//
+// `os error 232` e `EPIPE` são os sinais robustos: independem do idioma do Windows. O texto
+// ("pipe está sendo fechado" / "pipe is being closed") varia com o locale, então casá-lo sozinho
+// deixaria passar a mesma falha em outra máquina.
+const NOT_READY_RE = /(canvasruntimeerror|is not open|no canvases? are currently open|no canvas[\s\S]*is registered|not registered|os error 232|\bEPIPE\b|pipe (?:está sendo fechado|is being closed))/i;
 
 // Duas CAUSAS do "not registered", com remédios diferentes:
 //  (A) TRANSITÓRIO: host relançando ao TROCAR de sessão (~1-2s) -> repetir open_canvas cura sozinho.
@@ -30,11 +43,13 @@ const NOT_READY_RE = /(canvasruntimeerror|is not open|no canvases? are currently
 //      É o caso do usuário: "atualizei a voz sem fechar o app e o painel não reabre — precisa reload".
 // A distinção vem do update-state.json (pendingVersion) — ver detectPendingRestart().
 const RECOVERY_TRANSIENT =
-  'O host de extensão está RELANÇANDO a voz (janela de ~1-2s, típica ao TROCAR de sessão): por isso o ' +
-  'canvas "voice-chat" aparece como não registrado / instância não aberta. É TRANSITÓRIO — não é erro seu, ' +
-  'nem falha de instalação, e NÃO precisa trocar de abordagem nem desistir. Aguarde ~1.5s e CHAME open_canvas ' +
-  'de novo (canvasId "voice-chat"). Se falhar de novo, rode extensions_reload UMA vez (re-registra o canvas a ' +
-  'partir do disco) e chame open_canvas mais uma vez.';
+  'O host de extensão está RELANÇANDO a voz (janela de ~1-2s, típica ao TROCAR de sessão ou ao RETOMAR ' +
+  'uma sessão que ficou ociosa e foi descarregada): por isso o canvas "voice-chat" falha — como não ' +
+  'registrado, instância não aberta, ou com o pipe já fechado (os error 232), que é o pedido indo para o ' +
+  'fork anterior. É TRANSITÓRIO — não é erro seu, nem falha de instalação, e NÃO precisa trocar de ' +
+  'abordagem nem desistir. Aguarde ~1.5s e CHAME open_canvas de novo (canvasId "voice-chat"). Se falhar ' +
+  'de novo, rode extensions_reload UMA vez (re-registra o canvas a partir do disco) e chame open_canvas ' +
+  'mais uma vez.';
 const RECOVERY_UPDATE =
   'Um UPDATE da extensão de voz foi baixado e mudou a LÓGICA (restart pendente): o fork antigo largou o canvas ' +
   '"voice-chat" e ele NÃO volta só repetindo open_canvas. AÇÃO AGORA: rode extensions_reload (reimporta a ' +
@@ -113,3 +128,4 @@ if (require.main === module) {
 }
 
 module.exports = { decideCanvasRecovery, detectPendingRestart, extractToolName, extractBlob, RECOVERY, RECOVERY_TRANSIENT, RECOVERY_UPDATE, NOT_READY_RE };
+
