@@ -1,6 +1,6 @@
 import { createRequire as __createRequire } from "node:module";
 const require = globalThis.require ?? __createRequire(import.meta.url);
-// mcp-bridge v0.2.1 — Copilot CLI extension (MCP SDK embutido; @github/copilot-sdk external). Gerado por esbuild — não editar à mão.
+// mcp-bridge v0.2.2 — Copilot CLI extension (MCP SDK embutido; @github/copilot-sdk external). Gerado por esbuild — não editar à mão.
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
