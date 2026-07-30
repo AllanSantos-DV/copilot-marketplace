@@ -3,8 +3,17 @@
 
 import { pathToFileURL } from "node:url";
 import { join, delimiter } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir, platform, arch } from "node:os";
+
+// Comando único de conserto do setup dos workers (mesma string do setupCheck; duplicada aqui de
+// propósito: o worker roda em node LIMPO e não deve arrastar a árvore de imports da extensão).
+export const WORKER_FIX_COMMAND = "npm i -g @github/copilot@latest";
+
+// Recusa EXPLÍCITA de setup — some com a morte opaca ("Cannot find package '@github/copilot-sdk'").
+export class WorkerSetupError extends Error {
+  constructor(message, detail = {}) { super(message); this.name = "WorkerSetupError"; this.detail = detail; }
+}
 
 // LAYOUTS do SDK dentro do pacote @github/copilot, em ordem de preferência. O layout mudou: até ~1.0.5 o SDK
 // vinha em `<pkg>/copilot-sdk/index.js`; das versões novas (medido na 1.0.75) ele migrou para um pacote POR
@@ -18,30 +27,80 @@ function sdkCandidatesIn(pkgDir) {
   ];
 }
 
-// Resolve o index.js do Copilot SDK a partir do `copilot` no PATH (o worker é node LIMPO). Ordem: override
-// explícito → pacote global no PATH (novo/antigo layout) → SDK do APP instalado (fallback) → bare specifier.
-export function sdkIndexUrl() {
-  const env = String(process.env.MODO_AUTO_SDK_PATH || "").trim();
-  if (env && existsSync(env)) return pathToFileURL(env).href;
-  for (const dir of String(process.env.PATH || "").split(delimiter)) {
+// PISO DO WORKER — por CAPACIDADE MEDIDA, não por número de versão chutado.
+// Consultei o registro do npm: o pacote por plataforma aparece como dependência desde 0.0.370-2, ou seja,
+// a metadata NÃO delimita o corte. Então o piso não é um semver inventado: é a presença real do layout NOVO
+// no pacote instalado. Por que isso é o piso certo: o CLI pré-migração (medido: 1.0.5) IGNORA a opção
+// `configDirectory` do createSession — o worker cai em ~/.copilot, herda as extensões do usuário e passa a
+// meta-comentar sobre elas. Foi esse vazamento que quebrou a mesa em TODAS as sessões. Rodar assim não é
+// "degradação graciosa", é contaminação silenciosa: por isso RECUSAMOS antes de operar.
+// Escape consciente: MODO_AUTO_ALLOW_LEGACY_SDK=1 (assume o risco explicitamente).
+function readCliVersion(pkgDir) {
+  try { return JSON.parse(String(readFileSync(join(pkgDir, "package.json"), "utf8"))).version || null; }
+  catch { return null; }
+}
+
+/**
+ * Resolve o SDK do worker com diagnóstico. Ordem: override explícito → pacote global no PATH (layout NOVO)
+ * → SDK do APP instalado → recusa. O layout ANTIGO é registrado mas NÃO é aceito por padrão.
+ * @returns {{ url:string, source:string, pkgDir:string|null, cliVersion:string|null }}
+ * @throws {WorkerSetupError} quando não há SDK utilizável — com versão medida, caminhos tentados e conserto.
+ */
+export function resolveWorkerSdk({ env = process.env, home = homedir() } = {}) {
+  const override = String(env.MODO_AUTO_SDK_PATH || "").trim();
+  if (override && existsSync(override)) return { url: pathToFileURL(override).href, source: "override", pkgDir: null, cliVersion: null };
+
+  const tried = [];
+  let legacy = null; // CLI pré-migração encontrado: guardado para a MENSAGEM, não para uso.
+  for (const dir of String(env.PATH || "").split(delimiter)) {
     if (!dir || !dir.trim()) continue;
     for (const marker of ["copilot.ps1", "copilot.cmd", "copilot"]) {
       try {
-        if (existsSync(join(dir, marker))) {
-          const pkgDir = join(dir, "node_modules", "@github", "copilot");
-          for (const sdk of sdkCandidatesIn(pkgDir)) if (existsSync(sdk)) return pathToFileURL(sdk).href;
-        }
+        if (!existsSync(join(dir, marker))) continue;
+        const pkgDir = join(dir, "node_modules", "@github", "copilot");
+        const [modern, ancient] = sdkCandidatesIn(pkgDir);
+        tried.push(modern, ancient);
+        if (existsSync(modern)) return { url: pathToFileURL(modern).href, source: "npm-global", pkgDir, cliVersion: readCliVersion(pkgDir) };
+        if (existsSync(ancient) && !legacy) legacy = { pkgDir, cliVersion: readCliVersion(pkgDir), path: ancient };
       } catch { /* segue */ }
     }
   }
-  // FALLBACK: o SDK que acompanha o APP instalado. Não é o caminho preferido (o worker roda em node limpo), mas
-  // é MUITO melhor que falhar — e cobre o caso de o npm global estar num layout desconhecido.
-  for (const p of [process.env.COPILOT_SDK_PATH, join(homedir(), "AppData", "Local", "Programs", "GitHub Copilot", "copilot-sdk")]) {
+
+  // FALLBACK: o SDK que acompanha o APP instalado (auto-atualizado). Preferido a qualquer CLI pré-migração.
+  for (const p of [env.COPILOT_SDK_PATH, join(home, "AppData", "Local", "Programs", "GitHub Copilot", "copilot-sdk")]) {
     if (!p) continue;
     const idx = /index\.js$/i.test(p) ? p : join(String(p).replace(/^\\\\\?\\/, ""), "index.js");
-    try { if (existsSync(idx)) return pathToFileURL(idx).href; } catch { /* segue */ }
+    tried.push(idx);
+    try { if (existsSync(idx)) return { url: pathToFileURL(idx).href, source: "app", pkgDir: null, cliVersion: null }; } catch { /* segue */ }
   }
-  return "@github/copilot-sdk";
+
+  if (legacy) {
+    if (String(env.MODO_AUTO_ALLOW_LEGACY_SDK || "") === "1") {
+      return { url: pathToFileURL(legacy.path).href, source: "npm-global-legacy", pkgDir: legacy.pkgDir, cliVersion: legacy.cliVersion };
+    }
+    throw new WorkerSetupError(
+      `modo-auto — SETUP ABAIXO DO PISO: o CLI que os workers usam (${legacy.pkgDir}${legacy.cliVersion ? `, v${legacy.cliVersion}` : ""}) é PRÉ-MIGRAÇÃO do SDK ` +
+      `(só tem o layout antigo copilot-sdk/index.js). Esse CLI IGNORA a opção \`configDirectory\`, então o worker cairia em ~/.copilot, herdaria as ` +
+      `extensões da sua sessão e passaria a meta-comentar sobre elas — foi esse vazamento que já quebrou a mesa em todas as sessões. ` +
+      `RECUSANDO antes de operar. CONSERTO: encerre as mesas e rode \`${WORKER_FIX_COMMAND}\`, depois confirme com \`modo_setup\`. ` +
+      `Para assumir o risco conscientemente: MODO_AUTO_ALLOW_LEGACY_SDK=1.`,
+      { reason: "sdk-pre-migracao", cliVersion: legacy.cliVersion, pkgDir: legacy.pkgDir, fix: WORKER_FIX_COMMAND },
+    );
+  }
+
+  throw new WorkerSetupError(
+    `modo-auto — SDK DO WORKER NÃO ENCONTRADO: nenhum \`copilot\` no PATH expôs o SDK e o SDK do app também não foi localizado. ` +
+    `Sem isso o worker morreria com "Cannot find package '@github/copilot-sdk'", que não diz nada. Caminhos tentados: ` +
+    `${tried.slice(0, 6).join(" | ") || "(PATH vazio)"}${tried.length > 6 ? ` … (+${tried.length - 6})` : ""}. ` +
+    `CONSERTO: \`${WORKER_FIX_COMMAND}\` (ou aponte MODO_AUTO_SDK_PATH para o index.js do SDK).`,
+    { reason: "sdk-nao-encontrado", tried, fix: WORKER_FIX_COMMAND },
+  );
+}
+
+// Compat: os workers importam esta função. Agora ela FALHA ALTO em vez de devolver um bare specifier
+// que morre com um erro de módulo sem contexto.
+export function sdkIndexUrl() {
+  return resolveWorkerSdk().url;
 }
 
 // Extrai o TEXTO de uma resposta do SDK (content string | array de partes | {text}).
