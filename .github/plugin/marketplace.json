@@ -56,7 +56,7 @@
     {
       "name": "modo-auto",
       "description": "Modo autonomo por sessao para o Copilot: uma MESA de agentes responde os ask_user e revisa os Stop, entao o agente nao para antes do plano terminar. Planeja em fases (ADR), constroi por TDD com revisao adversarial, audita reuso e seguranca, e um modo-sombra contesta a direcao em segundo plano. Nucleo hexagonal; cada modo e um interruptor da sessao.",
-      "version": "0.2.92",
+      "version": "0.2.93",
       "source": "./plugins/modo-auto",
       "author": {
         "name": "Allan Santos"

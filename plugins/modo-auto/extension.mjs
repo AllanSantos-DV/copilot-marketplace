@@ -217,7 +217,14 @@ const sombraCaps = () => ({ factory, plan, memory, scope, deep, embedder, liveMe
   verifier: getVerifier(),      // Fase 4-5: verifica alegações binárias com tools read-only antes de emitir
   findings: getFindings(),      // Fase 3-6: hash + dedup + máquina de estados (mata a re-emissão)
   sessionId: () => hostSession?.sessionId || process.env.SESSION_ID || ("proc-" + process.pid),
-  recordConsolidation: (rec) => telemetry.persist({ stage: "sombra-consolidation", status: "done", startedAt: Date.now(), ...rec }),
+  // Este span NÃO passa pelo activityRegistry (não é chamada de LLM), então nada carimbava `id` nem
+  // `spanVersion`: os 238 registros existentes eram inanalisáveis por identidade (não dá para juntar com
+  // outras fontes nem deduplicar). Carimbamos aqui os mesmos campos que o registry garante nos demais.
+  recordConsolidation: (rec) => telemetry.persist({
+    id: "cons-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8),
+    spanVersion: 3,
+    stage: "sombra-consolidation", status: "done", startedAt: Date.now(), ...rec,
+  }),
   get router() { return modelRouter; } });
 
 // Painel canvas ENXUTO: reflete o estado ao vivo dos 3 interruptores e delega o flip ao MESMO caminho

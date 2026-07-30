@@ -150,6 +150,9 @@ export async function bootstrap({
 const RUNTIME_KEEP = new Set([
   "extension.mjs", "boot.mjs", "plugin.json", "hooks.json", "package.json", "LICENSE",
   "src", "embed-house", "agents", ".canvas-sync.json", ".canvas-sync-ignore",
+  // Alvo do `npm test` do pacote publicado: sem ele a poda apagaria o script e o `npm test` do runtime voltaria
+  // a falhar com "Cannot find module" — o mesmo erro opaco que ele existe para eliminar.
+  "scripts",
   ".build-provenance.json", // PROVA de qual commit/tag/branch/remote originou o build (buildProvenance.mjs) — sem
                              // isso o modo-sombra audita o mirror podado e não tem como distinguir "não existe" de
                              // "não foi possível medir aqui" (falso negativo). Artefato de DADOS, não de dev.
