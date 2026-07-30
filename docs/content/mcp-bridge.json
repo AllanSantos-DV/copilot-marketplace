@@ -4,7 +4,7 @@
   "highlights": [
     { "title": "MCP onde a política bloqueia", "body": "Reconecta o agente a servidores MCP pelo canal de extensões — o que a política permite — e expõe **tools, prompts e resources** como capacidades nativas." },
     { "title": "O config guarda nome, não segredo", "body": "`engine: mcp-gateway` no lugar de `url` + `headers`. A ponte lê o `runtime.json` e o cofre do motor **na hora de conectar** — o token nunca é escrito por ela." },
-    { "title": "Falha alto, nunca no escuro", "body": "Motor parado ou ausente derruba **aquele** servidor com erro explícito. E entrada de config que a ponte não entende aparece como aviso na sessão — nunca some calada, levando as tools junto. Erro claro agora vale mais que erro silencioso depois." },
+    { "title": "Falha alto, nunca no escuro", "body": "Motor parado ou ausente derruba **aquele** servidor com erro explícito. Entrada de config que a ponte não entende, backend degradado, proteção do motor desligada: tudo aparece como aviso na sessão — nunca some calado, levando as tools junto. Erro claro agora vale mais que erro silencioso depois." },
     { "title": "Tudo à vista", "body": "Painel de saúde no app, auditoria linha a linha de cada chamada, perfis de servidores, retry com circuit breaker e limite de resposta." }
   ],
   "sections": [
@@ -58,11 +58,12 @@
           "items": [
             "**`engine` vence `url`.** Se os dois estiverem no mesmo servidor, quem decide é o motor vivo — uma URL velha esquecida no config não ganha dele.",
             "**Motor parado ou ausente falha alto.** Só aquele servidor cai, com o erro dizendo o arquivo que faltou (`~/.<motor>/runtime.json`) e as duas saídas: subir o motor ou voltar para uma `url` explícita. Os demais conectam normalmente.",
+            "**Motor reiniciado não te derruba.** Atualizar o motor reinicia o daemon dele e mata a sessão MCP aberta. Quando a próxima chamada esbarra numa sessão que o servidor não tem mais, a ponte reconecta e refaz a chamada — sem erro na sua frente, sem reiniciar o app. Só nesse caso: erro de verdade continua falhando.",
             "**Sem fallback silencioso.** Adivinhar uma porta, ou conectar sem o bearer, trocaria um erro claro agora por um erro obscuro no meio do trabalho.",
             "**A ponte não instala motor.** Ela só **usa** o que já está na máquina: instalar e atualizar continuam sendo ação explícita sua, e o bootstrap do plugin é **offline** — não baixa nem executa código remoto, requisito do ambiente onde esta ponte existe."
           ]
         },
-        { "type": "note", "tone": "info", "text": "Conferido nesta versão: **8/8** no harness do `engine` — motor ausente, precedência sobre `url`, motor sem token, `runtime.json` corrompido e `url` literal intacta — mais **72/72** no gate de qualidade e **4/4** na verificação de instalação ponta a ponta." }
+        { "type": "note", "tone": "info", "text": "O caminho do `engine` não é conferido no olho: tem harness próprio — motor ausente, precedência sobre `url`, motor sem token, `runtime.json` corrompido e `url` literal intacta —, mais o gate de qualidade do plugin e uma verificação de instalação ponta a ponta." }
       ]
     },
     {
@@ -83,7 +84,7 @@
           "type": "list",
           "items": [
             "**Perfis** — conjuntos nomeados de servidores (`dev`, `prod`); `mcpbridge_use_profile` troca o ativo e persiste a escolha.",
-            "**Resiliência** — retry com backoff e **circuit breaker** por servidor: quem está caindo é isolado em vez de arrastar todo mundo.",
+            "**Resiliência** — retry com backoff e **circuit breaker** por servidor: quem está caindo é isolado em vez de arrastar todo mundo. Sessão derrubada do outro lado é caso à parte — reconecta na hora, sem gastar tentativa nem abrir o circuito.",
             "**Limite de resposta** — resposta gigante é truncada ou paginada, com aviso, para não estourar o contexto do agente.",
             "**Timeouts** — um para abrir a conexão, outro por chamada de tool.",
             "**Auditoria** — cada chamada vira uma linha em `~/.copilot/mcp-bridge/audit.jsonl`, com opção de ocultar os argumentos."
@@ -107,7 +108,8 @@
             "`mcpbridge_list_resources` e `mcpbridge_read_resource` — lista e lê os resources dos servidores conectados."
           ]
         },
-        { "type": "p", "text": "No início de cada sessão a ponte anuncia quantos servidores conectaram e quantas capacidades entraram. Se algum falhou, o aviso nomeia o servidor e o motivo — em vez de sumir com ele da lista." },
+        { "type": "p", "text": "No início de cada sessão a ponte anuncia quantos servidores conectaram e quantas capacidades entraram. Se algum falhou, o aviso nomeia o servidor e o motivo — em vez de sumir com ele da lista. Quando o servidor vem de um motor, ela ainda pergunta a saúde dele e repassa o que ouvir: backend degradado e o que o motor reclama da **própria** configuração, como uma proteção declarada mas desligada." },
+        { "type": "p", "text": "Proteção desligada não dá sintoma — é por isso que ela chega até você na sessão, e não numa linha de log de inicialização que ninguém lê." },
         { "type": "note", "tone": "warn", "text": "A lista de tools que o **agente** enxerga é montada uma vez, na abertura da sessão. Uma tool que nasceu depois disso aparece na hora para você — no painel e no `mcpbridge_list_servers` —, mas só chega ao agente no próximo `/clear` ou reinício da sessão." }
       ]
     }
@@ -123,6 +125,7 @@
     { "q": "O que é um “motor” aqui?", "a": "Um daemon local que anuncia onde está num `runtime.json` dentro do seu HOME (`~/.<motor>/`) — o mesmo padrão do `vox-engine` e da `embed-house` desta vitrine. Para a ponte, o motor da vez é o `mcp-gateway`: ele conecta uma vez em cada servidor MCP e reexpõe tudo num endpoint só." },
     { "q": "O plugin instala o motor para mim?", "a": "Não, e é de propósito: a ponte só **usa** um motor que já está na máquina. Instalar ou atualizar continua sendo ação explícita sua — o bootstrap do plugin é offline e não baixa nem executa código remoto, porque esta ponte roda justamente onde isso não é aceitável." },
     { "q": "E se o motor estiver parado?", "a": "Aquele servidor falha com erro explícito, dizendo o arquivo que faltou (`~/.<motor>/runtime.json`) e as duas saídas: subir o motor ou trocar para uma `url` explícita. Os outros servidores conectam normalmente — a ponte não adivinha porta nem tenta conectar sem credencial." },
+    { "q": "Atualizei o motor. Preciso reiniciar o app?", "a": "Não. Atualizar o motor reinicia o daemon e derruba a sessão MCP aberta; na chamada seguinte a ponte percebe que a sessão não existe mais, reconecta e refaz a chamada — sem erro na sua frente e sem circuito aberto. Isso vale **só** para esse caso: um erro de verdade continua falhando, à vista." },
     { "q": "Posso continuar usando `url` e `headers`?", "a": "Pode. Uma `url` explícita continua valendo exatamente como você escreveu; o campo `engine` só entra quando você o declara. Se os dois aparecerem no mesmo servidor, o motor vivo vence — para que um endereço velho no config não sequestre a conexão." },
     { "q": "Meu token fica salvo no config?", "a": "Não. Com `engine`, a ponte lê o bearer do cofre do motor na hora de conectar e o usa em memória — nada é gravado no `config.json`. Os tokens de OAuth ficam à parte, em `~/.copilot/mcp-bridge/oauth/`, com permissão restrita ao seu usuário." },
     { "q": "Que transportes suporta?", "a": "`stdio` para processos locais, `http` e `sse` para remotos — com login OAuth 2.1 (PKCE e registro dinâmico de cliente) quando o servidor exige." }
