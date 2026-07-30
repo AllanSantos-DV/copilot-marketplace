@@ -5,6 +5,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
+import { readProvenance } from "../health/buildProvenance.mjs"; // REÚSO: mesmo leitor usado no build (DRY)
 
 const GIT_ENV = () => ({ ...process.env, GIT_CONFIG_PARAMETERS: "" }); // neutraliza injeção helper=copilot (conta pessoal)
 function git(repo, args) { return execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", env: GIT_ENV(), timeout: 15000, stdio: ["ignore", "pipe", "ignore"] }).trim(); }
@@ -55,6 +56,12 @@ export const verifyTools = [
     description: "Read-only: o arquivo contém a substring (literal)? JSON {contains, relpath, exists}. Para 'X ainda importa Y' / 'não tem Z no arquivo'.",
     parameters: { type: "object", properties: { repo: { type: "string" }, relpath: { type: "string" }, needle: { type: "string" } }, required: ["repo", "relpath", "needle"] },
     handler: (a) => { const p = full(String(a?.repo || ""), String(a?.relpath || "")); const needle = String(a?.needle || ""); if (!existsSync(p)) return JSON.stringify({ exists: false, contains: false, relpath: a?.relpath }); try { const txt = readFileSync(p, "utf8"); return JSON.stringify({ exists: true, contains: txt.includes(needle), relpath: a?.relpath }); } catch (e) { return JSON.stringify({ exists: true, contains: false, error: String(e?.message || e).slice(0, 160) }); } },
+  },
+  {
+    name: "read_build_provenance",
+    description: "Read-only: lê '.build-provenance.json' (gravado no EMPACOTAMENTO pelo repo dev) na raiz de `repo`. É a PROVA de commit/tag/branch/remote/versão de um mirror runtime-only SEM .git — use esta tool ANTES de concluir 'sem remote'/'commit não existe'/'sem tag' num mirror podado; um 'não medido' no campo `indeterminate` do JSON é diferente de 'não existe'. JSON {found, provenance?, reason?}.",
+    parameters: { type: "object", properties: { repo: { type: "string" } }, required: ["repo"] },
+    handler: (a) => JSON.stringify(readProvenance(String(a?.repo || ""))),
   },
 ];
 

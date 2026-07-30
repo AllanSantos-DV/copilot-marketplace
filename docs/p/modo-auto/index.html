@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">modo-auto</h1>
-        <span class="chip" title="versão publicada">v0.2.87</span>
+        <span class="chip" title="versão publicada">v0.2.88</span>
       </div>
       <p class="doc-hero__lede">O <strong>modo-auto</strong> substitui o autopilot fraco do Copilot por uma <strong>mesa de agentes</strong>. Quando você <strong>arma</strong> o modo, ele <strong>intercepta o <code>ask_user</code></strong>: no lugar da resposta genérica do autopilot (&quot;usuário indisponível, siga a recomendação&quot;), uma mesa com papéis de <strong>negócio, técnico, pesquisa, revisor e documentação</strong> delibera a resposta — fundamentada em <strong>plano vivo, memória do projeto e pesquisa</strong>. E revisa cada <code>Stop</code>, para o agente não encerrar antes de o plano fechar. Núcleo <strong>hexagonal</strong> (ports &amp; adapters), com perfis plugáveis.</p>
       <div class="doc-hero__cta">
@@ -137,6 +137,11 @@
             <div class="tree__head"><span class="prompt__glyph" aria-hidden="true">⌁</span> plugins/modo-auto/</div>
             <ul class="tree__list">
             <li class="tree__row">
+              <code class="tree__name">.build-provenance.json</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">432 B</span>
+            </li>
+            <li class="tree__row">
               <code class="tree__name">boot.mjs</code>
               <span class="tree__role">Bootstrap de SessionStart: baixa/garante o canvas-sync na máquina.</span>
               <span class="tree__size">10 KB</span>
@@ -149,7 +154,7 @@
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
               <span class="tree__role">Extensão in-app: intercepta o <code>ask_user</code>, revisa o <code>Stop</code> e liga a mesa à sessão viva.</span>
-              <span class="tree__size">84 KB</span>
+              <span class="tree__size">85 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">LICENSE</code>
@@ -159,7 +164,7 @@
             <li class="tree__row">
               <code class="tree__name">package.json</code>
               <span class="tree__role"></span>
-              <span class="tree__size">825 B</span>
+              <span class="tree__size">895 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
@@ -412,9 +417,19 @@
               <span class="tree__size">5.9 KB</span>
             </li>
             <li class="tree__row">
+              <code class="tree__name">src/adapters/health/buildProvenance.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">12 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/health/readVersion.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">551 B</span>
+            </li>
+            <li class="tree__row">
               <code class="tree__name">src/adapters/health/setupCheck.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">5.9 KB</span>
+              <span class="tree__size">5.8 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/memory/client.mjs</code>
@@ -684,7 +699,7 @@
             <li class="tree__row">
               <code class="tree__name">src/adapters/shadow/verifyTools.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">6.1 KB</span>
+              <span class="tree__size">6.8 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/skills/catalog.mjs</code>
@@ -785,7 +800,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.2.87</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.2.88</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
