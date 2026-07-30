@@ -1,6 +1,6 @@
 import { createRequire as __createRequire } from "node:module";
 const require = globalThis.require ?? __createRequire(import.meta.url);
-// mcp-bridge v0.2.4 — Copilot CLI extension (MCP SDK embutido; @github/copilot-sdk external). Gerado por esbuild — não editar à mão.
+// mcp-bridge v0.2.7 — Copilot CLI extension (MCP SDK embutido; @github/copilot-sdk external). Gerado por esbuild — não editar à mão.
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -18008,6 +18008,9 @@ var Client = class extends Protocol {
   }
 };
 
+// integrations/copilot-extension/src/version.ts
+var BRIDGE_VERSION = true ? "0.2.7" : "0.0.0-dev";
+
 // integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/transport.js
 function normalizeHeaders(headers) {
   if (!headers)
@@ -20259,7 +20262,7 @@ async function runLoginFlow(server, config2, log, timeoutMs = 18e4) {
 ${u}`)
     });
     const transport = makeAuthedTransport(config2, provider);
-    const client = new Client({ name: "mcp-bridge", version: "0.1.0" }, { capabilities: {} });
+    const client = new Client({ name: "mcp-bridge", version: BRIDGE_VERSION }, { capabilities: {} });
     try {
       await client.connect(transport);
       await client.close().catch(() => {
@@ -20591,7 +20594,7 @@ var ManagedServer = class _ManagedServer {
   }
   async connect(timeoutMs = 2e4) {
     const transport = this.createTransport();
-    const client = new Client({ name: "mcp-bridge", version: "0.1.0" }, { capabilities: {} });
+    const client = new Client({ name: "mcp-bridge", version: BRIDGE_VERSION }, { capabilities: {} });
     this.client = client;
     this.transport = transport;
     client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
