@@ -5,6 +5,7 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { homedir } from "node:os";
 import { getRole, dynamicRole, CORE_ROLES } from "./roles.mjs";
 import { designRole } from "./architect.mjs";
 import { SKILLS_ROOT, composeSystem } from "../skills/skillLoader.mjs";
@@ -113,6 +114,13 @@ export function createAgentFactory({ cwdProvider = () => process.cwd(), model, g
       env.NODE_NO_WARNINGS = "1";   // silencia ExperimentalWarning do Node (ex.: node:sqlite do CLI) que poluía o stderr e MASCARAVA o erro real no diagnóstico. Propaga ao subprocesso do CLI (env herdado).
       env.MODO_AUTO_WORKER_CWD = cwd || cwdProvider();
       if (chosenModel) env.MODO_AUTO_WORKER_MODEL = chosenModel;
+      // ISOLAMENTO — MEDIDO, não presumido. Testei apontar COPILOT_HOME/XDG_CONFIG_HOME para ~/.copilot com o
+      // `configDirectory` isolado: o worker NÃO vazou nenhuma extensão do usuário. Ou seja, este CLI **não honra
+      // essas variáveis** e elas NÃO servem de segunda linha de defesa — seria falsa sensação de segurança
+      // deixá-las aqui comentadas como "defesa em profundidade". Quem isola de verdade é a opção
+      // `configDirectory` do createSession, e por isso o worker VERIFICA o efeito dela após criar a sessão
+      // (ver a checagem de isolamento em worker.mjs) em vez de confiar na assinatura da API.
+      env.MODO_AUTO_WORKER_CONFIGDIR = env.MODO_AUTO_WORKER_CONFIGDIR || join(homedir(), ".modo-auto", "worker-config");
       // CREDENCIAL PINADA (não herdada do shell do momento). O worker autentica pelo GH_TOKEN que o app
       // injeta; um shell que zerou essa variável — gesto CORRETO e necessário para `git`/`gh` de conta
       // pessoal — fazia o worker cair numa credencial sem cota e devolver "monthly quota exceeded", um erro
