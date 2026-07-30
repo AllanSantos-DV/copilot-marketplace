@@ -229,7 +229,11 @@ function installSection(p) {
     ? block({
         type: "note",
         tone: "warn",
-        text: "Este plugin registra um **canvas** (painel no app). Depois de instalar, **reinicie o app uma vez**: o `canvas-sync` espelha a extensão para `~/.copilot/extensions/` e o app a descobre no próximo boot.",
+        // "instalar OU atualizar": a segunda metade faltava, e é a que morde. Instalar é um ato
+        // consciente — quem instala espera configurar algo. Atualizar parece automático, e é aí
+        // que o app segue rodando o bundle anterior sem ninguém perceber: o disco fica em dia e
+        // passa a sensação de pronto enquanto a versão velha continua em execução.
+        text: "Este plugin registra um **canvas** (painel no app). Depois de instalar **ou atualizar**, **reinicie o app uma vez**: o `canvas-sync` espelha a extensão para `~/.copilot/extensions/` e o app só carrega a versão nova no boot seguinte.",
       })
     : "";
   const inner = [
