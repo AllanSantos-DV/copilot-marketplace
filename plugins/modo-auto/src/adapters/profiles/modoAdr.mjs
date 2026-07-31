@@ -42,8 +42,45 @@ const PATH_CFG = {
   full: { skipDebate: false, roles: ADR_LIVE_ORDER, minRounds: 2, maxRounds: 4 },
 };
 
-// Piso de relevância do recall: abaixo disto o trecho não é `já existe`, é ruído semântico que sequestra o plano.
-const RECALL_MIN_SCORE = 0.55;
+// PISO DE RELEVÂNCIA do recall — knob EXPLÍCITO, não constante mágica. Leia antes de mexer:
+//
+// O QUE FOI MEDIDO (nesta base, 2026-07-31): rodando uma busca real com o briefing curto que disparou o bug
+// ("descrever em uma frase o que o modo-auto faz"), os trechos RETORNADOS eram todos FORA DO ASSUNTO e ainda
+// assim pontuaram 0.65–0.71. Conclusão honesta: **este piso, em 0.55, NÃO teria barrado aquele ruído**. Ele é
+// DEFESA EM PROFUNDIDADE, não a parede que segura o problema.
+// O QUE DE FATO SEGURA (nesta ordem): (1) o corte no WRITE — a mesa não grava mais o plano inteiro como
+// conhecimento de reúso, então o corpus para de ser envenenado; (2) o REENQUADRAMENTO do bloco ("não é o
+// assunto desta mesa … IGNORE o que não casar"), que foi o que mudou o comportamento observável — no run de
+// prova o próprio ADR passou a declarar o ruído como "problemas paralelos, não relacionados".
+// POR QUE NÃO SUBIR O PISO NO ESCURO: acima de ~0.7 ele começaria a cortar recall LEGÍTIMO (o mesmo briefing
+// curto casa fracamente com QUALQUER coisa, inclusive com o que é relevante) — trocaria falso-positivo por
+// falso-negativo silencioso, que é pior porque o reúso some sem aviso. Calibrar exige distribuição de scores
+// de consultas boas × ruins; enquanto essa amostra não existe, o valor fica conservador, DOCUMENTADO e
+// sobrescrevível por ambiente, e todo descarte é LOGADO (nunca some calado).
+const RECALL_MIN_SCORE = (() => {
+  const raw = Number(process.env.MODO_AUTO_RECALL_MIN_SCORE);
+  return Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : 0.55;
+})();
+
+// REGISTRO DE ADR na memória — deliberadamente COMPACTO, e esta é a correção da FONTE do envenenamento.
+// Antes, o plano INTEIRO (~5 KB: fases, riscos, referências) era gravado como conhecimento de reúso. Como a
+// mesa CONSULTA a memória para montar o "o que já existe", ela comia a própria saída: o plano de uma
+// deliberação virava contexto da seguinte, e um briefing curto trazia fases de OUTRO assunto. Filtrar só na
+// leitura (piso de relevância) trata o sintoma — o veneno continuava crescendo a cada run.
+// POR QUE COMPACTO E NÃO "PARAR DE GRAVAR": o plano completo JÁ é persistido em `adr-plan.md` (o artefato que o
+// dono lê) e NENHUM código o lê de volta da memória — o corpo inteiro tinha zero valor de leitura e dano medido.
+// Mas o REGISTRO tem valor real de reúso ("já decidimos X sobre Y"), então ele fica: assunto + decisão + ponteiro
+// para o arquivo. De quebra cabe em UM chunk, então o marcador sobrevive à fragmentação do daemon — num documento
+// de 5 KB, picado em vários pedaços, só o primeiro carregaria o marcador, e por isso marcação em texto NÃO seria
+// defesa confiável. Aqui o tamanho é o que torna a marcação utilizável.
+const ADR_RECORD_MARK = "[ADR-REGISTRO]";
+function adrRecord(briefing, plan) {
+  const sec = /^##\s*Decis[ãa]o\s*$([\s\S]*?)(?=^##\s|$(?![\s\S]))/mi.exec(String(plan || ""));
+  const decisao = (sec ? sec[1] : String(plan || "")).trim().replace(/\s+/g, " ").slice(0, 500);
+  return `${ADR_RECORD_MARK} assunto: ${String(briefing || "").trim().replace(/\s+/g, " ").slice(0, 160)}\n` +
+    `DECISÃO: ${decisao || "(não extraída)"}\n` +
+    `Plano completo: adr-plan.md da sessão (este registro é um índice, não o plano).`;
+}
 
 export function createModoAdr({ log = () => {}, roles } = {}) {
   const ADR_ROLES = roles || ["pesquisador", "negocio", "tecnico", "revisor"];
@@ -157,8 +194,8 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
       if (!written) throw new Error("modo-adr vivo: writeAdrPlan nao gravou o plano do ADR (sem workspaceDir?)");
     }
     if (caps.memory?.save) {
-      const sv = await caps.memory.save(plan, { type: "plan", tags: ["adr", "plano-vivo"] });
-      if (sv && sv.ok === false) log(`[modo-adr] AVISO: memória não salvou o plano (${sv.error || "offline"})`);
+      const sv = await caps.memory.save(adrRecord(bf, plan), { type: "adr-registro", tags: ["adr", "registro"] });
+      if (sv && sv.ok === false) log(`[modo-adr] AVISO: memória não salvou o registro do ADR (${sv.error || "offline"})`);
       // snapshot dos sessionIds → permite REABRIR a mesa (resume) depois. Express não tem mesa → pula.
       if (res.snapshot && res.snapshot.length) {
         const svSnap = await caps.memory.save(JSON.stringify({ subject: bf.slice(0, 120), snapshot: res.snapshot }), { type: "adr-mesa-snapshot", tags: ["adr", "mesa-viva", "reabrir"] });
@@ -217,9 +254,14 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
       let existing = "";
       const mem = caps.memory?.recall ? await caps.memory.recall(bf, { topK: 4, minScore: RECALL_MIN_SCORE }) : null;
       if (mem && mem.ok) {
-        const rel = (mem.results || []).filter((r) => r && (r.score == null || Number(r.score) >= RECALL_MIN_SCORE));
+        const rel = (mem.results || [])
+          // A mesa NUNCA reconsome o próprio registro: mesmo compacto, um ADR anterior não é "o que já existe
+          // no projeto" para efeito de reúso — é saída dela mesma. Este é o fecho do ciclo de auto-envenenamento
+          // (o corte principal é no WRITE, acima; aqui é a rede de segurança para o que já está gravado).
+          .filter((r) => r && !String(r.text || "").includes(ADR_RECORD_MARK))
+          .filter((r) => r.score == null || Number(r.score) >= RECALL_MIN_SCORE);
         const cortados = (mem.results || []).length - rel.length;
-        if (cortados > 0) log(`[modo-adr] recall: ${cortados} trecho(s) abaixo do piso de relevância (${RECALL_MIN_SCORE}) DESCARTADO(s) — não entram como "já existe"`);
+        if (cortados > 0) log(`[modo-adr] recall: ${cortados} trecho(s) descartado(s) (abaixo do piso ${RECALL_MIN_SCORE} ou registro de ADR anterior) — não entram como "já existe"`);
         existing = rel.map((r) => "- " + String(r.text || "").slice(0, 220)).join("\n");
       }
       else if (mem && mem.ok === false && mem.error) log(`[modo-adr] memória indisponível (${mem.error}) — segue sem contexto`);
@@ -261,7 +303,7 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
         written = caps.plan.writeAdrPlan(plan); // adr-plan.md SEPARADO — a mesa NÃO toca no plan.md (fail-loud)
         if (!written) throw new Error("modo-adr: writeAdrPlan nao gravou o plano do ADR (sem workspaceDir?)");
       }
-      const saved = caps.memory?.save ? await caps.memory.save(plan, { type: "plan", tags: ["adr", "plano-vivo"] }) : null;
+      const saved = caps.memory?.save ? await caps.memory.save(adrRecord(bf, plan), { type: "adr-registro", tags: ["adr", "registro"] }) : null;
       if (saved && saved.ok === false) log(`[modo-adr] AVISO: memória não salvou o plano (${saved.error || "offline"})`);
 
       // 5) VALIDAÇÃO PROFUNDA (opt-in): painel multi-família critica o PLANO → riscos corroborados × isolados.
