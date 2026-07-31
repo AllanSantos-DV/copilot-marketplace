@@ -17,7 +17,7 @@ import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { mkdirSync } from "node:fs";
-import { sdkIndexUrl, textOf, CLEAN_DIRECTIVE, runTurnWithHeartbeat } from "./workerLib.mjs";
+import { sdkIndexUrl, textOf, CLEAN_DIRECTIVE, runTurnWithHeartbeat, computeToolExposure } from "./workerLib.mjs";
 import { makeSubmitTool, runUntilSubmitted } from "./structuredResult.mjs";
 
 function emit(obj) { process.stdout.write(JSON.stringify(obj) + "\n"); }
@@ -54,10 +54,29 @@ function emit(obj) { process.stdout.write(JSON.stringify(obj) + "\n"); }
       try {
         const [pm, tm] = await Promise.all([import("../memory/memoryPort.mjs"), import("../memory/memoryTools.mjs")]);
         const port = pm.createMemoryPort({ projectId: memoryScope, log: () => {} });
-        memoryToolset = tm.createMemoryTools({ recall: (q, o) => port.recall(q, { ...o, tag: "mesa:" + (role || "?") }), projectId: memoryScope }).tools;
+        // LEDGER DE ACESSO (observabilidade que faltava): "papel X leu N trecho(s) do escopo Z". Vai para o
+        // stderr do worker, que o pai já captura — quando o escopo divergir por bug (fork, mirror, marcador
+        // desatualizado), o rastro existe. Sem isto, ler do projeto ERRADO é indistinguível de ler do certo.
+        memoryToolset = tm.createMemoryTools({
+          recall: (q, o) => port.recall(q, { ...o, tag: "mesa:" + (role || "?") }),
+          projectId: memoryScope,
+          log: (m) => { try { process.stderr.write("\x1e#MEM " + m + "\n"); } catch { /* stderr fechado */ } },
+        }).tools;
       } catch (e) { process.stderr.write("worker aviso: memória indisponível na mesa viva: " + (e?.message || e)); }
     }
-    const toolset = [...researchToolset, ...memoryToolset];
+    // POLICY ÚNICA (`computeToolExposure`) também aqui. A mesa viva montava o toolset por fora, então existiam
+    // DUAS regras para "o que este papel pode ter" — e a que a suíte afirmava era a do one-shot. Uma auditoria
+    // apontou, e procede: regra que vale só num caminho não é regra, é coincidência. Agora os dois caminhos
+    // derivam do mesmo lugar, e o teste que afirma a policy passa a valer para ambos.
+    const exposure = computeToolExposure({
+      role,
+      researchToolNames: researchToolset.map((t) => t.name),
+      memoryToolNames: memoryToolset.map((t) => t.name),
+    });
+    const toolset = [
+      ...researchToolset.filter((t) => exposure.toolNames.includes(t.name)),
+      ...memoryToolset.filter((t) => exposure.toolNames.includes(t.name)),
+    ];
 
     const { CopilotClient, approveAll } = await import(sdkIndexUrl());
     if (typeof CopilotClient !== "function") { process.stderr.write("worker erro: CopilotClient indisponível"); process.exitCode = 1; return; }
@@ -117,10 +136,14 @@ function emit(obj) { process.stdout.write(JSON.stringify(obj) + "\n"); }
           // os args capturados (JSON), não prosa parseada. __nosubmit__ se o modelo genuinamente não chamar.
           if (msg.schema && msg.schema.name) {
             const submit = makeSubmitTool(msg.schema);
-            try { session.registerTools([...researchToolset, submit.tool]); } catch (e) { process.stderr.write("worker aviso: registerTools falhou: " + (e?.message || e)); }
+            // `toolset` é a FONTE ÚNICA do que este worker expõe (pesquisa + memória, conforme a policy). Usar
+            // `researchToolset` aqui foi um bug real: o registro do turno estruturado APAGAVA o memory_search da
+            // sessão viva, e a restauração o deixava de fora para sempre. É a mesma classe do vazamento que eu
+            // já tinha corrigido no one-shot: duas fontes de verdade para "o que este worker tem".
+            try { session.registerTools([...toolset, submit.tool]); } catch (e) { process.stderr.write("worker aviso: registerTools falhou: " + (e?.message || e)); }
             await runOne(msg.prompt); // turno REAL primeiro (idêntico ao one-shot); runUntilSubmitted só reforça se não capturou
             const captured = await runUntilSubmitted((p) => runOne(p), submit, { retries: 2 });
-            try { session.registerTools([...researchToolset]); } catch { /* restaura o toolset base */ }
+            try { session.registerTools([...toolset]); } catch { /* restaura o toolset base COMPLETO */ }
             emit({ type: "result", id: msg.id, ok: true, text: JSON.stringify(captured != null ? captured : { __nosubmit__: true }) });
             return;
           }
