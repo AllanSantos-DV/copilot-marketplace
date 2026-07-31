@@ -1,5 +1,6 @@
 // verify-tools-smoke.mjs — DETERMINÍSTICO (usa git/fs do PRÓPRIO repo, ZERO LLM/rede): prova que as tools
 // read-only do shadow-verifier confirmam a realidade. É o que tira a cegueira do sombra. Roda contra o repo real.
+import { tmpDir } from "./tmpProjeto.mjs";
 import assert from "node:assert";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -88,7 +89,7 @@ if (!DEV_REPO) {
 // read_build_provenance: mirror SEM .git só consegue provar sua origem via este arquivo. Sem o arquivo →
 // found:false + reason (nunca inventa commit/tag); com o arquivo → found:true + provenance IDÊNTICA ao gravado.
 {
-  const tmp = mkdtempSync(join(tmpdir(), "modo-provenance-"));
+  const tmp = tmpDir("modo-provenance-");
   const absent = J(tool("read_build_provenance"), { repo: tmp });
   assert.strictEqual(absent.found, false, "mirror sem .build-provenance.json → found:false: " + JSON.stringify(absent));
   assert.ok(typeof absent.reason === "string" && absent.reason.length > 0, "reason explica a ausência");
@@ -142,7 +143,7 @@ ok("VERIFY_TOOL_NAMES = allowlist fail-closed (6 tools custom read-only; sem she
 // `tracked:false`, porque o handler rodava `git -C <alvo>` direto e o git SOBE para o repo de cima. Resolver que
 // ninguém consulta é decoração: o falso "não versionado" continuava saindo com cara de fato.
 {
-  const NESTED = mkdtempSync(join(tmpdir(), "modo-auto-nested-"));
+  const NESTED = tmpDir("modo-auto-nested-");
   const outer = join(NESTED, "repo-alheio");
   const inner = join(outer, "artefato-instalado");
   mkdirSync(inner, { recursive: true });

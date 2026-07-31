@@ -11,6 +11,7 @@
 //
 // LIVE: precisa do daemon. Sem ele → SKIP sinalizado; FAIL sob MODO_AUTO_STRICT.
 
+import { tmpDir } from "./tmpProjeto.mjs";
 import assert from "node:assert";
 import { spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
@@ -49,7 +50,7 @@ const criados = [];
 
 /** CWD HOSTIL: um projeto de verdade, com marcador declarado apontando para OUTRO project_id. Se o filho
  *  resolvesse escopo pelo próprio cwd (o bug que a cravação existe para impedir), ele cairia AQUI. */
-const cwdHostil = mkdtempSync(join(tmpdir(), "hostil-"));
+const cwdHostil = tmpDir("hostil-");
 mkdirSync(join(cwdHostil, ".memory"), { recursive: true });
 writeFileSync(join(cwdHostil, ".memory", "project.json"), JSON.stringify({ metadata: { defaults: { project_id: PROJ_HOSTIL } } }));
 

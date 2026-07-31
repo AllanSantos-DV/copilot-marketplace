@@ -8,6 +8,7 @@
 //     existir no corpus.
 //  3. Auditor quebrado NÃO pode apagar a memória — trocar "memória velha" por "nenhuma memória" é o defeito pior.
 
+import { tmpDir } from "./tmpProjeto.mjs";
 import assert from "node:assert";
 import { readFileSync, readdirSync, existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -183,13 +184,13 @@ run("sem marcador e sem git remote → LANÇA (não inventa escopo a partir do c
   // propósito: eram a fonte do escopo-lixo (C:\, Temp, AppData virando "projeto"). Eu tinha uma cópia vendada
   // com a escada ANTIGA e cheguei a relatar "o escopo sai da pasta" como se fosse o produto. Este teste trava
   // o contrato certo para a cópia não divergir de novo em silêncio.
-  const dir = mkdtempSync(join(tmpdir(), "sem-escopo-"));
+  const dir = tmpDir("sem-escopo-");
   assert.throws(() => resolveProjectId(dir), /não foi possível resolver project_id/i);
   assert.strictEqual(projectIdStrength(dir), "none");
   assert.strictEqual(tryResolveProjectId(dir), null, "a variante best-effort devolve null, nunca um id inventado");
 });
 run("marcador declarado vence e converge de SUBPASTA (worktree/subpasta = MESMO id)", () => {
-  const raiz = mkdtempSync(join(tmpdir(), "proj-"));
+  const raiz = tmpDir("proj-");
   mkdirSync(join(raiz, ".memory"), { recursive: true });
   writeFileSync(join(raiz, ".memory", "project.json"), JSON.stringify({ metadata: { defaults: { project_id: "dono/projeto" } } }));
   assert.strictEqual(resolveProjectId(raiz), "dono/projeto");
@@ -210,7 +211,7 @@ run("PISO anti-caminho: id com cara de path é RECUSADO mesmo se alguém declara
 });
 await runA("port SEM escopo resolvível: erro VISÍVEL, nunca busca em escopo inventado", async () => {
   const port = createMemoryPort({
-    cwdProvider: () => mkdtempSync(join(tmpdir(), "sem-git-")),
+    cwdProvider: () => tmpDir("sem-git-"),
     discoverFn: async () => ({ url: "http://fake" }),
     clientFactory: () => ({ search: async () => { throw new Error("NÃO PODE chegar aqui"); }, save: async () => ({ id: "1" }) }),
   });
@@ -229,7 +230,7 @@ await runA("CONTRATO validado em monorepo, subpasta funda, worktree e repo local
   try { execFileSync("git", ["--version"], { stdio: "ignore", timeout: 5000 }); }
   catch { console.log("    (git indisponível — cenários de repo não exercitáveis aqui)"); return; }
 
-  const base = mkdtempSync(join(tmpdir(), "escopo-"));
+  const base = tmpDir("escopo-");
   // A) monorepo COM remote: raiz e subpasta funda têm que dar o MESMO id (subpasta não pode divergir).
   const mono = join(base, "mono"); mkdirSync(join(mono, "pacotes", "api", "src"), { recursive: true });
   git(["init", "-q"], mono); git(["remote", "add", "origin", "https://github.com/Acme/Mono.git"], mono);
@@ -323,7 +324,7 @@ await runA("handler NUNCA lança para o SDK (erro vira JSON visível)", async ()
 await runA("port com projectId CRAVADO ignora o cwd (é o coração da Fase 2)", async () => {
   // Teste bilateral: (a) com id cravado, o cwd é irrelevante; (b) sem id cravado, o cwd manda. Só (a) seria
   // insuficiente — passaria mesmo se o cravado estivesse sendo ignorado e o cwd resolvesse por acaso.
-  const semProjeto = mkdtempSync(join(tmpdir(), "sem-proj-"));
+  const semProjeto = tmpDir("sem-proj-");
   const chamadas = [];
   const port = createMemoryPort({
     projectId: "dono/cravado",
@@ -410,7 +411,7 @@ await runA("detectarEscopoSuspeito: origin+upstream diferentes = fork; marcador 
   const { execFileSync } = await import("node:child_process");
   const g = (args, cwd) => execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "ignore"], timeout: 8000, windowsHide: true });
   try { execFileSync("git", ["--version"], { stdio: "ignore", timeout: 5000 }); } catch { return; }
-  const d = mkdtempSync(join(tmpdir(), "fork-"));
+  const d = tmpDir("fork-");
   g(["init", "-q"], d);
   g(["remote", "add", "origin", "https://github.com/eu/proj.git"], d);
   assert.strictEqual(detectarEscopoSuspeito(d).risco, null, "só origin = sem suspeita");
@@ -448,7 +449,7 @@ await runA("SUBMODULE é rotulado (repo-em-repo legítimo passa por 'projeto nor
   const { execFileSync } = await import("node:child_process");
   const g = (a, c) => execFileSync("git", a, { cwd: c, stdio: ["ignore", "pipe", "ignore"], timeout: 15000, windowsHide: true, env: { ...process.env, GIT_CONFIG_PARAMETERS: "" } });
   try { execFileSync("git", ["--version"], { stdio: "ignore", timeout: 5000 }); } catch { return; }
-  const base = mkdtempSync(join(tmpdir(), "sub-"));
+  const base = tmpDir("sub-");
   const lib = join(base, "lib"), app = join(base, "app");
   for (const [d, url] of [[lib, "https://github.com/org/lib.git"], [app, "https://github.com/org/app.git"]]) {
     mkdirSync(d, { recursive: true }); g(["init", "-q"], d); g(["remote", "add", "origin", url], d);
@@ -470,7 +471,7 @@ await runA("resolveProjectIdWithProvenance devolve id + origem + de onde saiu, n
   const { execFileSync } = await import("node:child_process");
   const g = (a, c) => execFileSync("git", a, { cwd: c, stdio: ["ignore", "pipe", "ignore"], timeout: 8000, windowsHide: true });
   try { execFileSync("git", ["--version"], { stdio: "ignore", timeout: 5000 }); } catch { return; }
-  const d = mkdtempSync(join(tmpdir(), "prov-"));
+  const d = tmpDir("prov-");
   g(["init", "-q"], d); g(["remote", "add", "origin", "https://github.com/Acme/P.git"], d);
   const p1 = resolveProjectIdWithProvenance(d);
   assert.strictEqual(p1.projectId, "github.com/acme/p");
@@ -492,7 +493,7 @@ await runA("ESPELHO aninhado em repo alheio é detectado (a causa-raiz do falso 
   const { execFileSync } = await import("node:child_process");
   const g = (a, c) => execFileSync("git", a, { cwd: c, stdio: ["ignore", "pipe", "ignore"], timeout: 8000, windowsHide: true });
   try { execFileSync("git", ["--version"], { stdio: "ignore", timeout: 5000 }); } catch { return; }
-  const base = mkdtempSync(join(tmpdir(), "host-"));
+  const base = tmpDir("host-");
   g(["init", "-q"], base); g(["remote", "add", "origin", "https://github.com/host/repo.git"], base);
   writeFileSync(join(base, "a.txt"), "conteudo");
   g(["add", "a.txt"], base); g(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "base"], base);
@@ -549,7 +550,7 @@ await runA("o resolver devolve `label` pronto, com o risco embutido", async () =
   const { execFileSync } = await import("node:child_process");
   const g = (a, c) => execFileSync("git", a, { cwd: c, stdio: ["ignore", "pipe", "ignore"], timeout: 8000, windowsHide: true });
   try { execFileSync("git", ["--version"], { stdio: "ignore", timeout: 5000 }); } catch { return; }
-  const d = mkdtempSync(join(tmpdir(), "rotulo-"));
+  const d = tmpDir("rotulo-");
   g(["init", "-q"], d); g(["remote", "add", "origin", "https://github.com/eu/p.git"], d);
   writeFileSync(join(d, "f.txt"), "x"); g(["add", "f.txt"], d); g(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "c"], d);
   assert.strictEqual(resolveProjectIdWithProvenance(d).label, "git-remote", "sem risco, o rótulo é só a origem");

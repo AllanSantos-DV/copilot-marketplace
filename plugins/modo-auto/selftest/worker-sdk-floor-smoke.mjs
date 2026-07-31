@@ -2,6 +2,7 @@
 // em vez de morrer opaco com "Cannot find package '@github/copilot-sdk'".
 // Determinístico: monta PATHs sintéticos numa pasta temporária; não toca na máquina.
 
+import { tmpDir } from "./tmpProjeto.mjs";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join, delimiter } from "node:path";
 import { tmpdir, platform, arch } from "node:os";
@@ -13,7 +14,7 @@ const check = (name, cond, detail = "") => {
     else { fail++; console.log(`  FAIL ${name}${detail ? " — " + detail : ""}`); }
 };
 
-const root = mkdtempSync(join(tmpdir(), "modo-auto-sdkfloor-"));
+const root = tmpDir("modo-auto-sdkfloor-");
 const mkCli = (name, { layout, version }) => {
     const bin = join(root, name);
     mkdirSync(bin, { recursive: true });
