@@ -60,7 +60,12 @@ async function readStdin() {
       try {
         const [pm, tm] = await Promise.all([import("../memory/memoryPort.mjs"), import("../memory/memoryTools.mjs")]);
         const port = pm.createMemoryPort({ projectId: job.memoryScope, log: () => {} });
-        const mt = tm.createMemoryTools({ recall: (q, o) => port.recall(q, { ...o, tag: "worker:" + job.role }), projectId: job.memoryScope });
+        const mt = tm.createMemoryTools({
+          recall: (q, o) => port.recall(q, { ...o, tag: "worker:" + job.role }),
+          projectId: job.memoryScope,
+          // Mesmo ledger do caminho vivo: quem leu, de qual escopo, quantos trechos.
+          log: (m) => { try { process.stderr.write("\x1e#MEM " + m + "\n"); } catch { /* stderr fechado */ } },
+        });
         memoryToolset = mt.tools; memoryState = mt.state;
       } catch (e) { process.stderr.write("worker aviso: memória indisponível p/ este papel: " + (e?.message || e)); }
     }

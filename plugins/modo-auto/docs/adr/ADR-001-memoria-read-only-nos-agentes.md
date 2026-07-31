@@ -87,15 +87,48 @@ E a mesa — ADR, dev, sombra, o que for — **não procura saber disso**. Na ho
 definição da tool já vai com o `project_id` cravado. O agente não resolve escopo, não olha `cwd`, não recebe
 "projeto" como parâmetro que ele possa errar.
 
-## Consequências
+## Quem recebe busca, e quem não recebe (é desenho, e aqui está o porquê)
+
+Papéis que rodam **fail-closed** (`availableTools: []`) NÃO recebem `memory_search`. Não é herança nem descuido:
+esses papéis **consolidam material que já está no prompt** — o documentador escreve a prosa da deliberação que a
+mesa já fez; o consolidador do painel funde pareceres já escritos; o auditor de memória julga itens que já lhe
+foram entregues. Dar busca a eles convida a explorar em vez de concluir, e o custo aparece em token e em turno.
+
+Papéis da **mesa viva** (que discutem: técnico, negócio, advogado-do-diabo, revisor, pesquisador) **recebem**,
+porque o trabalho deles é justamente trazer o que não está no prompt.
+
+**Trade-off honesto, registrado porque uma auditoria o levantou e ele é legítimo:** o auditor de memória diz
+"desatualizado" sem poder *verificar* que algo mais novo o superou — isso é um **julgamento**, não uma
+verificação. Dar busca a ele permitiria provar a supersessão citando o documento mais novo. Não foi feito, e o
+motivo é custo/loop (ele já roda uma vez por deliberação, sobre N itens). **Fica nomeado como questão de
+produto**, não como fato resolvido: se na prática os vereditos "desatualizado" começarem a errar, a saída é dar
+busca ao auditor com teto baixo.
 
 **Positivas:** escrita impossível por construção; escopo nunca derivado de caminho; memória auditável (id
 citável + veredito justificado); o produto continua funcionando sem o plugin.
 
+**Isolamento PROVADO, não afirmado** — `selftest/memory-cross-project-leak-smoke.mjs`, contra o daemon real:
+dois projetos distintos no MESMO store, textos quase idênticos e uma query que casa com ambos.
+
+| asserção | resultado |
+|---|---|
+| A enxerga o documento de A (presença antes da ausência) | ok |
+| B enxerga o documento de B | ok |
+| busca de A **não** devolve o documento de B | ok |
+| busca de B **não** devolve o documento de A | ok |
+| sem filtro o daemon devolve **os dois**; com filtro, só o do escopo | ok — o corte é **server-side** |
+| escopo inexistente devolve **vazio** (não "o mais parecido") | ok |
+| o documento certo vem **à frente** do distrator (relevância) | ok |
+
+A quinta linha responde "o filtro é do servidor ou é sorte do ranqueador?": se fosse só ranqueamento, o
+documento do vizinho — semanticamente ótimo para a query — apareceria. Não aparece.
+
 **Negativas / limites conhecidos, registrados sem maquiar:**
 
 - `project_id` **errado** não é `project_id` **vazio**: fork, mirror, submodule, `origin` vs `upstream`, ou um
-  marcador desatualizado produzem escopo divergente em **silêncio**. O fail-loud só cobre o vazio.
+  marcador desatualizado produzem escopo divergente em **silêncio**. O fail-loud só cobre o vazio. **Mitigação
+  parcial entregue:** ledger de acesso no stderr do worker (`#MEM papel leu N trecho(s) do escopo Z`) — não
+  impede o escopo errado, mas o torna rastreável em vez de invisível.
 - Monorepo colapsa todos os subprojetos num id só. "Converge" é verdade, mas pode ser escopo **grosso demais**
   quando pacotes internos são produtos distintos.
 - Falta observabilidade de acesso ("worker X leu doc Y do projeto Z") e limites operacionais (timeout, teto de
