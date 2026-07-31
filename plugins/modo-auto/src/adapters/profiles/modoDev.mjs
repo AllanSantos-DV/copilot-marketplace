@@ -6,6 +6,7 @@
 
 import { resolveSkills, resolveGates } from "../skills/catalog.mjs";
 import { recallIssue, renderRecall } from "../memory/memoryPort.mjs";
+import { escopoParaWorker } from "../memory/memoryTools.mjs";
 import { extractJson } from "../util/extractJson.mjs";
 import { reviewUntilClean } from "../review/remediation.mjs";
 import { createReviewerRotation } from "../review/reviewerRotation.mjs";
@@ -76,8 +77,13 @@ export function createModoDev({ log = () => {}, gates, maxRounds = 4, perReviewe
       // roda um papel; FAIL LOUD se falhar (não segue com texto vazio mascarando a falha do papel).
       // skills[] são INJETADAS no system do papel — o dev herda os mesmos anticorpos (fail-loud etc.).
       // cwd (opcional) = worktree do braço, pra o worker editar isolado durante o paralelismo do fatiador.
+      // MEMÓRIA para quem CONSTRÓI e quem REVISA. Uma auditoria levantou o ponto e ele procede: o revisor pode
+      // reprovar algo que já foi decidido e está no acervo, sem nunca ter como saber. As decisões do ADR já
+      // chegam no prompt, mas prompt é o que EU adiantei — a busca é o que ele consulta quando desconfia.
+      // Papéis com `schema` continuam fail-closed (`availableTools: []`): eles EMITEM veredito estruturado a
+      // partir do material dado, e a policy única corta a memória deles automaticamente.
       const run = async (role, prompt, skills = null, ms = 180000, modelOverride = null, schema = null) => {
-        const r = await caps.factory.run(role, prompt, { subject: role, timeoutMs: ms, skills, cwd, taskType, model: modelOverride || undefined, stage: "dev", group: gid, topic, ...(schema ? { schema, availableTools: [] } : {}) });
+        const r = await caps.factory.run(role, prompt, { subject: role, timeoutMs: ms, skills, cwd, taskType, model: modelOverride || undefined, stage: "dev", group: gid, topic, memoryScope: escopoParaWorker(caps), ...(schema ? { schema, availableTools: [] } : {}) });
         if (!r.ok || !r.text) throw new Error(`modo-dev: papel "${role}" falhou: ${r.error || "sem texto"}`);
         return r.text;
       };

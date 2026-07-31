@@ -85,3 +85,13 @@ export function createMemoryTools({ recall, projectId, maxChamadas = DEFAULT_MAX
 
 /** Nomes das tools de memória — para o manifesto e para os testes de isolamento saberem o que procurar. */
 export const MEMORY_TOOL_NAMES = Object.freeze(["memory_search"]);
+
+/**
+ * Escopo de memória para CRAVAR no worker, a partir das caps do perfil. Mora aqui (e não em cada perfil) porque
+ * é a mesma pergunta em todos: "qual projeto este agente pode ler?". NUNCA lança — ausência de memória não pode
+ * derrubar a mesa; devolve `null` e o worker roda sem tool.
+ */
+export function escopoParaWorker(caps) {
+  try { return (caps && caps.memory && caps.memory.projectId && caps.memory.projectId()) || null; }
+  catch { return null; }
+}

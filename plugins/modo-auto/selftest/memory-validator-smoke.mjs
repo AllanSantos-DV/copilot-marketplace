@@ -17,6 +17,7 @@ import { ROLES } from "../src/adapters/agents/roles.mjs";
 import { resolveProjectId, tryResolveProjectId, projectIdStrength, assertSafeProjectId, normalizeGitRemote } from "../src/adapters/memory/projectId.mjs";
 import { createMemoryPort } from "../src/adapters/memory/memoryPort.mjs";
 import { createMemoryTools, MEMORY_TOOL_NAMES } from "../src/adapters/memory/memoryTools.mjs";
+import { avisoMemoria } from "../src/adapters/memory/memoryNotice.mjs";
 import { conciliarVereditos, auditarMemoria, renderAuditado, promptAuditoria, MEMORY_VERDICT_SCHEMA, VEREDITOS } from "../src/adapters/memory/memoryValidator.mjs";
 
 let pass = 0, total = 0;
@@ -338,6 +339,29 @@ await runA("port com projectId CRAVADO ignora o cwd (é o coração da Fase 2)",
 });
 run("id cravado com cara de CAMINHO é recusado (o piso vale também para o cravado)", () => {
   assert.throws(() => assertSafeProjectId("C:\\Users\\x\\.copilot"), /caminho de sistema de arquivos/);
+});
+
+console.log("aviso ao HUMANO: a mesa cega não pode parecer igual à mesa informada");
+run("sem escopo → aviso EXPLÍCITO com o motivo e o conserto", () => {
+  const a = avisoMemoria({ escopo: null });
+  assert.strictEqual(a.ativa, false);
+  assert.match(a.texto, /SEM memória do projeto/, "tem que dizer que vai rodar cega: " + a.texto);
+  assert.match(a.texto, /NÃO impede o trabalho/, "e que não é erro fatal (senão vira alarme falso)");
+  assert.match(a.texto, /\.memory\/project\.json|git remote origin/, "e tem que trazer o CONSERTO junto");
+});
+run("com escopo → mostra o par escopo+ORIGEM (é o que deixa o humano pegar fork/marcador antigo)", () => {
+  const a = avisoMemoria({ escopo: "acme/proj", origem: "git-remote" });
+  assert.strictEqual(a.ativa, true);
+  assert.match(a.texto, /acme\/proj/, "o escopo tem que aparecer");
+  assert.match(a.texto, /git remote origin/, "e de ONDE ele veio: " + a.texto);
+  assert.match(a.texto, /fork, mirror, submodule, marcador antigo/, "com o convite a conferir — o código não sabe que está errado, o dono sabe");
+  assert.match(a.texto, /SOMENTE LEITURA/, "e o usuário precisa saber que os agentes não escrevem");
+});
+run("marcador declarado aparece como declarado (as duas origens são distinguíveis)", () => {
+  assert.match(avisoMemoria({ escopo: "x/y", origem: "declared" }).texto, /\.memory\/project\.json/);
+});
+run("o motivo do erro entra no aviso quando existe (não some no caminho)", () => {
+  assert.match(avisoMemoria({ escopo: null, motivo: "Não foi possível resolver project_id. Crie um..." }).texto, /Não foi possível resolver project_id/);
 });
 
 console.log(`\nmemory-validator-smoke: ${pass}/${total} OK`);

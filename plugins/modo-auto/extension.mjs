@@ -21,6 +21,8 @@ import { pruneWorkerSessions, formatPrune } from "./src/adapters/agents/workerCo
 import { readProvenance, formatProvenance } from "./src/adapters/health/buildProvenance.mjs";
 import { createToggleState } from "./src/toggle/state.mjs";
 import { createMemoryPort } from "./src/adapters/memory/memoryPort.mjs";
+import { projectIdStrength } from "./src/adapters/memory/projectId.mjs";
+import { avisoMemoria } from "./src/adapters/memory/memoryNotice.mjs";
 import { createPlanPort } from "./src/adapters/plan/planPort.mjs";
 import { createAgentFactory } from "./src/adapters/agents/agentFactory.mjs";
 import { createMesa } from "./src/adapters/agents/mesa.mjs";
@@ -138,7 +140,24 @@ const factory = createAgentFactory({ cwdProvider: () => process.cwd(), getRouter
 // deixar o N+1 nascer cego — que foi exatamente o defeito que uma auditoria pegou: eu havia ligado a memória só
 // no caminho de FALLBACK do modo_adr, e o caminho VIVO (o que de fato roda) continuava sem.
 // O escopo é resolvido UMA vez, pelo processo pai, com o cwd da SESSÃO. Sem plugin/escopo → null → sem tool.
-const memoryScopeParaMesa = () => { try { return memory.projectId() || null; } catch { return null; } };
+//
+// E O HUMANO PRECISA SABER DISSO. Antes, a mesa rodando SEM memória era indistinguível da mesa rodando COM: o
+// modelo recebia um JSON que dizia "indisponível", mas o dono via só o resultado e não tinha como saber que a
+// deliberação foi feita às cegas. Degradação silenciosa para o usuário é o mesmo defeito que passei a sessão
+// caçando no código — só que na camada de cima. O aviso sai UMA vez por processo (não a cada worker, senão vira
+// ruído) e diz o motivo E o conserto.
+let avisouEscopo = false;
+const memoryScopeParaMesa = () => {
+  let escopo = null, motivo = "";
+  try { escopo = memory.projectId() || null; }
+  catch (e) { motivo = e?.message || String(e); }
+  if (!avisouEscopo) {
+    avisouEscopo = true;
+    const origem = escopo ? (() => { try { return projectIdStrength(process.cwd()); } catch { return "?"; } })() : "?";
+    logHost(avisoMemoria({ escopo, origem, motivo }).texto);
+  }
+  return escopo;
+};
 const liveMesa = createLiveMesa((a) => createLiveWorker({ ...a, cwd: process.cwd(), memoryScope: memoryScopeParaMesa(), log: logHost }), { order: ["tecnico", "pesquisador", "negocio", "advogado-diabo", "revisor", "facilitador"], log: logHost });
 const gate = createGatePort({ factory, log: logHost });                              // GatePort → skills reais (F4)
 const adr = createModoAdr({ log: logHost });                                         // perfil modo-adr (planejamento; usa a mesa VIVA via caps)
