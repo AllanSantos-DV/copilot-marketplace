@@ -3,7 +3,7 @@
 // FAIL LOUD: não mascara falha — se a triagem, os papéis ou a convergência falham, LANÇA com o erro
 // real (nunca cai em papéis default nem devolve pareceres crus como se fosse a resposta).
 // `triageEnabled:false` usa defaultRoles por CONFIG (não é fallback de erro).
-import { recallIssue } from "../memory/memoryPort.mjs";
+import { recallIssue, renderRecall } from "../memory/memoryPort.mjs";
 
 function parseJson(text) {
   const m = String(text || "").match(/\{[\s\S]*\}/);
@@ -34,7 +34,7 @@ export function createMesa({ factory, memory = null, plan = null, gate = null, m
     const p = plan?.read ? await plan.read() : null;
     if (p?.text) planText = String(p.text).slice(0, 4000);
     const m = memory?.recall ? await memory.recall(question, { topK: 3, tag: "mesa" }) : null;
-    if (m && m.ok) memText = (m.results || []).map((r) => "- " + String(r.text || "").slice(0, 300)).join("\n");
+    if (m && m.ok) memText = renderRecall(m.results, { max: 300 }).text;
     else { const iss = recallIssue(m, "mesa"); if (iss) log(iss); }
     return { planText, memText };
   }

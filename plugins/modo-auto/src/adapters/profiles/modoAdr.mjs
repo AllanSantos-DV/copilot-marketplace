@@ -7,6 +7,7 @@
 // outro, documentador escreve com a DELIBERAÇÃO INTEIRA). Senão → fan-out/fan-in LEGADO (fallback).
 
 import { getRole } from "../agents/roles.mjs";
+import { renderRecall } from "../memory/memoryPort.mjs";
 import { withRunContext } from "../agents/agentFactory.mjs";
 import { selectSeed } from "../adr/templateRegistry.mjs";
 import { triage } from "../adr/complexityTriage.mjs";
@@ -278,7 +279,11 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
           .filter((r) => r && !String(r.text || "").includes(ADR_RECORD_MARK));
         const cortados = (mem.results || []).length - rel.length;
         if (cortados > 0) log(`[modo-adr] recall: ${cortados} registro(s) de ADR legado descartado(s) — a mesa não reconsome a própria saída`);
-        existing = rel.map((r) => "- " + String(r.text || "").slice(0, 220)).join("\n");
+        // Memória CITÁVEL: cada item entra com o id do documento. Sem isso o modelo não tem como citar a fonte e
+        // nenhum gate consegue conferir se a citação existe de verdade.
+        const rend = renderRecall(rel);
+        existing = rend.text;
+        if (rend.semId > 0) log(`[modo-adr] ${rend.semId} item(ns) de memória SEM id auditável (entram marcados [sem-id] — o conhecimento chega, a citação não é conferível)`);
       }
       else if (mem && mem.ok === false) {
         // OFFLINE NÃO É "sem resultado". Antes, `{ok:false, offline:true}` caía no mesmo lugar que "a busca não
@@ -291,7 +296,7 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
       if (caps.memory?.recall) {
         try {
           const adrs = await caps.memory.recall(bf, { topK: 3, namespace: ADR_NAMESPACE });
-          if (adrs && adrs.ok) priorAdrs = (adrs.results || []).map((r) => "- " + String(r.text || "").slice(0, 300)).join("\n");
+          if (adrs && adrs.ok) priorAdrs = renderRecall(adrs.results, { max: 300 }).text;
         } catch (e) { log(`[modo-adr] arquivo de ADRs indisponível (sinalizado): ${e?.message || e}`); }
       }
 

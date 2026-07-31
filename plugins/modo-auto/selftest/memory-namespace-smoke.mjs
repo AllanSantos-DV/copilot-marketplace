@@ -11,7 +11,7 @@
 
 import assert from "node:assert";
 import { readdirSync, readFileSync } from "node:fs";
-import { buildSaveMetadata, createMemoryPort, AGENT_OUTPUT_TYPES, recallIssue, RECALL_ALLOWED_TYPES } from "../src/adapters/memory/memoryPort.mjs";
+import { buildSaveMetadata, createMemoryPort, AGENT_OUTPUT_TYPES, recallIssue, RECALL_ALLOWED_TYPES, normalizeResults, renderRecall } from "../src/adapters/memory/memoryPort.mjs";
 
 let pass = 0, total = 0;
 const runA = async (m, fn) => { total++; try { await fn(); pass++; console.log("  ok - " + m); } catch (e) { console.log("  FAIL - " + m + " :: " + (e?.message || e)); } };
@@ -271,6 +271,47 @@ run("nenhuma escotilha não-declarada no código de produção (gate que quebra 
   varrer(raiz);
   const naoAutorizados = achados.filter((a) => !ESCOTILHAS_AUTORIZADAS.includes(a));
   assert.deepStrictEqual(naoAutorizados, [], "escotilha aberta em produção sem estar declarada em ESCOTILHAS_AUTORIZADAS: " + naoAutorizados.join(", "));
+});
+
+// MEMÓRIA CITÁVEL: normalização no PORT (não em 5 callers) + id que sobrevive ao truncamento.
+console.log("memória citável: normalização única no port");
+run("normaliza o contrato REAL do daemon (documentId/chunkIndex — NÃO existe .id)", () => {
+  // Este teste existe porque eu quase implementei em cima de `.id`, que NÃO existe: o contrato medido contra a
+  // API viva é {text, score, documentId, chunkIndex}. Com o campo errado, 100% dos itens degradariam — e o
+  // sintoma seria "a memória sumiu", não "usei o campo errado".
+  const [r] = normalizeResults([{ text: "conteúdo", score: 0.8, documentId: "abc-123", chunkIndex: 2 }]);
+  assert.strictEqual(r.doc_id, "abc-123");
+  assert.strictEqual(r.chunk, 2);
+  assert.strictEqual(r.text, "conteúdo");
+});
+run("item SEM id vira doc_id:null — nunca 'undefined' carimbado (citação falsa é pior que ausência)", () => {
+  const [r] = normalizeResults([{ text: "sem id" }]);
+  assert.strictEqual(r.doc_id, null, "id ausente tem que ser null explícito: " + JSON.stringify(r));
+});
+run("o doc_id SOBREVIVE ao truncamento (id longo, texto cortado — id vai em campo separado)", () => {
+  // Aceite exigido pelo painel: id sintético curto passaria mesmo numa implementação errada que concatenasse o
+  // id ao texto ANTES do slice. Aqui o id é um UUID e o texto é maior que o corte — se fosse concatenado, o id
+  // sairia mutilado (e id mutilado parece válido, o que é pior que id faltando).
+  const uuid = "9f1c2d3e-4b5a-6c7d-8e9f-0a1b2c3d4e5f";
+  const longo = "x".repeat(500);
+  const out = renderRecall(normalizeResults([{ text: longo, documentId: uuid }]), { max: 220 });
+  assert.ok(out.text.includes(uuid), "o id íntegro tem que aparecer na linha: " + out.text.slice(0, 80));
+  assert.ok(out.text.length < 400, "e o TEXTO tem que continuar truncado: " + out.text.length);
+  assert.deepStrictEqual(out.ids, [uuid], "os ids citáveis são devolvidos para um gate poder conferir a citação");
+});
+run("item SEM id ENTRA marcado [sem-id] — descartar apagaria a memória inteira em silêncio se o campo mudasse", () => {
+  const out = renderRecall(normalizeResults([{ text: "a", documentId: "id-1" }, { text: "b" }]), { max: 50 });
+  assert.strictEqual(out.ids.length, 1, "só o item com id é CITÁVEL");
+  assert.ok(/\[sem-id\] b/.test(out.text), "mas o não-citável continua chegando, marcado: " + out.text);
+  assert.strictEqual(out.semId, 1, "e a perda de auditabilidade tem que ser contada: " + JSON.stringify(out));
+});
+await runA("o recall devolve JÁ normalizado (a regra mora no port, não nos 5 callers)", async () => {
+  const port = createMemoryPort({
+    discoverFn: async () => ({ url: "http://fake" }),
+    clientFactory: () => ({ search: async () => ({ results: [{ text: "t", documentId: "d-9", chunkIndex: 0 }] }), save: async () => ({ id: "1" }) }),
+  });
+  const r = await port.recall("q");
+  assert.strictEqual(r.results[0].doc_id, "d-9", "o caller tem que receber doc_id pronto: " + JSON.stringify(r.results[0]));
 });
 
 console.log(`\nmemory-namespace-smoke: ${pass}/${total} OK`);

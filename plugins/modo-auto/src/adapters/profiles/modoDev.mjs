@@ -5,7 +5,7 @@
 // Cada papel é um sub-agente REAL da fábrica (não stub). Reusa GatePort + AgentFactoryPort. Nunca lança.
 
 import { resolveSkills, resolveGates } from "../skills/catalog.mjs";
-import { recallIssue } from "../memory/memoryPort.mjs";
+import { recallIssue, renderRecall } from "../memory/memoryPort.mjs";
 import { extractJson } from "../util/extractJson.mjs";
 import { reviewUntilClean } from "../review/remediation.mjs";
 import { createReviewerRotation } from "../review/reviewerRotation.mjs";
@@ -87,7 +87,7 @@ export function createModoDev({ log = () => {}, gates, maxRounds = 4, perReviewe
       // contexto: o que já existe (memória offline = degradado explícito, não erro mascarado).
       let existing = "";
       const mem = caps.memory?.recall ? await caps.memory.recall(ph, { topK: 3, tag: "modo-dev" }) : null;
-      if (mem && mem.ok) existing = (mem.results || []).map((r) => "- " + String(r.text || "").slice(0, 180)).join("\n");
+      if (mem && mem.ok) existing = renderRecall(mem.results, { max: 180 }).text;
       else { const iss = recallIssue(mem, "modo-dev"); if (iss) log(iss); }
       // DECISÕES ANTERIORES (namespace #adr). Quem CONSTRÓI uma fase precisa saber o que a mesa já DECIDIU — senão
       // o dev contradiz o ADR e o revisor reprova por um motivo que estava escrito e ninguém leu. Este é o
@@ -96,7 +96,7 @@ export function createModoDev({ log = () => {}, gates, maxRounds = 4, perReviewe
       let decisions = "";
       if (caps.memory?.recall) {
         const adr = await caps.memory.recall(ph, { topK: 2, namespace: "adr" });
-        if (adr && adr.ok) decisions = (adr.results || []).map((r) => "- " + String(r.text || "").slice(0, 240)).join("\n");
+        if (adr && adr.ok) decisions = renderRecall(adr.results, { max: 240 }).text;
         else { const iss = recallIssue(adr, "modo-dev/adr"); if (iss) log(iss); }
       }
       const ctx = `FASE A CONSTRUIR:\n${ph}\n\nJÁ EXISTE (reúse, não reinvente):\n${existing || "(nada relevante)"}` +
