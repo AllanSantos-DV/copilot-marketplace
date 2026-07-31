@@ -133,7 +133,7 @@ const activity = createActivityRegistry({ onEnd: (span) => telemetry.persist(spa
 // EFICÁCIA (GAP 2): persiste o VEREDITO de uma fase do modo-dev como span v2 (stage dev-verdict) — o gapDetector
 // mede rounds/escalate/exhausted. Fonte ÚNICA (DRY) usada por modo_dev E pelo pipeline. Aritmética pura (Princípio 11).
 const recordVerdict = (v) => telemetry.persist({ stage: "dev-verdict", status: v?.pass ? "done" : "fail", role: "tech-lead", startedAt: Date.now(), traceId: v?.gid || null, group: v?.gid || null, taskType: v?.taskType || null, spanVersion: 2, verdict: v || null });
-const factory = createAgentFactory({ cwdProvider: () => process.cwd(), getRouter: () => modelRouter, activity, log: logHost }); // AgentFactoryPort → workers (modelo roteado + registro)
+const factory = createAgentFactory({ cwdProvider: () => process.cwd(), getRouter: () => modelRouter, activity, memoryScopeProvider: () => memoryScopeParaMesa(), log: logHost }); // AgentFactoryPort → workers (modelo roteado + registro)
 // MOTOR DA MESA VIVA (debate round-robin turno a turno): cada agente é uma sessão Copilot viva.
 // MEMÓRIA CRAVADA AQUI, e não em cada perfil: este é o gargalo por onde TODO agente de mesa nasce (modo_adr,
 // modo_dev, modo_reuso, modo_seguranca, sombra). Ligar perfil a perfil seria repetir a regra em N lugares e
@@ -183,7 +183,7 @@ const scopo = createModoScopo({ log: logHost });                                
 const codeAnalysis = createCodeAnalysis({ log: logHost });                           // evidência determinística (jscpd/depcheck), opcional
 const reuso = createModoReuso({ log: logHost });                                     // perfil modo-reuso (análise de reúso/enxugamento → ADR lean via OTF)
 const seguranca = createModoSeguranca({ log: logHost });                             // perfil modo-seguranca (auditoria SAST → ADR de segurança via OTF)
-const deep = createDeepPanel({ factory, memoryScopeProvider: memoryScopeParaMesa, log: logHost }); // painel de consenso multi-família (escopo no gargalo)ti-família (modo profundo, opt-in)
+const deep = createDeepPanel({ factory, log: logHost }); // painel multi-família (o escopo vem da factory — porta única)ti-família (modo profundo, opt-in)
 const shadowConsolidator = createShadowConsolidator({ log: logHost });               // consolidador do modo-sombra (dossiê de contestação)
 const sombra = createModoSombra({ consolidator: shadowConsolidator, log: logHost }); // perfil modo-sombra (contestação background + pré-ADR)
 const embedder = createEmbedder({ log: logHost });                                   // embedder DEDICADO do sombra (drift determinístico, isolado do servidor)

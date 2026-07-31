@@ -139,12 +139,22 @@ documento do vizinho — semanticamente ótimo para a query — apareceria. Não
 - `project_id` **errado** não é `project_id` **vazio**: fork, mirror, submodule, `origin` vs `upstream`, ou um
   marcador desatualizado produzem escopo divergente em **silêncio**. O fail-loud só cobre o vazio.
   **Mitigações entregues:** (a) ledger de acesso no stderr do worker (`#MEM papel leu N trecho(s) do escopo Z`);
-  (b) `detectarEscopoSuspeito()` reconhece **fork** (remote `upstream` ≠ `origin`) e **espelho/artefato aninhado**
-  (o diretório não tem nada rastreado, mas o repo que responde por ele tem — é a marca de uma instalação dentro
-  de um repo alheio, e a causa-raiz do falso positivo "o código está numa versão antiga" que se repetiu ~6 vezes);
-  (c) o status curto viaja no RESULTADO das tools, não só no log.
-  **O que continua sem sinal, dito sem maquiar:** mirror remoto e marcador desatualizado — não há fato medível
-  que os distinga de uso legítimo.
+  (b) `detectarEscopoSuspeito()` reconhece **submodule** por sinal NATIVO do git
+  (`--show-superproject-working-tree`, o próprio git afirmando a relação) e **espelho/artefato aninhado**
+  (o diretório não tem nada rastreado, mas o repo que responde por ele tem — é a causa-raiz do falso positivo
+  "o código está numa versão antiga" que se repetiu ~6 vezes); (c) o status curto viaja no RESULTADO das tools;
+  (d) o **caller não consegue mais apontar o agente para outro projeto**: `memoryScope` deixou de ser parâmetro
+  de `factory.run()` e passou a vir do provider injetado na criação da factory. Não é regra a respeitar, é
+  argumento que não existe — validar FORMA nunca resolveria, porque `outro/projeto` tem forma perfeita.
+
+  **O que continua SEM cobertura, dito sem maquiar:**
+  - **FORK é heurística, não detecção.** Depende de existir um remote chamado `upstream` diferente do `origin`
+    (convenção do `gh repo fork`), reforçada por `remote.upstream.gh-resolved` quando presente. Git **não tem**
+    sinal nativo de fork — fork é conceito de forja, não de git. Quem clona um fork direto, sem adicionar
+    `upstream`, **passa batido**. Isto é LIMITAÇÃO CONHECIDA, não item resolvido.
+  - **Mirror remoto e marcador desatualizado**: sem sinal. Não há fato medível que os distinga de uso legítimo.
+  - **Escopo válido-porém-errado vindo do próprio ambiente** (o dono abriu a sessão na pasta errada): o produto
+    avisa qual escopo resolveu e de onde, mas não pode saber que é o errado. Só o humano sabe.
 
 - **Onde o aviso aparece.** O aviso longo vai por `logHost`, que escreve no log da sessão do host — e esse log é
   **invisível numa sessão por voz ou daemon**, que é como o produto costuma ser usado. Por isso existe também um

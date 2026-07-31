@@ -297,7 +297,7 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
         // resto. Aqui um auditor READ-ONLY (availableTools:[] — ele não TEM tool de memória) julga item a item e
         // cita o doc_id; o contestado não some, entra rotulado para a mesa poder discordar do próprio auditor.
         if (caps.factory?.run && rend.ids.length) {
-          const aud = await auditarMemoria({ factory: caps.factory, assunto: bf, itens: rel.filter((r) => r.doc_id), log, memoryScope: escopoParaWorker(caps) });
+          const aud = await auditarMemoria({ factory: caps.factory, assunto: bf, itens: rel.filter((r) => r.doc_id), log, temMemoria: !!escopoParaWorker(caps) });
           if (aud.auditado) existing = renderAuditado(aud);
           else log(`[modo-adr] memória NÃO auditada (${aud.error || aud.motivo}) — segue inteira, sinalizada (auditor quebrado não pode apagar o contexto do projeto)`);
         }
@@ -349,7 +349,7 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
       // MEMÓRIA NO WORKER (Fase 2): o escopo vai CRAVADO. O documentador ganha busca semântica sob demanda em
       // vez de depender só do que o pai adiantou no prompt — e não tem como consultar o projeto errado, porque
       // "projeto" não é argumento dele. Sem plugin/escopo → `null` e ele roda como antes.
-      const doc = await caps.factory.run("documentacao", planPrompt, { timeoutMs: 150000, stage: "adr", group: gid, topic, memoryScope: escopoParaWorker(caps) });
+      const doc = await caps.factory.run("documentacao", planPrompt, { timeoutMs: 150000, stage: "adr", group: gid, topic });
       if (!doc.ok || !textOf(doc)) throw new Error("modo-adr: documentador falhou ao escrever o plano: " + (doc.error || "sem texto"));
       const plan = textOf(doc);
 

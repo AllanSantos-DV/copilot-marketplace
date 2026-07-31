@@ -56,14 +56,12 @@ export function pickFamilies(rankedModels, maxFamilies = 3) {
 }
 
 /**
- * @param {{ factory:object, log?:(m:string)=>void, memoryScopeProvider?:()=>string|null }} a
- *   `memoryScopeProvider` é o ESCOPO por injeção, resolvido no gargalo. A primeira versão recebia `memoryScope`
- *   por chamada, e de 7 call-sites só 1 passava — os outros 6 nasciam cegos, em silêncio. É a terceira vez nesta
- *   sessão que "consertar um chamador não conserta a classe" me pega; aqui a regra passa a viver na criação do
- *   painel, e nenhuma chamada precisa lembrar. Um `memoryScope` explícito na chamada ainda vence (para o caso
- *   raro de auditar OUTRO projeto), mas o default deixa de ser a cegueira.
+ * @param {{ factory:object, log?:(m:string)=>void }} a
+ *   O escopo de memória NÃO passa por aqui: ele vem do provider injetado na criação da própria `factory`, que é
+ *   quem crava. Ter um `memoryScope` no painel era uma segunda porta para o mesmo dado — e duas portas para o
+ *   mesmo dado é como se cria escopo divergente.
  */
-export function createDeepPanel({ factory, log = () => {}, memoryScopeProvider = null } = {}) {
+export function createDeepPanel({ factory, log = () => {} } = {}) {
   if (!factory?.run) throw new Error("deepPanel: factory (AgentFactoryPort) ausente");
 
   // famílias distintas p/ o painel: preferência da capacidade + qualquer família disponível não representada.
@@ -95,11 +93,9 @@ export function createDeepPanel({ factory, log = () => {}, memoryScopeProvider =
      * @returns {{ ok:true, verdict:{pass,findings,escalate}, watch:string[], families:string[], panel:object[], elapsedMs:number }
      *          | { ok:false, reason:"insufficient-families"|"panel-degraded"|"deadline", families:string[] }}
      */
-    async review({ material, critiquePrompt, router, taskType = null, panelRole = "revisor", minFamilies = 2, maxFamilies = 3, timeoutMs = 120000, totalMs = DEFAULT_TOTAL_MS, memoryScope = null } = {}) {
+    async review({ material, critiquePrompt, router, taskType = null, panelRole = "revisor", minFamilies = 2, maxFamilies = 3, timeoutMs = 120000, totalMs = DEFAULT_TOTAL_MS } = {}) {
       if (!material || !critiquePrompt) throw new Error("deepPanel.review: material/critiquePrompt ausente");
       const t0 = Date.now();
-      // Escopo do painel: o explícito vence; senão vem do provider do gargalo. Nunca cego por omissão.
-      const escopo = memoryScope != null ? memoryScope : (() => { try { return memoryScopeProvider ? memoryScopeProvider() : null; } catch { return null; } })();
       const restante = () => (Number.isFinite(totalMs) ? Math.max(0, totalMs - (Date.now() - t0)) : Infinity);
       const fams = familiesFor(router, { role: panelRole, taskType, maxFamilies });
       if (fams.length < minFamilies) {
@@ -112,7 +108,7 @@ export function createDeepPanel({ factory, log = () => {}, memoryScopeProvider =
       // 1) crítica em PARALELO, cada família com seu modelo (override). `maxWallMs` é o relógio de PAREDE — é
       // ele que mata a família pendurada; o `timeoutMs` só cobre ociosidade.
       const outs = await Promise.all(fams.map(async (f) => {
-        const r = await factory.run(panelRole, critiquePrompt, { subject: panelRole, timeoutMs, maxWallMs: restante(), model: f.model, stage: "deep", memoryScope: escopo });
+        const r = await factory.run(panelRole, critiquePrompt, { subject: panelRole, timeoutMs, maxWallMs: restante(), model: f.model, stage: "deep" });
         return { family: f.family, model: f.model, ok: r.ok, text: r.ok ? r.text : "", error: r.error || null };
       }));
       const okOuts = outs.filter((o) => o.ok && o.text);
