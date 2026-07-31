@@ -37,6 +37,20 @@ export function resolveRepoRoot(cwd) {
   } catch { return null; }
 }
 
+// ÂNCORA dos handlers de git. Ter o `resolveRepoRoot` não bastava: os handlers rodavam `git -C <alvo>` DIRETO,
+// e como o git SOBE na árvore, um alvo que é artefato aninhado (mirror/instalação dentro de `~/.copilot`, que É
+// um repo) era auditado contra o repo DE CIMA — devolvendo `tracked:false` e `count:0` com toda a confiança.
+// MEDIDO no runtime v0.2.96: `resolveRepoRoot(mirror)` já respondia `null`, mas `git_tracked(findingsTracker.mjs)`
+// ainda dizia `tracked:false`. O resolver existia e ninguém o consultava — resolver que não é usado é decoração.
+// Agora TODO handler de git passa por aqui: ou existe repo VÁLIDO (o alvo pertence a ele), ou o resultado é
+// `null` + `error` explicando. Nunca "false/0 calado", que é o formato exato dos falsos "não versionado / sem
+// história" que este verificador existe para matar.
+function anchor(repo) {
+  const root = resolveRepoRoot(repo);
+  if (root) return { root };
+  return { root: null, error: `alvo não pertence a nenhum repo git válido (${repo}) — é artefato fora de repo ou aninhado num repositório ALHEIO; auditar o repo de cima produziria falso "não versionado/sem história"` };
+}
+
 // Cada tool: read-only, args fixos. O modelo escolhe qual chamar p/ checar a alegação.
 export const verifyTools = [
   {
@@ -49,25 +63,39 @@ export const verifyTools = [
     name: "git_tracked",
     description: "Read-only: o arquivo está VERSIONADO no git (tracked)? JSON {tracked, relpath}.",
     parameters: { type: "object", properties: { repo: { type: "string" }, relpath: { type: "string" } }, required: ["repo", "relpath"] },
-    handler: (a) => { const repo = String(a?.repo || ""), rel = String(a?.relpath || ""); try { git(repo, ["ls-files", "--error-unmatch", "--", rel]); return JSON.stringify({ tracked: true, relpath: rel }); } catch (e) { if (e?.status === 1) return JSON.stringify({ tracked: false, relpath: rel }); return JSON.stringify({ tracked: null, relpath: rel, error: `git indisponível/cwd não-repo: ${String(e?.message || e).slice(0, 120)}` }); } },
+    handler: (a) => {
+      const rel = String(a?.relpath || "");
+      const { root, error } = anchor(String(a?.repo || ""));
+      if (!root) return JSON.stringify({ tracked: null, relpath: rel, error });
+      try { git(root, ["ls-files", "--error-unmatch", "--", rel]); return JSON.stringify({ tracked: true, relpath: rel, repo: root }); }
+      catch (e) { if (e?.status === 1) return JSON.stringify({ tracked: false, relpath: rel, repo: root }); return JSON.stringify({ tracked: null, relpath: rel, error: `git indisponível: ${String(e?.message || e).slice(0, 120)}` }); }
+    },
   },
   {
     name: "git_grep",
     description: "Read-only: busca um padrão (string literal) nos arquivos do WORKING TREE — versionados E não-versionados (respeita .gitignore). JSON {matches:[{file,line,text}], count}. Prova se um símbolo/import/texto existe AGORA no código, inclusive em trabalho ainda não commitado.",
     parameters: { type: "object", properties: { repo: { type: "string" }, pattern: { type: "string" }, path: { type: "string", description: "opcional: limitar a um subpath" } }, required: ["repo", "pattern"] },
     handler: (a) => {
-      const repo = String(a?.repo || ""), pat = String(a?.pattern || ""); const path = a?.path ? String(a.path) : null;
-      try { const out = git(repo, ["grep", "-n", "-F", "--untracked", "-e", pat, ...(path ? ["--", path] : [])]);
+      const pat = String(a?.pattern || ""); const path = a?.path ? String(a.path) : null;
+      const { root, error } = anchor(String(a?.repo || ""));
+      if (!root) return JSON.stringify({ matches: null, count: null, error });
+      try { const out = git(root, ["grep", "-n", "-F", "--untracked", "-e", pat, ...(path ? ["--", path] : [])]);
         const matches = out ? out.split(/\r?\n/).slice(0, 50).map((l) => { const m = l.match(/^([^:]+):(\d+):(.*)$/); return m ? { file: m[1], line: +m[2], text: m[3].slice(0, 200) } : { file: null, line: null, text: l.slice(0, 200) }; }) : [];
-        return JSON.stringify({ matches, count: matches.length });
-      } catch (e) { const st = e?.status; if (st === 1) return JSON.stringify({ matches: [], count: 0 }); return JSON.stringify({ matches: null, count: null, error: `git indisponível/cwd não-repo: ${String(e?.message || e).slice(0, 140)}` }); }
+        return JSON.stringify({ matches, count: matches.length, repo: root });
+      } catch (e) { const st = e?.status; if (st === 1) return JSON.stringify({ matches: [], count: 0, repo: root }); return JSON.stringify({ matches: null, count: null, error: `git indisponível: ${String(e?.message || e).slice(0, 140)}` }); }
     },
   },
   {
     name: "git_log_grep",
     description: "Read-only: procura commits cuja MENSAGEM casa o padrão. JSON {commits:[{sha,subject}], count}. Prova se algo 'foi commitado'.",
     parameters: { type: "object", properties: { repo: { type: "string" }, pattern: { type: "string" } }, required: ["repo", "pattern"] },
-    handler: (a) => { const repo = String(a?.repo || ""), pat = String(a?.pattern || ""); try { const out = git(repo, ["log", "--oneline", "-n", "20", "--grep", pat, "-i"]); const commits = out ? out.split(/\r?\n/).map((l) => { const m = l.match(/^(\w+)\s+(.*)$/); return m ? { sha: m[1], subject: m[2].slice(0, 160) } : { sha: null, subject: l.slice(0, 160) }; }) : []; return JSON.stringify({ commits, count: commits.length }); } catch (e) { return JSON.stringify({ commits: null, count: null, error: `git indisponível/cwd não-repo: ${String(e?.message || e).slice(0, 140)}` }); } },
+    handler: (a) => {
+      const pat = String(a?.pattern || "");
+      const { root, error } = anchor(String(a?.repo || ""));
+      if (!root) return JSON.stringify({ commits: null, count: null, error });
+      try { const out = git(root, ["log", "--oneline", "-n", "20", "--grep", pat, "-i"]); const commits = out ? out.split(/\r?\n/).map((l) => { const m = l.match(/^(\w+)\s+(.*)$/); return m ? { sha: m[1], subject: m[2].slice(0, 160) } : { sha: null, subject: l.slice(0, 160) }; }) : []; return JSON.stringify({ commits, count: commits.length, repo: root }); }
+      catch (e) { return JSON.stringify({ commits: null, count: null, error: `git indisponível: ${String(e?.message || e).slice(0, 140)}` }); }
+    },
   },
   {
     name: "file_contains",
