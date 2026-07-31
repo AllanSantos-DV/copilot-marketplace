@@ -99,7 +99,7 @@ export function createAgentFactory({ cwdProvider = () => process.cwd(), model, g
   // opts.system sobrescreve o system do papel; opts.skills (nomes de skills globais) são INJETADAS no
   // system; opts.skillDirectories carrega skills nativas; opts.cwd roda o worker num diretório específico;
   // opts.model força um modelo; senão o ROUTER escolhe por capacidade (papel + opts.taskType).
-  function run(roleId, prompt, { subject, timeoutMs = 200000, maxWallMs = Infinity, system, skillDirectories, skills, cwd, model: modelOverride, taskType, reasoningEffort, stage, group, topic, traceId, availableTools, schema } = {}) {
+  function run(roleId, prompt, { subject, timeoutMs = 200000, maxWallMs = Infinity, system, skillDirectories, skills, cwd, model: modelOverride, taskType, reasoningEffort, stage, group, topic, traceId, availableTools, schema, memoryScope = null } = {}) {
     // Papel resolvido: do catálogo/registro; senão, shell APENAS quando há `system` explícito (ex.: gate).
     // Sem papel e sem system → FAIL LOUD (nada de template silencioso; papéis dinâmicos usam factory.design).
     const role = get(roleId) || (system ? { id: roleId, title: roleId, kind: "shell", system } : null);
@@ -184,6 +184,11 @@ export function createAgentFactory({ cwdProvider = () => process.cwd(), model, g
         // "sem teto de parede" explícito (o child lê Number.isFinite(msg.maxWallMs) → ausente = Infinity = off).
         const job = { role: roleId, system: sys, prompt, model: chosenModel, idleGraceMs: timeoutMs, skillDirectories: skillDirs, reasoningEffort: effort, ...(schema ? { schema } : {}) };
         if (Number.isFinite(maxWallMs)) job.maxWallMs = maxWallMs;
+        // ESCOPO DE MEMÓRIA CRAVADO PELO PAI. O pai resolve UMA vez, com o cwd da SESSÃO; o filho recebe pronto
+        // e nunca olha o próprio diretório (que é outro). Sem id resolvível, o campo simplesmente não vai — e o
+        // worker roda sem tool de memória, que é o comportamento correto (adaptador, não dependência).
+        // `memoryScope` só é preenchido pelo caller que TEM o port; ninguém aqui adivinha projeto.
+        if (memoryScope) job.memoryScope = String(memoryScope);
         // availableTools:[] = papel TEXT-only (crítica/veredito) → desliga os built-ins do CLI. Papéis
         // construtores/revisores VIVOS NÃO passam isto (mantêm as ferramentas — controle é por atividade).
         if (Array.isArray(availableTools)) job.availableTools = availableTools;

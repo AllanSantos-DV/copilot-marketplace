@@ -1,6 +1,6 @@
 {
   "name": "modo-auto",
-  "version": "0.4.1",
+  "version": "0.5.2",
   "description": "Modo autonomo por sessao para o Copilot: uma MESA de agentes responde os ask_user e revisa os Stop, com plano vivo, memoria e pesquisa. Nucleo hexagonal (ports & adapters).",
   "type": "module",
   "main": "extension.mjs",
@@ -35,6 +35,7 @@
     "agents",
     "embed-house",
     "selftest",
+    "docs",
     "scripts/run-tests.mjs",
     "boot.mjs",
     "boot.neural-link.json",

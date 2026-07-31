@@ -17,7 +17,7 @@ const LIVE_WORKER = join(HERE, "liveWorker.mjs");
 /**
  * @param {{ role:string, system:string, model?:string, cwd?:string, configDir?:string, skillDirectories?:string[], reasoningEffort?:string, log?:(m:string)=>void }} opts
  */
-export function createLiveWorker({ role, system, model, cwd, configDir, skillDirectories, reasoningEffort, resume, log = () => {} } = {}) {
+export function createLiveWorker({ role, system, model, cwd, configDir, skillDirectories, reasoningEffort, resume, memoryScope = null, log = () => {} } = {}) {
   if (!role) throw new Error("createLiveWorker: role vazio");
   const env = { ...process.env };
   delete env.NODE_OPTIONS; delete env.COPILOT_SDK_PATH;
@@ -30,6 +30,9 @@ export function createLiveWorker({ role, system, model, cwd, configDir, skillDir
   if (Array.isArray(skillDirectories) && skillDirectories.length) env.MODO_AUTO_WORKER_SKILLDIRS = JSON.stringify(skillDirectories);
   if (reasoningEffort) env.MODO_AUTO_WORKER_EFFORT = reasoningEffort;
   if (resume) env.MODO_AUTO_WORKER_RESUME = String(resume); // RELIGAR: resume a sessão (histórico preservado)
+  // ESCOPO DE MEMÓRIA CRAVADO PELO PAI: o worker da mesa viva ganha `memory_search` já amarrado a este projeto.
+  // Sem escopo, a variável nem existe e o worker sobe sem tool de memória (adaptador, não dependência).
+  if (memoryScope) env.MODO_AUTO_WORKER_MEMORY_SCOPE = String(memoryScope);
 
   let child = null, buf = "", err = "", sessionId = null, closed = false, nextId = 0;
   const waiters = new Map();       // id → resolve(result)

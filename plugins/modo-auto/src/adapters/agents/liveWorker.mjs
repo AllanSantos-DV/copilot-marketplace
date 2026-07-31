@@ -43,6 +43,22 @@ function emit(obj) { process.stdout.write(JSON.stringify(obj) + "\n"); }
       catch (e) { process.stderr.write("worker aviso: research tools indisponíveis p/ pesquisador: " + (e?.message || e)); }
     }
 
+    // MEMÓRIA READ-ONLY na MESA VIVA — é AQUI que os agentes de fato debatem. Eu tinha ligado a memória só no
+    // caminho de fallback (`factory.run` do modoAdr), que quase nunca roda: a mesa viva vence sempre que
+    // `caps.liveMesa` existe. Ou seja, "Fase 2 funcionando" estava certo no mecanismo e ERRADO no caminho — o
+    // agente que discute é este, e ele continuava cego. Uma auditoria externa apontou, e procedia.
+    // O escopo vem CRAVADO pelo pai (env, montado a partir do port da SESSÃO); o worker nunca resolve projeto.
+    const memoryScope = String(process.env.MODO_AUTO_WORKER_MEMORY_SCOPE || "").trim();
+    let memoryToolset = [];
+    if (memoryScope) {
+      try {
+        const [pm, tm] = await Promise.all([import("../memory/memoryPort.mjs"), import("../memory/memoryTools.mjs")]);
+        const port = pm.createMemoryPort({ projectId: memoryScope, log: () => {} });
+        memoryToolset = tm.createMemoryTools({ recall: (q, o) => port.recall(q, { ...o, tag: "mesa:" + (role || "?") }), projectId: memoryScope }).tools;
+      } catch (e) { process.stderr.write("worker aviso: memória indisponível na mesa viva: " + (e?.message || e)); }
+    }
+    const toolset = [...researchToolset, ...memoryToolset];
+
     const { CopilotClient, approveAll } = await import(sdkIndexUrl());
     if (typeof CopilotClient !== "function") { process.stderr.write("worker erro: CopilotClient indisponível"); process.exitCode = 1; return; }
     client = new CopilotClient({ workingDirectory: wd });
@@ -56,15 +72,20 @@ function emit(obj) { process.stdout.write(JSON.stringify(obj) + "\n"); }
       model, workingDirectory: wd, configDirectory: configDir, configDir,
       onPermissionRequest: approveAll,
       systemMessage: { mode: "append", content: String(system) + "\n\n" + CLEAN_DIRECTIVE },
-      tools: researchToolset,
+      tools: toolset,
       ...(effort ? { reasoningEffort: effort } : {}),
       ...(Array.isArray(skillDirs) && skillDirs.length ? { skillDirectories: skillDirs } : {}),
     };
     // RELIGAR: se veio um sessionId, RESUME a sessão (histórico preservado em disco) em vez de criar nova.
     // Precisa do MESMO configDir + workingDirectory pra localizar o estado da sessão no disco.
     session = resumeId
-      ? await client.resumeSession(resumeId, { onPermissionRequest: approveAll, workingDirectory: wd, configDirectory: configDir, configDir, ...(researchToolset.length ? { tools: researchToolset } : {}), ...(Array.isArray(skillDirs) && skillDirs.length ? { skillDirectories: skillDirs } : {}) })
+      ? await client.resumeSession(resumeId, { onPermissionRequest: approveAll, workingDirectory: wd, configDirectory: configDir, configDir, ...(toolset.length ? { tools: toolset } : {}), ...(Array.isArray(skillDirs) && skillDirs.length ? { skillDirectories: skillDirs } : {}) })
       : await client.createSession(cfg);
+    // Mesmo canal de inspeção do worker one-shot: sob MODO_AUTO_DUMP_TOOLS=1, declara de DENTRO o que a sessão
+    // recebeu. É o que permite um teste afirmar o manifesto REAL da mesa viva em vez de confiar na regra.
+    if (process.env.MODO_AUTO_DUMP_TOOLS === "1") {
+      process.stderr.write("\x1e#TOOLS " + JSON.stringify({ role, custom: toolset.map((t) => t.name), memoryScope: memoryScope || null, configDir }) + "\n");
+    }
     emit({ type: "ready", sessionId: session.sessionId, resumed: !!resumeId });
 
     const rl = createInterface({ input: process.stdin });

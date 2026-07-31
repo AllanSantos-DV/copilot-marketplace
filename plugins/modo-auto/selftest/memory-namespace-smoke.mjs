@@ -10,7 +10,9 @@
 // as asserções nunca rodavam. Verde por caminho não-executado é pior que vermelho.
 
 import assert from "node:assert";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildSaveMetadata, createMemoryPort, AGENT_OUTPUT_TYPES, recallIssue, RECALL_ALLOWED_TYPES, normalizeResults, renderRecall } from "../src/adapters/memory/memoryPort.mjs";
 
 let pass = 0, total = 0;
@@ -18,6 +20,15 @@ const runA = async (m, fn) => { total++; try { await fn(); pass++; console.log("
 const run = (m, fn) => { total++; try { fn(); pass++; console.log("  ok - " + m); } catch (e) { console.log("  FAIL - " + m + " :: " + (e?.message || e)); } };
 
 const PROJ = "owner/projeto";
+
+// ESCOPO DETERMINÍSTICO PARA O TESTE. O port resolve project_id do cwd, e o contrato (fiel ao copilot-memory) é
+// FALHAR ALTO quando não há marcador nem git remote. Rodando do repo dev isso resolve; rodando do ARTEFATO
+// INSTALADO (aninhado em ~/.copilot, sem marcador) LANÇA — e a suíte inteira ficava vermelha por causa do LOCAL,
+// não da regra. Estes testes exercitam namespace/filtro, não resolução de escopo: então eles criam o próprio
+// projeto, com marcador, e ficam independentes de onde o processo está.
+const PROJETO_FAKE = mkdtempSync(join(tmpdir(), "proj-fake-"));
+mkdirSync(join(PROJETO_FAKE, ".memory"), { recursive: true });
+writeFileSync(join(PROJETO_FAKE, ".memory", "project.json"), JSON.stringify({ metadata: { defaults: { project_id: PROJ } } }));
 
 console.log("escopo de gravação");
 run("sem namespace, grava no escopo do projeto", () => {
@@ -83,8 +94,8 @@ console.log("contrato do PORT (daemon falso — prova o caminho ONLINE, não o a
 await runA("recall online chega ao client com o escopo certo", async () => {
   const calls = [];
   const port = createMemoryPort({
-    cwdProvider: () => process.cwd(),
-    discoverFn: async () => ({ url: "http://fake" }),
+    cwdProvider: () => PROJETO_FAKE,
+    cwdProvider: () => PROJETO_FAKE, discoverFn: async () => ({ url: "http://fake" }),
     clientFactory: () => ({ search: async (q, o) => { calls.push(o); return { results: [{ text: "x", score: 0.9 }] }; }, save: async () => ({ id: "1" }) }),
   });
   const r = await port.recall("q", { topK: 3 });
@@ -95,7 +106,7 @@ await runA("recall online chega ao client com o escopo certo", async () => {
 await runA("recall com namespace consulta o escopo IRMÃO", async () => {
   const calls = [];
   const port = createMemoryPort({
-    discoverFn: async () => ({ url: "http://fake" }),
+    cwdProvider: () => PROJETO_FAKE, discoverFn: async () => ({ url: "http://fake" }),
     clientFactory: () => ({ search: async (q, o) => { calls.push(o); return { results: [] }; }, save: async () => ({ id: "1" }) }),
   });
   const r = await port.recall("q", { namespace: "adr" });
@@ -105,7 +116,7 @@ await runA("recall com namespace consulta o escopo IRMÃO", async () => {
 await runA("save online propaga namespace e source_type até o client", async () => {
   const calls = [];
   const port = createMemoryPort({
-    discoverFn: async () => ({ url: "http://fake" }),
+    cwdProvider: () => PROJETO_FAKE, discoverFn: async () => ({ url: "http://fake" }),
     clientFactory: () => ({ search: async () => ({ results: [] }), save: async (c, m) => { calls.push(m); return { id: "1" }; } }),
   });
   const r = await port.save("registro", { type: "adr-registro", namespace: "adr" });
@@ -114,12 +125,12 @@ await runA("save online propaga namespace e source_type até o client", async ()
   assert.strictEqual(calls[0].source_type, "agent_output");
 });
 await runA("OFFLINE é DISTINGUÍVEL de 'nada encontrado' (o verde-vazio que me pegou)", async () => {
-  const port = createMemoryPort({ discoverFn: async () => null });
+  const port = createMemoryPort({ cwdProvider: () => PROJETO_FAKE, discoverFn: async () => null });
   const r = await port.recall("q");
   assert.strictEqual(r.ok, false, "offline NÃO pode devolver ok:true com lista vazia");
   assert.strictEqual(r.offline, true, "o caller precisa conseguir dizer 'estava fora do ar'");
   const vazio = createMemoryPort({
-    discoverFn: async () => ({ url: "http://fake" }),
+    cwdProvider: () => PROJETO_FAKE, discoverFn: async () => ({ url: "http://fake" }),
     clientFactory: () => ({ search: async () => ({ results: [] }), save: async () => ({ id: "1" }) }),
   });
   const r2 = await vazio.recall("q");
@@ -127,7 +138,7 @@ await runA("OFFLINE é DISTINGUÍVEL de 'nada encontrado' (o verde-vazio que me 
   assert.ok(!r2.offline, "e não pode se confundir com offline");
 });
 await runA("save em daemon offline não finge sucesso", async () => {
-  const port = createMemoryPort({ discoverFn: async () => null });
+  const port = createMemoryPort({ cwdProvider: () => PROJETO_FAKE, discoverFn: async () => null });
   const r = await port.save("x", { type: "knowledge" });
   assert.strictEqual(r.ok, false);
   assert.strictEqual(r.offline, true);
@@ -203,7 +214,7 @@ run("a allowlist de leitura e a lista de saída de agente são disjuntas", () =>
 const portEspiao = () => {
   const calls = [];
   const port = createMemoryPort({
-    discoverFn: async () => ({ url: "http://fake" }),
+    cwdProvider: () => PROJETO_FAKE, discoverFn: async () => ({ url: "http://fake" }),
     clientFactory: () => ({ search: async (q, o) => { calls.push(o); return { results: [] }; }, save: async () => ({ id: "1" }) }),
   });
   return { port, calls };
@@ -239,7 +250,7 @@ await runA("escotilha abre SÓ com o booleano exato true — e AVISA no log (nun
   const avisos = [];
   const port = createMemoryPort({
     log: (m) => avisos.push(m),
-    discoverFn: async () => ({ url: "http://fake" }),
+    cwdProvider: () => PROJETO_FAKE, discoverFn: async () => ({ url: "http://fake" }),
     clientFactory: () => ({ search: async () => ({ results: [] }), save: async () => ({ id: "1" }) }),
   });
   const r = await port.recall("q", { includeAgentOutput: true, tag: "teste" });
@@ -307,7 +318,7 @@ run("item SEM id ENTRA marcado [sem-id] — descartar apagaria a memória inteir
 });
 await runA("o recall devolve JÁ normalizado (a regra mora no port, não nos 5 callers)", async () => {
   const port = createMemoryPort({
-    discoverFn: async () => ({ url: "http://fake" }),
+    cwdProvider: () => PROJETO_FAKE, discoverFn: async () => ({ url: "http://fake" }),
     clientFactory: () => ({ search: async () => ({ results: [{ text: "t", documentId: "d-9", chunkIndex: 0 }] }), save: async () => ({ id: "1" }) }),
   });
   const r = await port.recall("q");

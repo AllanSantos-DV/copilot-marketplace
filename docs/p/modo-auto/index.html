@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">modo-auto</h1>
-        <span class="chip" title="versão publicada">v0.4.1</span>
+        <span class="chip" title="versão publicada">v0.5.2</span>
       </div>
       <p class="doc-hero__lede">O <strong>modo-auto</strong> substitui o autopilot fraco do Copilot por uma <strong>mesa de agentes</strong>. Quando você <strong>arma</strong> o modo, ele <strong>intercepta o <code>ask_user</code></strong>: no lugar da resposta genérica do autopilot (&quot;usuário indisponível, siga a recomendação&quot;), uma mesa com papéis de <strong>negócio, técnico, pesquisa, revisor e documentação</strong> delibera a resposta — fundamentada em <strong>plano vivo, memória do projeto e pesquisa</strong>. E revisa cada <code>Stop</code>, para o agente não encerrar antes de o plano fechar. Núcleo <strong>hexagonal</strong> (ports &amp; adapters), com perfis plugáveis.</p>
       <div class="doc-hero__cta">
@@ -154,7 +154,7 @@
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
               <span class="tree__role">Extensão in-app: intercepta o <code>ask_user</code>, revisa o <code>Stop</code> e liga a mesa à sessão viva.</span>
-              <span class="tree__size">85 KB</span>
+              <span class="tree__size">86 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">LICENSE</code>
@@ -180,6 +180,11 @@
               <code class="tree__name">agents/maestro.agent.md</code>
               <span class="tree__role"></span>
               <span class="tree__size">6.8 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">docs/adr/ADR-001-memoria-read-only-nos-agentes.md</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">7.6 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">embed-house/ensureDaemon.mjs</code>
@@ -224,12 +229,17 @@
             <li class="tree__row">
               <code class="tree__name">selftest/memory-namespace-live-smoke.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">8.1 KB</span>
+              <span class="tree__size">11 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">selftest/memory-namespace-smoke.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">19 KB</span>
+              <span class="tree__size">20 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">selftest/memory-validator-smoke.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">24 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">selftest/run.mjs</code>
@@ -240,6 +250,11 @@
               <code class="tree__name">selftest/telemetry-context-smoke.mjs</code>
               <span class="tree__role"></span>
               <span class="tree__size">5.8 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">selftest/tool-manifest-live-smoke.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">12 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">selftest/verify-tools-smoke.mjs</code>
@@ -354,7 +369,7 @@
             <li class="tree__row">
               <code class="tree__name">src/adapters/agents/agentFactory.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">15 KB</span>
+              <span class="tree__size">16 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/agents/architect.mjs</code>
@@ -374,12 +389,12 @@
             <li class="tree__row">
               <code class="tree__name">src/adapters/agents/liveWorker.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">8.5 KB</span>
+              <span class="tree__size">10 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/agents/liveWorkerClient.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">5.1 KB</span>
+              <span class="tree__size">5.4 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/agents/mesa.mjs</code>
@@ -409,7 +424,7 @@
             <li class="tree__row">
               <code class="tree__name">src/adapters/agents/worker.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">10.0 KB</span>
+              <span class="tree__size">12 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/agents/workerConfigPrune.mjs</code>
@@ -419,7 +434,7 @@
             <li class="tree__row">
               <code class="tree__name">src/adapters/agents/workerLib.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">13 KB</span>
+              <span class="tree__size">15 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/canvas/guide.mjs</code>
@@ -494,12 +509,22 @@
             <li class="tree__row">
               <code class="tree__name">src/adapters/memory/memoryPort.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">16 KB</span>
+              <span class="tree__size">18 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/memory/memoryTools.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">5.1 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">src/adapters/memory/memoryValidator.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">8.5 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/memory/projectId.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">2.6 KB</span>
+              <span class="tree__size">7.0 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/models/modelCatalog.mjs</code>
@@ -564,7 +589,7 @@
             <li class="tree__row">
               <code class="tree__name">src/adapters/profiles/modoAdr.mjs</code>
               <span class="tree__role">Perfil modo-adr: vira um briefing em plano vivo por fases.</span>
-              <span class="tree__size">28 KB</span>
+              <span class="tree__size">30 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">src/adapters/profiles/modoAutonomo.mjs</code>
@@ -850,7 +875,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.4.1</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.5.2</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>

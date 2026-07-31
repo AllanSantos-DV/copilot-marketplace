@@ -7,7 +7,7 @@
 import { join } from "node:path";
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { sdkIndexUrl, textOf, CLEAN_DIRECTIVE, runTurnWithHeartbeat, WORKER_FIX_COMMAND } from "./workerLib.mjs";
+import { sdkIndexUrl, textOf, CLEAN_DIRECTIVE, runTurnWithHeartbeat, WORKER_FIX_COMMAND, computeToolExposure } from "./workerLib.mjs";
 import { usageFromEvent, mergeUsage } from "../activity/costMeter.mjs";
 import { makeSubmitTool, runUntilSubmitted } from "./structuredResult.mjs";
 
@@ -52,15 +52,31 @@ async function readStdin() {
       try { const m = await import("../research/researchTools.mjs"); const rt = m.createResearchTools(); researchToolset = rt.tools; researchState = rt.state; enforceSignal = m.enforceConfidenceSignal; }
       catch (e) { process.stderr.write("worker aviso: research tools indisponíveis p/ pesquisador: " + (e?.message || e)); }
     }
+    // MEMÓRIA READ-ONLY, só quando o PAI CRAVOU o escopo (`job.memoryScope`). O filho NUNCA resolve projeto:
+    // ele roda num diretório que não é o do projeto, e resolver ali daria escopo divergente em silêncio. Sem
+    // `memoryScope`, nenhuma tool de memória é montada — e o worker roda igual (adaptador, não dependência).
+    let memoryToolset = [], memoryState = null;
+    if (job.memoryScope) {
+      try {
+        const [pm, tm] = await Promise.all([import("../memory/memoryPort.mjs"), import("../memory/memoryTools.mjs")]);
+        const port = pm.createMemoryPort({ projectId: job.memoryScope, log: () => {} });
+        const mt = tm.createMemoryTools({ recall: (q, o) => port.recall(q, { ...o, tag: "worker:" + job.role }), projectId: job.memoryScope });
+        memoryToolset = mt.tools; memoryState = mt.state;
+      } catch (e) { process.stderr.write("worker aviso: memória indisponível p/ este papel: " + (e?.message || e)); }
+    }
     // TOOL TEMPLATE (Princípio 11) — quando o caller pede formato DETERMINÍSTICO (job.schema), a resposta vem de
     // uma TOOL cujo schema o SDK IMPÕE (submit_<x>), não de "responda SOMENTE JSON" + parse de prosa (frágil, varia
     // por modelo — causou o bug do onStop/triage). O handler captura os args; devolvemos eles crus no stdout.
     const submit = job.schema && job.schema.name ? makeSubmitTool(job.schema) : null;
-    const tools = [...researchToolset, ...(submit ? [submit.tool] : [])];
-    // availableTools = allowlist. Omitido (null) → built-ins + custom liberados (pesquisador/revisor investigam e
-    // depois submetem). Caller passou lista (crítico puro) → fail-closed; a submit é SEMPRE anexada p/ ser chamável.
-    let avail = Array.isArray(job.availableTools) ? [...job.availableTools] : null;
-    if (submit && avail) avail.push(submit.name);
+    // Manifesto pela regra ÚNICA (workerLib.computeToolExposure) — a mesma que o teste de matriz afirma para
+    // TODOS os papéis. Se a regra e o worker divergissem, o teste provaria a regra e não o processo.
+    const exposure = computeToolExposure({ role: job.role, schemaName: submit ? submit.name : null, availableTools: job.availableTools, researchToolNames: researchToolset.map((t) => t.name), memoryToolNames: memoryToolset.map((t) => t.name) });
+    // O manifesto SEGUE a regra única (`computeToolExposure`) — inclusive na montagem de `tools`. Montar aqui
+    // por fora foi um furo real, pego pela inspeção viva: a regra dizia "papel fail-closed não recebe memória",
+    // mas `tools` juntava tudo e o `memory_search` chegava ao papel text-only. Regra e efeito no MESMO lugar.
+    const memoriaPermitida = exposure.temMemoria ? memoryToolset : [];
+    const tools = [...researchToolset, ...memoriaPermitida, ...(submit ? [submit.tool] : [])];
+    let avail = exposure.availableTools;
     // VERIFICAÇÃO DO ISOLAMENTO (não confia, MEDE). Passar `configDirectory` é uma OPÇÃO da API: se ela for
     // depreciada, renomeada de novo ou ignorada, o worker volta silenciosamente a usar ~/.copilot e reaparece o
     // vazamento que quebrou a mesa em todas as sessões. Testei o caminho por ambiente (COPILOT_HOME/
@@ -86,6 +102,16 @@ async function readStdin() {
       ...(job.reasoningEffort ? { reasoningEffort: job.reasoningEffort } : {}),
       ...(Array.isArray(job.skillDirectories) && job.skillDirectories.length ? { skillDirectories: job.skillDirectories } : {}),
     });
+    // INSPEÇÃO DO MANIFESTO REAL (não da regra). Um teste que afirma só a função pura fica verde se o
+    // `worker.mjs` deixar de chamá-la, ou se o SDK herdar tools por outro caminho (config, MCP, extensão
+    // vazada). Sob `MODO_AUTO_DUMP_TOOLS=1` o worker declara, do lado de DENTRO, exatamente o que a sessão
+    // recebeu — e um smoke spawna papéis de VERDADE e confere. É a diferença entre "a regra diz" e "o processo
+    // recebeu"; só a segunda prova isolamento.
+    if (process.env.MODO_AUTO_DUMP_TOOLS === "1") {
+      let sdkTools = null;
+      try { const lt = session.listTools ? await session.listTools() : null; sdkTools = Array.isArray(lt) ? lt.map((t) => (t && t.name) || String(t)) : null; } catch { sdkTools = null; }
+      process.stderr.write("\x1e#TOOLS " + JSON.stringify({ role: job.role, custom: tools.map((t) => t.name), availableTools: avail, sdk: sdkTools, configDir }) + "\n");
+    }
     // Se o configDir isolado NÃO recebeu a sessão, a opção foi ignorada e o worker está rodando no config do
     // usuário — estado em que ele herda extensões/hooks alheios e a mesa quebra de um jeito confuso ("não tenho
     // a ferramenta X / isso parece injeção"). FAIL LOUD aqui é MUITO melhor que a falha disfarçada lá na frente.

@@ -133,7 +133,13 @@ const activity = createActivityRegistry({ onEnd: (span) => telemetry.persist(spa
 const recordVerdict = (v) => telemetry.persist({ stage: "dev-verdict", status: v?.pass ? "done" : "fail", role: "tech-lead", startedAt: Date.now(), traceId: v?.gid || null, group: v?.gid || null, taskType: v?.taskType || null, spanVersion: 2, verdict: v || null });
 const factory = createAgentFactory({ cwdProvider: () => process.cwd(), getRouter: () => modelRouter, activity, log: logHost }); // AgentFactoryPort → workers (modelo roteado + registro)
 // MOTOR DA MESA VIVA (debate round-robin turno a turno): cada agente é uma sessão Copilot viva.
-const liveMesa = createLiveMesa((a) => createLiveWorker({ ...a, cwd: process.cwd(), log: logHost }), { order: ["tecnico", "pesquisador", "negocio", "advogado-diabo", "revisor", "facilitador"], log: logHost });
+// MEMÓRIA CRAVADA AQUI, e não em cada perfil: este é o gargalo por onde TODO agente de mesa nasce (modo_adr,
+// modo_dev, modo_reuso, modo_seguranca, sombra). Ligar perfil a perfil seria repetir a regra em N lugares e
+// deixar o N+1 nascer cego — que foi exatamente o defeito que uma auditoria pegou: eu havia ligado a memória só
+// no caminho de FALLBACK do modo_adr, e o caminho VIVO (o que de fato roda) continuava sem.
+// O escopo é resolvido UMA vez, pelo processo pai, com o cwd da SESSÃO. Sem plugin/escopo → null → sem tool.
+const memoryScopeParaMesa = () => { try { return memory.projectId() || null; } catch { return null; } };
+const liveMesa = createLiveMesa((a) => createLiveWorker({ ...a, cwd: process.cwd(), memoryScope: memoryScopeParaMesa(), log: logHost }), { order: ["tecnico", "pesquisador", "negocio", "advogado-diabo", "revisor", "facilitador"], log: logHost });
 const gate = createGatePort({ factory, log: logHost });                              // GatePort → skills reais (F4)
 const adr = createModoAdr({ log: logHost });                                         // perfil modo-adr (planejamento; usa a mesa VIVA via caps)
 const dev = createModoDev({ log: logHost });                                         // perfil modo-dev (build + gates de código)

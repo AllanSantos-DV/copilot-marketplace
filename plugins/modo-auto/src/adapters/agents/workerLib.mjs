@@ -118,6 +118,33 @@ export function authHint(errorType, { env = process.env } = {}) {
 }
 
 // Extrai o TEXTO de uma resposta do SDK (content string | array de partes | {text}).
+/**
+ * MANIFESTO DE TOOLS do worker — regra PURA e única, extraída para poder ser AFIRMADA EM MATRIZ.
+ *
+ * Por que virou função: a decisão vivia inline no fluxo do `worker.mjs`, então a única forma de "provar" que um
+ * papel não tem tool de memória era PERGUNTAR ao modelo — auto-relato, que prova o que ele DIZ, não o que o
+ * processo recebeu. Com a regra isolada, um teste percorre TODOS os papéis do catálogo e afirma o manifesto
+ * exato, sem spawnar nada e sem depender de o modelo responder direito.
+ *
+ * A regra em si: só o `pesquisador` ganha o toolset de pesquisa; a tool de submissão entra quando o chamador
+ * pede formato determinístico; `availableTools` é allowlist fail-closed quando vem lista (e a submit é sempre
+ * anexada, senão o papel não teria como responder).
+ * MEMÓRIA: só entra quando o PAI CRAVOU o escopo (`memoryToolNames` só vem preenchido nesse caso), e mesmo
+ * assim NUNCA para um papel fail-closed (allowlist explícita = papel de veredito text-only; dar busca a ele
+ * seria contrariar o próprio pedido do chamador). A tool é de LEITURA — não existe escrita no toolset.
+ * @returns {{ toolNames:string[], availableTools:string[]|null, temPesquisa:boolean, temSubmit:boolean, temMemoria:boolean }}
+ */
+export function computeToolExposure({ role, schemaName = null, availableTools = null, researchToolNames = [], memoryToolNames = [] } = {}) {
+  const pesquisa = role === "pesquisador" ? [...researchToolNames] : [];
+  const submitName = schemaName ? String(schemaName) : null;
+  // Papel fail-closed (o chamador passou allowlist) NÃO recebe memória: ele foi pedido text-only de propósito.
+  const memoria = Array.isArray(availableTools) ? [] : [...memoryToolNames];
+  const toolNames = [...pesquisa, ...memoria, ...(submitName ? [submitName] : [])];
+  let avail = Array.isArray(availableTools) ? [...availableTools] : null;
+  if (submitName && avail) avail.push(submitName);
+  return { toolNames, availableTools: avail, temPesquisa: pesquisa.length > 0, temSubmit: !!submitName, temMemoria: memoria.length > 0 };
+}
+
 export function textOf(res) {
   const c = res?.data?.content ?? res?.content;
   if (c == null) return "";

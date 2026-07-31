@@ -8,6 +8,7 @@
 
 import { getRole } from "../agents/roles.mjs";
 import { renderRecall } from "../memory/memoryPort.mjs";
+import { auditarMemoria, renderAuditado } from "../memory/memoryValidator.mjs";
 import { withRunContext } from "../agents/agentFactory.mjs";
 import { selectSeed } from "../adr/templateRegistry.mjs";
 import { triage } from "../adr/complexityTriage.mjs";
@@ -94,6 +95,17 @@ function adrRecord(briefing, plan) {
   return `${ADR_RECORD_MARK} assunto: ${String(briefing || "").trim().replace(/\s+/g, " ").slice(0, 160)}\n` +
     `DECISÃO: ${decisao || "(não extraída)"}\n` +
     `Plano completo: adr-plan.md da sessão (este registro é um índice, não o plano).`;
+}
+
+/**
+ * Escopo de memória para CRAVAR no worker. O pai resolve UMA vez (com o cwd da SESSÃO); o filho recebe pronto e
+ * nunca olha o próprio `cwd` — se olhasse, resolveria pelo diretório onde ele roda, que não é o projeto.
+ * Sem port, sem plugin ou sem escopo resolvível → `null`, e o worker roda sem tool de memória (adaptador, não
+ * dependência). NUNCA lança: ausência de memória não pode derrubar a mesa.
+ */
+export function escopoParaWorker(caps) {
+  try { return (caps && caps.memory && caps.memory.projectId && caps.memory.projectId()) || null; }
+  catch { return null; }
 }
 
 export function createModoAdr({ log = () => {}, roles } = {}) {
@@ -284,6 +296,15 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
         const rend = renderRecall(rel);
         existing = rend.text;
         if (rend.semId > 0) log(`[modo-adr] ${rend.semId} item(ns) de memória SEM id auditável (entram marcados [sem-id] — o conhecimento chega, a citação não é conferível)`);
+        // AUDITORIA DA MEMÓRIA: antes a memória entrava como CONTEXTO PASSIVO ("use isto"). Memória de projeto
+        // envelhece — uma decisão revertida continua no corpus e é lida como verdade porque chegou junto com o
+        // resto. Aqui um auditor READ-ONLY (availableTools:[] — ele não TEM tool de memória) julga item a item e
+        // cita o doc_id; o contestado não some, entra rotulado para a mesa poder discordar do próprio auditor.
+        if (caps.factory?.run && rend.ids.length) {
+          const aud = await auditarMemoria({ factory: caps.factory, assunto: bf, itens: rel.filter((r) => r.doc_id), log });
+          if (aud.auditado) existing = renderAuditado(aud);
+          else log(`[modo-adr] memória NÃO auditada (${aud.error || aud.motivo}) — segue inteira, sinalizada (auditor quebrado não pode apagar o contexto do projeto)`);
+        }
       }
       else if (mem && mem.ok === false) {
         // OFFLINE NÃO É "sem resultado". Antes, `{ok:false, offline:true}` caía no mesmo lugar que "a busca não
@@ -329,7 +350,10 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
         `a fase não deve precisar de outra fase nem do briefing); (c) ENTREGA VERIFICÁVEL. Aproveite o reúso. Escreva o ` +
         `CONTEÚDO de CADA fase POR EXTENSO — NÃO liste só os títulos, NÃO diga que "criou um plano", NÃO escreva ` +
         `preâmbulo nem peça autorização. Comece direto em "## Fase 1".`;
-      const doc = await caps.factory.run("documentacao", planPrompt, { timeoutMs: 150000, stage: "adr", group: gid, topic });
+      // MEMÓRIA NO WORKER (Fase 2): o escopo vai CRAVADO. O documentador ganha busca semântica sob demanda em
+      // vez de depender só do que o pai adiantou no prompt — e não tem como consultar o projeto errado, porque
+      // "projeto" não é argumento dele. Sem plugin/escopo → `null` e ele roda como antes.
+      const doc = await caps.factory.run("documentacao", planPrompt, { timeoutMs: 150000, stage: "adr", group: gid, topic, memoryScope: escopoParaWorker(caps) });
       if (!doc.ok || !textOf(doc)) throw new Error("modo-adr: documentador falhou ao escrever o plano: " + (doc.error || "sem texto"));
       const plan = textOf(doc);
 

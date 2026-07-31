@@ -36,6 +36,16 @@ if (online.ok === false && online.offline) {
   console.log(`\nmemory-namespace-live-smoke: ${pass}/${total} OK`);
   process.exit(pass === total ? 0 : 1);
 }
+// TERCEIRO estado, que não existia antes: o escopo pode não ser resolvível AQUI. O contrato do copilot-memory é
+// falhar alto sem marcador `.memory/project.json` nem git remote — e é assim que o artefato instalado responde
+// (ele vive aninhado em ~/.copilot, que não é um projeto). Isso NÃO é defeito do produto, é pré-condição de
+// ambiente, exatamente como o daemon fora do ar: dá SKIP sinalizado, e VERMELHO sob STRICT (no meu gate de
+// release, escopo e daemon são obrigatórios). O que não pode é rodar contra um escopo inventado.
+if (online.ok === false && /escopo não resolvido/.test(online.error || "")) {
+  skip("SEM ESCOPO neste diretório (sem .memory/project.json e sem git remote) — o contrato ao vivo exige um projeto real. " + (online.error || ""));
+  console.log(`\nmemory-namespace-live-smoke: ${pass}/${total} OK`);
+  process.exit(pass === total ? 0 : 1);
+}
 
 const MARCA = "PROVA-NS-" + Date.now().toString(36);
 const projeto = port.projectId();
@@ -124,6 +134,26 @@ try {
     catch (e) { console.log("  AVISO: teardown do veneno FALHOU (" + (e?.message || e) + ") — documento " + venenoId + " ficou no corpus"); }
   }
 }
+
+// AUDITORIA DE MEMÓRIA AO VIVO — com ISCA plantada. Existe porque a minha "prova" do auditor tinha sido uma
+// execução única, à mão, relatada em prosa: anedota n=1, não critério de aceite. Aqui a isca é determinística
+// (um texto obviamente fora de assunto), o auditor é um worker REAL, e a asserção é sobre o COMPORTAMENTO
+// (contestar o que não pertence, não inventar citação) — não sobre o número que deu naquele dia.
+await run("[vivo] o auditor CONTESTA o item fora de assunto e não inventa citação", async () => {
+  const { auditarMemoria } = await import("../src/adapters/memory/memoryValidator.mjs");
+  const { createAgentFactory } = await import("../src/adapters/agents/agentFactory.mjs");
+  const ASSUNTO = "como publicar uma nova versão do plugin na vitrine do marketplace";
+  const itens = [
+    { doc_id: "doc-relevante-1", text: "Para publicar: bump da versão no plugin.json, commit, tag, push e rodar o vendor para a vitrine." },
+    { doc_id: "doc-isca-1", text: "Receita de bolo de cenoura: bata os ovos com o óleo e a cenoura, acrescente açúcar e farinha." },
+  ];
+  const aud = await auditarMemoria({ factory: createAgentFactory({ log: () => {} }), assunto: ASSUNTO, itens, timeoutMs: 120000 });
+  if (!aud.auditado) { console.log("    (auditor indisponível: " + (aud.error || "?") + " — degradação sinalizada; a memória seguiria inteira)"); return; }
+  assert.strictEqual(aud.invalidos.length, 0, "o auditor não pode citar id que não recebeu: " + JSON.stringify(aud.invalidos));
+  const isca = aud.itens.find((i) => i.doc_id === "doc-isca-1");
+  assert.notStrictEqual(isca.veredito, "aplica", "a isca fora de assunto TEM que ser contestada: " + JSON.stringify(isca));
+  assert.ok(isca.razao && isca.razao.length > 5, "e com justificativa, não só o rótulo: " + JSON.stringify(isca));
+});
 
 console.log(`\nmemory-namespace-live-smoke: ${pass}/${total} OK`);
 process.exit(pass === total ? 0 : 1);

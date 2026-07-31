@@ -3,7 +3,7 @@
 // error } VISÍVEL (surfaced, não mascarado). Reusa o MESMO project_id da sessão (não recria escopo).
 
 import { discover } from "./daemon.mjs";
-import { tryResolveProjectId } from "./projectId.mjs";
+import { tryResolveProjectId, resolveProjectId, projectIdStrength, assertSafeProjectId } from "./projectId.mjs";
 import { MemoryClient } from "./client.mjs";
 
 // Tipos que são SAÍDA DE AGENTE — o que a própria mesa produz. Eles NUNCA podem cair no escopo principal do
@@ -130,7 +130,7 @@ export function renderRecall(results, { max = 220 } = {}) {
  *   offline). Injetar a descoberta é o que permite provar o caminho ONLINE de verdade.
  * @returns {import("../../core/ports.mjs").MemoryPort}
  */
-export function createMemoryPort({ cwdProvider = () => process.cwd(), clientFactory = () => null, log = () => {}, discoverFn = discover } = {}) {
+export function createMemoryPort({ cwdProvider = () => process.cwd(), clientFactory = () => null, log = () => {}, discoverFn = discover, projectId: projectIdCravado = null } = {}) {
   let cached = null; // { client, projectId }
 
   async function connect() {
@@ -138,9 +138,29 @@ export function createMemoryPort({ cwdProvider = () => process.cwd(), clientFact
     if (!info) { log("memória offline (sem daemon vivo)"); cached = null; return null; }
     // clientFactory pode devolver o client do PLUGIN (reuso); null/undefined → cai no vendado (default).
     const client = clientFactory(info.url) || new MemoryClient(info.url);
-    cached = { client, projectId: tryResolveProjectId(cwdProvider()), url: info.url };
-    log(`memória online (${info.url}) escopo=${cached.projectId || "?"}`);
+    // ESCOPO CRAVADO vence a resolução. É assim que o WORKER recebe memória: o PAI resolve (uma vez, com o cwd
+    // da sessão) e CRAVA o id na criação do port do filho. O filho nunca olha o próprio `cwd` — se olhasse,
+    // resolveria pelo diretório ONDE ELE roda, que não é o projeto, e o escopo divergiria em silêncio. Não é
+    // uma regra a ser respeitada: é um caminho que deixa de existir.
+    let projectId = projectIdCravado ? assertSafeProjectId(projectIdCravado) : null;
+    if (!projectId) {
+      // ESCOPO OBRIGATÓRIO E FAIL-LOUD: o resolver LANÇA quando não há identificador estável (marcador declarado
+      // ou git remote). Antes daqui existia uma escada que caía em caminho de pasta — e um escopo assim é
+      // escopo-LIXO: `C:\...\.copilot` virava "projeto", poluía a memória e ainda dava a ilusão de isolamento.
+      // Agora: sem id estável, a memória fica INDISPONÍVEL e DIZ o motivo com o conserto junto. Nada de buscar
+      // num escopo inventado, que é o pior dos mundos (parece que funcionou).
+      try { projectId = resolveProjectId(cwdProvider()); }
+      catch (e) { log("memória SEM ESCOPO — " + (e?.message || e)); cached = null; return { scopeError: e?.message || String(e) }; }
+    }
+    cached = { client, projectId, url: info.url, idSource: projectIdCravado ? "cravado" : projectIdStrength(cwdProvider()) };
+    log(`memória online (${info.url}) escopo=${projectId} [origem: ${cached.idSource}]`);
     return cached;
+  }
+
+  /** Estado comum a recall/save quando não há conexão utilizável. Um lugar, para os dois não divergirem. */
+  function semConexao(c) {
+    if (c && c.scopeError) return { ok: false, error: "escopo não resolvido: " + c.scopeError, results: [] };
+    return { ok: false, offline: true, results: [] }; // daemon offline = degradado legítimo (não erro)
   }
 
   return {
@@ -158,7 +178,7 @@ export function createMemoryPort({ cwdProvider = () => process.cwd(), clientFact
      */
     async recall(query, { topK = 5, minScore = null, namespace = null, includeAgentOutput = false, tag = "?" } = {}) {
       const c = cached || await connect();
-      if (!c) return { ok: false, offline: true, results: [] }; // daemon offline = degradado legítimo (não erro)
+      if (!c || !c.client) return semConexao(c); // offline (degradado) ou escopo não resolvido (erro visível)
       try {
         const scope = buildScope(c.projectId, namespace);
         const metadata = scope ? { project_id: scope } : {};
@@ -221,7 +241,7 @@ export function createMemoryPort({ cwdProvider = () => process.cwd(), clientFact
       // fakes não pegariam, porque o problema não é a regra, é ONDE ela roda.
       const metadata = buildSaveMetadata({ projectId: tryResolveProjectId(cwdProvider()), type, tags, namespace });
       const c = cached || await connect();
-      if (!c) return { ok: false, offline: true };
+      if (!c || !c.client) { const s = semConexao(c); return s.offline ? { ok: false, offline: true } : { ok: false, error: s.error }; }
       try {
         // o projectId real vem da conexão (pode diferir do resolvido acima se o cwd mudou) — reconstrói o escopo
         const scope = buildScope(c.projectId, namespace);
