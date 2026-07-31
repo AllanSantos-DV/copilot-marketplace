@@ -208,10 +208,19 @@ export function formatProvenance(r) {
     p.tag ? `tag ${p.tag}` : "sem tag",
     p.branch || "branch não medida",
     p.clean === true ? "árvore limpa" : p.clean === false ? "árvore SUJA no build" : "limpeza não medida",
-    p.pushed === true ? "publicado no remote" : p.pushed === false ? "NÃO publicado no remote" : "publicação não medida",
+    // "publicado no remote" era medido com `git branch -r --contains` — verdadeiro, mas LIDO como "qualquer um
+    // consegue clonar isso". Num repo de origem PRIVADO, quem tenta recebe 404 e conclui que o carimbo mente.
+    // A frase passa a dizer o que de fato foi medido, e para onde ir.
+    p.pushed === true
+      ? (p.sourceAccess ? "publicado no remote de ORIGEM (privado — ver sourceAccess p/ verificar pelo artefato público)" : "publicado no remote")
+      : p.pushed === false ? "NÃO publicado no remote" : "publicação não medida",
   ];
   if (p.remote) parts.push(`origin ${String(p.remote).replace(/^https:\/\/github\.com\//, "").replace(/\.git$/, "")}`);
   const base = `proveniência do build: ${parts.join(" · ")}`;
   const ind = Array.isArray(p.indeterminate) && p.indeterminate.length ? ` · ⚠️ não medido: ${p.indeterminate.join(", ")}` : "";
-  return `${base}${ind} · natureza: ${p.kind || "?"} (auto-declarado, não assinado)`;
+  // O caminho verificável entra na MESMA linha que a afirmação. Ter a explicação num campo que ninguém lê é o
+  // mesmo que não tê-la — foi assim que a acusação de "proveniência mentirosa" voltou depois de eu já ter
+  // adicionado `sourceAccess`.
+  const verif = p.sourceAccess?.verifyCommand ? ` · verifique por: ${p.sourceAccess.verifyCommand}` : "";
+  return `${base}${ind}${verif} · natureza: ${p.kind || "?"} (auto-declarado, não assinado)`;
 }

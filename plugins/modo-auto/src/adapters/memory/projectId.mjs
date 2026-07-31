@@ -100,25 +100,40 @@ export function assertSafeProjectId(projectId) {
 }
 
 /**
- * Resolve o project_id COM a procedência. Existe porque a origem estava sendo RECONSTRUÍDA depois, por uma
- * segunda chamada (`projectIdStrength`) — ou seja, o "de onde veio" mostrado ao humano era uma dedução, não o
- * que o resolver de fato usou. Entre as duas chamadas o disco pode mudar, e a dedução pode simplesmente
- * discordar do valor exibido. Quem resolve é quem sabe: agora o resolver EMITE a origem, o caminho do marcador
- * e a URL do remote que originaram o id.
- * @returns {{ projectId:string, source:"declared"|"git-remote", markerPath:string|null, remoteUrl:string|null, root:string|null }}
+ * Resolve o project_id COM a procedência COMPLETA. Existe porque a origem estava sendo RECONSTRUÍDA depois, por
+ * uma segunda chamada (`projectIdStrength`) — ou seja, o "de onde veio" mostrado ao humano era uma dedução, não
+ * o que o resolver de fato usou. Entre as duas chamadas o disco pode mudar, e a dedução pode simplesmente
+ * discordar do valor exibido. Quem resolve é quem sabe.
+ *
+ * `risco` vem junto (fork/espelho) porque origem e suspeita respondem à MESMA pergunta do humano — "esse é o
+ * meu projeto?" — e obrigá-lo a cruzar duas chamadas para descobrir é exatamente o tipo de dedução que este
+ * conserto veio eliminar.
+ * @returns {{ projectId:string, source:"declared"|"git-remote", markerPath:string|null, remoteUrl:string|null,
+ *             root:string|null, cwd:string, branch:string|null, sha:string|null, worktree:boolean,
+ *             risco:null|"fork"|"espelho", alternativa:string|null }}
  * @throws quando não há identificador estável (mesmo contrato fail-loud de `resolveProjectId`)
  */
 export function resolveProjectIdWithProvenance(workspacePath) {
   const dir = workspacePath && String(workspacePath).trim() ? String(workspacePath).trim() : null;
   if (!dir) throw new Error("Não foi possível resolver project_id: workspace vazio. " + SCOPE_HELP);
+  // Contexto do checkout: `branch`/`sha` dizem QUAL versão está sendo lida, e `worktree` explica por que o
+  // caminho pode não parecer o do projeto (o repo base é outro diretório).
+  const branch = git(["rev-parse", "--abbrev-ref", "HEAD"], dir);
+  const sha = git(["rev-parse", "--short", "HEAD"], dir);
+  const base = gitRepoBase(dir);
+  const top = safeResolve(git(["rev-parse", "--show-toplevel"], dir));
+  const worktree = !!(base && top && pathResolve(base) !== pathResolve(top));
+  const susp = detectarEscopoSuspeito(dir);
+  const extra = { cwd: safeResolve(dir), branch: branch || null, sha: sha || null, worktree, risco: susp.risco || null, alternativa: susp.alternativa || null };
+
   const root = findProjectRoot(dir);
   if (root) {
     const declared = declaredIdAt(root);
-    if (declared) return { projectId: assertSafeProjectId(declared), source: "declared", markerPath: projectConfigPath(root), remoteUrl: null, root };
+    if (declared) return { projectId: assertSafeProjectId(declared), source: "declared", markerPath: projectConfigPath(root), remoteUrl: null, root, ...extra };
   }
   const remoteUrl = git(["remote", "get-url", "origin"], dir);
   const norm = normalizeGitRemote(remoteUrl);
-  if (norm) return { projectId: assertSafeProjectId(norm), source: "git-remote", markerPath: null, remoteUrl: String(remoteUrl).trim(), root: root || null };
+  if (norm) return { projectId: assertSafeProjectId(norm), source: "git-remote", markerPath: null, remoteUrl: String(remoteUrl).trim(), root: root || null, ...extra };
   throw new Error("Não foi possível resolver project_id para: " + workspacePath + ". " + SCOPE_HELP);
 }
 

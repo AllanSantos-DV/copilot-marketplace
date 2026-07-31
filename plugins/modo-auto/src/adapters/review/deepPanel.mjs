@@ -87,7 +87,7 @@ export function createDeepPanel({ factory, log = () => {} } = {}) {
      * @returns {{ ok:true, verdict:{pass,findings,escalate}, watch:string[], families:string[], panel:object[], elapsedMs:number }
      *          | { ok:false, reason:"insufficient-families"|"panel-degraded"|"deadline", families:string[] }}
      */
-    async review({ material, critiquePrompt, router, taskType = null, panelRole = "revisor", minFamilies = 2, maxFamilies = 3, timeoutMs = 120000, totalMs = DEFAULT_TOTAL_MS } = {}) {
+    async review({ material, critiquePrompt, router, taskType = null, panelRole = "revisor", minFamilies = 2, maxFamilies = 3, timeoutMs = 120000, totalMs = DEFAULT_TOTAL_MS, memoryScope = null } = {}) {
       if (!material || !critiquePrompt) throw new Error("deepPanel.review: material/critiquePrompt ausente");
       const t0 = Date.now();
       const restante = () => (Number.isFinite(totalMs) ? Math.max(0, totalMs - (Date.now() - t0)) : Infinity);
@@ -102,7 +102,7 @@ export function createDeepPanel({ factory, log = () => {} } = {}) {
       // 1) crítica em PARALELO, cada família com seu modelo (override). `maxWallMs` é o relógio de PAREDE — é
       // ele que mata a família pendurada; o `timeoutMs` só cobre ociosidade.
       const outs = await Promise.all(fams.map(async (f) => {
-        const r = await factory.run(panelRole, critiquePrompt, { subject: panelRole, timeoutMs, maxWallMs: restante(), model: f.model, stage: "deep" });
+        const r = await factory.run(panelRole, critiquePrompt, { subject: panelRole, timeoutMs, maxWallMs: restante(), model: f.model, stage: "deep", memoryScope });
         return { family: f.family, model: f.model, ok: r.ok, text: r.ok ? r.text : "", error: r.error || null };
       }));
       const okOuts = outs.filter((o) => o.ok && o.text);

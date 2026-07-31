@@ -445,6 +445,11 @@ await runA("resolveProjectIdWithProvenance devolve id + origem + de onde saiu, n
   assert.strictEqual(p1.projectId, "github.com/acme/p");
   assert.strictEqual(p1.source, "git-remote");
   assert.match(p1.remoteUrl || "", /github\.com\/Acme\/P/, "a URL que ORIGINOU o id tem que vir junto: " + JSON.stringify(p1));
+  // Contexto do checkout na MESMA chamada — sem isso o humano teria que cruzar 3 comandos para saber que
+  // versão está sendo lida e por que o caminho não parece o do projeto.
+  assert.strictEqual(p1.cwd && p1.cwd.length > 0, true, "cwd tem que vir: " + JSON.stringify(p1));
+  assert.strictEqual(p1.worktree, false, "repo comum não é worktree");
+  assert.ok("risco" in p1, "a suspeita vem JUNTO — não se deduz depois: " + JSON.stringify(p1));
   mkdirSync(join(d, ".memory"), { recursive: true });
   writeFileSync(join(d, ".memory", "project.json"), JSON.stringify({ metadata: { defaults: { project_id: "acme/canonico" } } }));
   const p2 = resolveProjectIdWithProvenance(d);
@@ -468,6 +473,19 @@ await runA("ESPELHO aninhado em repo alheio é detectado (a causa-raiz do falso 
   const s = detectarEscopoSuspeito(artefato);
   assert.strictEqual(s.risco, "espelho", "artefato ANINHADO tem que ser reconhecido: " + JSON.stringify(s));
   assert.match(String(s.repoDeCima || ""), /host-/, "e apontar QUAL repo estava respondendo por ele");
+});
+
+run("TODA tool deliberativa carimba o status (gate que quebra o build se a próxima nascer sem)", () => {
+  // Eu tinha carimbado só o modo_adr — 1 de 7. É a mesma classe de erro que já me custou dois bugs nesta
+  // sessão: consertar UM caller não conserta a CLASSE, e o próximo nasce sem. Este teste lê o `extension.mjs`
+  // e exige que cada tool que DELIBERA use `okMesa` (que carimba por construção) no seu retorno de sucesso.
+  const ext = readFileSync(new URL("../extension.mjs", import.meta.url), "utf8");
+  const DELIBERATIVAS = ["modo-dev [", "modo-pipeline:", "modo-reuso [", "modo-seguranca [", "modo-scopo [", "deep-gate [", "plano do ADR gerado"];
+  const semCarimbo = DELIBERATIVAS.filter((marca) => ext.includes("return ok(`" + marca));
+  assert.deepStrictEqual(semCarimbo, [], "tool deliberativa devolvendo resultado SEM o status da memória (use okMesa): " + semCarimbo.join(", "));
+  for (const marca of DELIBERATIVAS) {
+    assert.ok(ext.includes("return okMesa(`" + marca), `a tool "${marca.trim()}" precisa carimbar o status — senão a mesa cega parece igual à informada`);
+  }
 });
 
 console.log(`\nmemory-validator-smoke: ${pass}/${total} OK`);
