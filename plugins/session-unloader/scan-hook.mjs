@@ -9,20 +9,65 @@ import { resolveCopilotHome } from "./lib/home.mjs";
 import { shouldScan, markScan } from "./lib/throttle.mjs";
 import { readConfig } from "./lib/config.mjs";
 
-const evento = process.argv[2] || "unknown"; // "session-start" | "user-prompt"
 const THROTTLE_MS = 60 * 60 * 1000;          // 1h para o UserPromptSubmit
+const EVENT_NAMES = new Map([
+  ["sessionstart", "session-start"],
+  ["session-start", "session-start"],
+  ["userpromptsubmit", "user-prompt"],
+  ["user-prompt", "user-prompt"],
+]);
+
+export function resolveEvent({ hookInput = null, fallback = null } = {}) {
+  let input = hookInput;
+  if (typeof input === "string") {
+    try { input = JSON.parse(input); }
+    catch { input = null; }
+  }
+  const fromInput = input && (
+    input.hook_event_name
+    || input.hookEventName
+    || input.event
+  );
+  const raw = fromInput || fallback;
+  return EVENT_NAMES.get(String(raw || "").toLowerCase()) || null;
+}
+
+async function readHookInput() {
+  if (process.stdin.isTTY) return null;
+  let raw = "";
+  for await (const chunk of process.stdin) raw += chunk;
+  if (!raw.trim()) return null;
+  try { return JSON.parse(raw); }
+  catch (e) { return { parseError: String(e?.message || e) }; }
+}
 
 // Injeção de deps (default = as reais) só para o teste de ORDEM: throttle PRIMEIRO, readConfig SÓ se liberar.
-export async function main({ home = resolveCopilotHome(), evento: ev = evento, throttleMs = THROTTLE_MS, deps = {} } = {}) {
+export async function main({
+  home = resolveCopilotHome(),
+  evento = null,
+  hookInput = null,
+  throttleMs = THROTTLE_MS,
+  deps = {},
+} = {}) {
   const ss = deps.shouldScan || shouldScan;
   const rc = deps.readConfig || readConfig;
   const ui = deps.unloadIdle || unloadIdle;
   const ms = deps.markScan || markScan;
   const log = deps.logLine || logLine;
+  const ev = resolveEvent({ hookInput, fallback: evento || process.argv[2] });
+  if (!ev) {
+    log({
+      evento: "unknown",
+      action: "skip-unknown-event",
+      error: hookInput?.parseError || null,
+    });
+    return { skipped: "unknown-event" };
+  }
   if (ev === "user-prompt" && !ss(home, throttleMs)) return { skipped: "throttle" }; // throttle PRIMEIRO (sem ler disco)
-  if (!rc({ home }).enabled) { log({ evento: ev, action: "skip-disabled" }); return { skipped: "disabled" }; } // automático OFF
+  const cfg = rc({ home });
+  if (!cfg.enabled) { log({ evento: ev, action: "skip-disabled" }); return { skipped: "disabled" }; } // automático OFF
   try {
-    const res = await ui({ home, dryRun: false });
+    const res = await ui({ home, dryRun: false, config: cfg });
     ms(home);
     log({
       evento: ev, action: "scan",
@@ -40,5 +85,7 @@ export async function main({ home = resolveCopilotHome(), evento: ev = evento, t
 // Só executa quando rodado como hook (não em import de teste). Boundary de path: exige `/scan-hook.mjs`
 // no fim (não casa com `test-...scan-hook.mjs` importado por um teste).
 if (process.argv[1] && /(?:^|\/)scan-hook\.mjs$/.test(process.argv[1].replace(/\\/g, "/"))) {
-  main().finally(() => process.exit(0));
+  readHookInput()
+    .then((hookInput) => main({ hookInput }))
+    .finally(() => process.exit(0));
 }

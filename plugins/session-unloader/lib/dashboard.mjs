@@ -1,6 +1,6 @@
-// dashboard.mjs — painel canvas READ-ONLY do session-unloader. SERVER + snapshot, SEM dependência do SDK
+// Dashboard server + snapshot/config UI, without an SDK dependency.
 // (o createCanvas fica no guard do host, em extension.mjs). Serve `/` (PAGE_HTML) e `/data` (snapshot JSON).
-// Reúso: scan/isIdle/guardKill (bloco AO VIVO), telemetry (do log), .unloader-meta.json (status).
+// Reuses the same tree-aware decision core and kill guards as the automatic hook.
 // Segurança: bind 127.0.0.1; página busca /data e renderiza com textContent (nunca innerHTML de dados) → anti-XSS.
 // Ciclo de vida: porta persistida (sobrevive a reload) + close() que destrói sockets (padrão modo-auto, evita porta presa).
 // Custo: o scan ao vivo (spawn PowerShell) é guardado por cache TTL de 30s; o front atualiza a cada 10s → ≤2 scans/min.
@@ -10,13 +10,15 @@ import { join } from "node:path";
 import { resolveCopilotHome } from "./home.mjs";
 import { scanServers } from "./scan.mjs";
 import { getProcMap } from "./procmap.mjs";
-import { ancestorsOf, guardKill } from "./guards.mjs";
-import { readSnapshot, isIdle } from "./snapshot.mjs";
+import { ancestorsOf, guardKill, tokensPorSessao } from "./guards.mjs";
+import { readSnapshot } from "./snapshot.mjs";
 import { parseTelemetry } from "./telemetry.mjs";
 import { pidAlive } from "./process-utils.mjs";
 import { unloadIdle } from "./unload.mjs";
 import { readConfig, writeConfig } from "./config.mjs";
 import { logLine } from "./log.mjs";
+import { evaluateServerIdle } from "./idle-decision.mjs";
+import { availableParallelism } from "node:os";
 
 export const CANVAS_ID = "session-unloader-panel";
 export const CANVAS_INSTANCE = "session-unloader-panel";
@@ -40,6 +42,21 @@ function readLastScan(home) { try { return JSON.parse(readFileSync(metaFile(home
 function sessionName(home, sid) {
   try { const m = /^name:\s*(.+)$/m.exec(readFileSync(join(stateDir(home), sid, "workspace.yaml"), "utf8")); return m ? m[1].trim() : sid.slice(0, 8); }
   catch { return sid.slice(0, 8); }
+}
+
+async function readJsonBody(req, maxBytes = 64 * 1024) {
+  let raw = "";
+  for await (const chunk of req) {
+    raw += chunk;
+    if (Buffer.byteLength(raw) > maxBytes) {
+      const error = new Error(`corpo excede ${maxBytes} bytes`);
+      error.code = "REQUEST_TOO_LARGE";
+      throw error;
+    }
+  }
+  if (!raw.trim()) throw new Error("corpo JSON obrigatório");
+  try { return JSON.parse(raw); }
+  catch (error) { throw new Error(`JSON inválido: ${error?.message || error}`); }
 }
 
 export class Dashboard {
@@ -86,7 +103,7 @@ export class Dashboard {
     if (this.token && tk !== this.token) { // gate só no daemon (token setado)
       res.statusCode = 403; res.setHeader("Connection", "close"); res.end("forbidden"); return;
     }
-    if (req.method === "POST" && u.pathname.startsWith("/action/")) { return this._handleAction(u, res); }
+    if (req.method === "POST" && u.pathname.startsWith("/action/")) { return this._handleAction(u, req, res); }
     if (u.pathname === "/health") { res.setHeader("Connection", "close"); res.end("ok"); return; }
     if (u.pathname === "/data") {
       const callerPid = Number(u.searchParams.get("callerPid")) || null;
@@ -103,7 +120,7 @@ export class Dashboard {
   }
 
   // Ações do painel (POST + token). callerPid vem da query (nunca do body) → protege quem clicou.
-  async _handleAction(u, res) {
+  async _handleAction(u, req, res) {
     const json = (code, obj) => { res.statusCode = code; res.setHeader("Content-Type", "application/json"); res.setHeader("Connection", "close"); res.end(JSON.stringify(obj)); };
     const action = u.pathname.slice("/action/".length);
     const callerPid = Number(u.searchParams.get("callerPid")) || null;
@@ -114,6 +131,27 @@ export class Dashboard {
       const next = writeConfig({ enabled: !readConfig({ home: this.home }).enabled }, { home: this.home });
       logLine({ action: "toggle", enabled: next.enabled });
       return json(200, { ok: true, enabled: next.enabled });
+    }
+
+    if (action === "config") {
+      let patch;
+      try { patch = await readJsonBody(req); }
+      catch (error) { return json(error?.code === "REQUEST_TOO_LARGE" ? 413 : 400, { error: String(error?.message || error) }); }
+      try {
+        const next = writeConfig(patch, { home: this.home });
+        this._scanCache = null;
+        logLine({
+          action: "config",
+          idleTimeoutMs: next.idleTimeoutMs,
+          activeCpuRatio: next.activeCpuRatio,
+          minSampleMs: next.minSampleMs,
+          allowlist: next.allowlist,
+        });
+        return json(200, { ok: true, config: next });
+      } catch (error) {
+        if (error?.code === "INVALID_UNLOADER_CONFIG") return json(400, { error: String(error.message) });
+        throw error;
+      }
     }
 
     if (action === "unload") {
@@ -132,10 +170,12 @@ export class Dashboard {
   }
 
   async _snapshot(callerPid = null) {
-    const live = await this._live(callerPid);
+    const config = readConfig({ home: this.home });
+    const live = await this._live(callerPid, config);
     const status = {
       active: true,
-      enabled: readConfig({ home: this.home }).enabled,
+      enabled: config.enabled,
+      config,
       lastScan: readLastScan(this.home),
       loadedNow: live && Array.isArray(live.sessions) ? live.sessions.length : null,
       generatedAt: new Date().toISOString(),
@@ -143,7 +183,7 @@ export class Dashboard {
     return { status, telemetry: parseTelemetry(readLogLines(this.home)), live };
   }
 
-  async _live(callerPid = null) {
+  async _live(callerPid = null, config = readConfig({ home: this.home })) {
     const now = Date.now();
     // cache guarda o SCAN BRUTO (caro); a marcação por callerPid é aplicada por request (barato).
     let raw = this._scanCache && (now - this._scanCache.ts) < SCAN_TTL_MS ? this._scanCache.data : null;
@@ -157,23 +197,45 @@ export class Dashboard {
     const callerAncestors = callerPid ? ancestorsOf(callerPid, raw.procMap) : new Set();
     const protectedPids = new Set([...selfAncestors, ...callerAncestors, selfPid]);
     if (callerPid) protectedPids.add(callerPid);
+    const perSessionTokens = tokensPorSessao(raw.procMap);
     const sessions = raw.servers.map((s) => {
-      const idle = isIdle(s, s.sessionId ? readSnapshot(s.sessionId, { home: this.home }) : null, now);
+      const decision = evaluateServerIdle({
+        server: s,
+        previous: s.sessionId ? readSnapshot(s.sessionId, { home: this.home }) : null,
+        procMap: raw.procMap,
+        config,
+        now,
+        cpuCount: availableParallelism(),
+      });
       let verdict, icon;
       if (!s.sessionId) { verdict = "casca (sem sessão)"; icon = "⚪"; }
       else if (callerPid && callerAncestors.has(s.pid)) { verdict = "esta sessão"; icon = "🟢"; }
-      else if (!idle) { verdict = "ativa"; icon = "🟢"; }
+      else if (!decision.idle) {
+        const pinned = decision.reason.startsWith("pin:");
+        const failClosed = decision.diagnostics?.failClosed === true;
+        verdict = `${pinned || failClosed ? "protegida" : "ativa"} (${decision.reason})`;
+        icon = pinned || failClosed ? "🔒" : "🟢";
+      }
       else {
-        const g = guardKill(s, { selfPid, selfAncestors: protectedPids, procMap: raw.procMap, pidAlive });
+        const g = guardKill(s, {
+          selfPid,
+          selfAncestors: protectedPids,
+          procMap: raw.procMap,
+          pidAlive,
+          perSessionTokens,
+          descendantsResult: decision.descendantsResult,
+        });
         if (g.ok) { verdict = "candidata"; icon = "🔴"; }
         else { verdict = "protegida (" + g.reason + ")"; icon = "🔒"; }
       }
       return {
         pid: s.pid,
         name: s.sessionId ? sessionName(this.home, s.sessionId) : "(servidor sem sessão)",
-        idleMin: s.eventsMtimeMs ? Math.round((now - s.eventsMtimeMs) / 60000) : null,
+        idleMin: Number.isFinite(decision.diagnostics?.idleForMs)
+          ? Math.round(decision.diagnostics.idleForMs / 60000)
+          : null,
         wsMb: s.wsMb == null ? null : Number(s.wsMb),
-        verdict, icon,
+        verdict, icon, reason: decision.reason, diagnostics: decision.diagnostics,
       };
     });
     return { sessions, cachedAt: new Date(raw.at).toISOString(), error: raw.error };
@@ -216,6 +278,10 @@ tr:last-child td{border-bottom:none}
 .switch{display:flex;align-items:center;gap:6px;margin-left:auto;color:var(--mut);cursor:pointer;user-select:none}
 .warn-banner{background:rgba(248,81,73,.15);border:1px solid var(--red);color:var(--red);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px}
 .result{font-size:13px;color:var(--mut);margin-bottom:14px;white-space:pre-wrap;min-height:18px}
+.settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;background:var(--panel);border:1px solid var(--bd);border-radius:10px;padding:14px;margin-bottom:18px}
+.field{display:flex;flex-direction:column;gap:5px;color:var(--mut);font-size:12px}.field.wide{grid-column:1/-1}
+.field input,.field textarea{width:100%;background:var(--bg);border:1px solid var(--bd);border-radius:7px;color:var(--fg);padding:8px;font:13px ui-monospace,monospace}
+.field textarea{min-height:74px;resize:vertical}.hint{color:var(--mut);font-size:11px}.settings-actions{display:flex;align-items:end}
 </style></head>
 <body><div class="wrap">
 <h1>🧹 Session Unloader <span id="live" class="dot"></span></h1>
@@ -227,6 +293,16 @@ tr:last-child td{border-bottom:none}
 <label class="switch"><input type="checkbox" id="toggle"> Automático</label>
 </div>
 <div id="action-result" class="result"></div>
+<h2>Política de segurança</h2>
+<div class="settings">
+  <label class="field">Inatividade contínua (min)<input id="idle-timeout" type="number" min="15" max="1440" step="5"></label>
+  <label class="field">Razão mínima de CPU<input id="active-ratio" type="number" min="0.000001" max="0.25" step="0.000001"></label>
+  <label class="field">Janela mínima de amostra (s)<input id="sample-floor" type="number" min="5" max="300" step="5"></label>
+  <div class="settings-actions"><button id="btn-save-config" class="btn">Salvar política</button></div>
+  <label class="field wide">Allowlist adicional (uma entrada literal por linha)<textarea id="allowlist" spellcheck="false"></textarea>
+    <span class="hint">Proteções obrigatórias: <span id="required-allowlist"></span>. Entradas genéricas como node, copilot e .exe são rejeitadas.</span>
+  </label>
+</div>
 <div class="cards" id="cards"></div>
 <h2>Sessões carregadas agora</h2>
 <table><thead><tr><th></th><th>Sessão</th><th>Ocioso</th><th>RAM</th><th>Situação</th></tr></thead><tbody id="live-tb"><tr><td class="empty" colspan="5">escaneando…</td></tr></tbody></table>
@@ -238,12 +314,23 @@ tr:last-child td{border-bottom:none}
 function el(tag,txt){var e=document.createElement(tag);if(txt!=null)e.textContent=txt;return e;}
 function fmtTime(iso){if(!iso)return "—";try{return new Date(iso).toLocaleString("pt-BR");}catch(e){return "—";}}
 function card(label,value,cls){var d=el("div");d.className="card"+(cls?(" "+cls):"");var n=el("div",value);n.className="n";var l=el("div",label);l.className="l";d.appendChild(n);d.appendChild(l);return d;}
+var configInitialized=false;
 function render(d){
   var s=d.status||{},t=d.telemetry||{},live=d.live||{};
   document.getElementById("status").textContent="Ativo · última varredura: "+fmtTime(s.lastScan)+" · "+(s.loadedNow!=null?s.loadedNow:"?")+" sessão(ões) carregada(s)";
   var enabled=s.enabled!==false;
   document.getElementById("banner").style.display=enabled?"none":"block";
   document.getElementById("toggle").checked=enabled;
+  var cfg=s.config||{};
+  if(!configInitialized){
+    document.getElementById("idle-timeout").value=cfg.idleTimeoutMs?String(cfg.idleTimeoutMs/60000):"";
+    document.getElementById("active-ratio").value=cfg.activeCpuRatio!=null?String(cfg.activeCpuRatio):"";
+    document.getElementById("sample-floor").value=cfg.minSampleMs?String(cfg.minSampleMs/1000):"";
+    document.getElementById("allowlist").value=(cfg.allowlist||[]).join("\\n");
+    document.getElementById("required-allowlist").textContent=(cfg.effectiveAllowlist||[]).filter(function(x){return !(cfg.allowlist||[]).includes(x);}).join(", ");
+    configInitialized=true;
+  }
+  if(cfg.configError&&!document.getElementById("action-result").textContent)document.getElementById("action-result").textContent="Configuração inválida; automático mantido desligado: "+cfg.configError;
   var cards=document.getElementById("cards");cards.textContent="";
   cards.appendChild(card("descarregadas (total)",String(t.totalKilled||0),"aqua"));
   cards.appendChild(card("descarregadas hoje",String(t.killedToday||0),"aqua"));
@@ -261,10 +348,11 @@ function render(d){
 }
 function tick(){fetch("/data"+window.location.search).then(function(r){return r.json();}).then(render).catch(function(){document.getElementById("live").style.background="var(--red)";});}
 var Q=window.location.search;var TOKEN=new URLSearchParams(Q).get("token")||"";
-function postAction(path){return fetch(path+Q,{method:"POST",headers:{"X-Token":TOKEN}}).then(function(r){return r.json().then(function(j){return{status:r.status,j:j};});});}
+function postAction(path,body){var u=new URL(path,window.location.origin);new URLSearchParams(Q).forEach(function(v,k){u.searchParams.set(k,v);});var opts={method:"POST",headers:{"X-Token":TOKEN}};if(body!==undefined){opts.headers["Content-Type"]="application/json";opts.body=JSON.stringify(body);}return fetch(u.pathname+u.search,opts).then(function(r){return r.json().then(function(j){return{status:r.status,j:j};});});}
 function setResult(t){document.getElementById("action-result").textContent=t;}
 document.getElementById("btn-unload").addEventListener("click",function(){var b=this;b.disabled=true;setResult("verificando candidatas…");postAction("/action/unload?dryRun=1").then(function(o){var c=(o.j.candidates||[]);if(!c.length){setResult("Nenhuma sessão ociosa para descarregar agora.");b.disabled=false;return;}var names=c.map(function(x){return x.sessionId?String(x.sessionId).slice(0,8):x.pid;}).join(", ");if(!confirm("Descarregar "+c.length+" sessao(oes) ociosa(s)?\\n"+names+"\\n\\nO estado pode mudar entre a previa e a execucao; as guardas sao reavaliadas no kill.")){b.disabled=false;setResult("");return;}setResult("descarregando…");postAction("/action/unload").then(function(o2){var k=(o2.j.killed||[]).length,sk=(o2.j.skipped||[]).length;setResult("Descarregadas "+k+" | preservadas por guarda "+sk+".");b.disabled=false;tick();});}).catch(function(){setResult("erro na acao.");b.disabled=false;});});
 document.getElementById("btn-rescan").addEventListener("click",function(){var b=this;b.disabled=true;setResult("reescaneando…");postAction("/action/rescan").then(function(){setResult("");b.disabled=false;tick();});});
 document.getElementById("toggle").addEventListener("change",function(){postAction("/action/toggle").then(function(o){setResult(o.j.enabled?"Automatico LIGADO.":"Automatico DESLIGADO.");tick();});});
+document.getElementById("btn-save-config").addEventListener("click",function(){var b=this;b.disabled=true;var allow=document.getElementById("allowlist").value.split(/\\r?\\n/).map(function(x){return x.trim();}).filter(Boolean);var patch={idleTimeoutMs:Number(document.getElementById("idle-timeout").value)*60000,activeCpuRatio:Number(document.getElementById("active-ratio").value),minSampleMs:Number(document.getElementById("sample-floor").value)*1000,allowlist:allow};setResult("salvando política…");postAction("/action/config",patch).then(function(o){if(o.status!==200){setResult(o.j.error||"Falha ao salvar configuração.");b.disabled=false;return;}configInitialized=false;setResult("Política salva. O automático continua no estado escolhido acima.");b.disabled=false;tick();}).catch(function(e){setResult("Falha ao salvar configuração: "+String(e&&e.message||e));b.disabled=false;});});
 tick();setInterval(tick,10000);
 </script></body></html>`;

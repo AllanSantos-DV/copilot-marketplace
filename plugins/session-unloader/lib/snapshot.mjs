@@ -1,15 +1,10 @@
-// snapshot.mjs — persiste o CPU acumulado por sessão (.cpu-snapshot.json na pasta da sessão) e decide
-// ociosidade pelo SINAL DUPLO validado empiricamente:
-//   (1) events.jsonl sem escrita há > IDLE_EVENTS_MS  (nenhum turno/subagente recente), E
-//   (2) cpu_delta ≈ 0 desde o snapshot anterior       (nada — agente, subagente ou mesa de ADR — queimou CPU).
-// Proteção por design: se QUALQUER sinal indica vida, NÃO é idle. COLD-START (sem snapshot) nunca mata:
-// só grava a linha de base para a próxima passada — assim um PID reciclado nunca é morto por engano.
+// Persists per-PID cumulative CPU and the monotonic idle window for one session process tree.
+// The pure evaluator is shared by the hook, tool and dashboard.
 import { readFileSync, writeFileSync, renameSync, mkdirSync, unlinkSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { resolveCopilotHome } from "./home.mjs";
 
-export const IDLE_EVENTS_MS = 10 * 60 * 1000;      // 10 min sem eventos
-export const CPU_DELTA_THRESHOLD = 5_000_000;      // 0,5 s de CPU (unidades de 100 ns) — margem sobre ruído
+const HUNDRED_NS_PER_MS = 10_000;
 
 function snapPath(home, sid) { return join(home, "session-state", sid, ".cpu-snapshot.json"); }
 
@@ -33,18 +28,133 @@ export function removeSnapshot(sid, { home = resolveCopilotHome() } = {}) {
   try { unlinkSync(snapPath(home, sid)); return true; } catch { return false; }
 }
 
+function snapshotFor(tree, now, idleSince) {
+  const pidCpu = {};
+  for (const proc of tree || []) {
+    const pid = Number(proc?.pid);
+    const cpu = Number(proc?.cpu);
+    if (Number.isInteger(pid) && pid > 0 && Number.isFinite(cpu) && cpu >= 0) pidCpu[pid] = cpu;
+  }
+  return { version: 2, pidCpu, at: now, idleSince };
+}
+
+function matchingPin(tree, allowlist) {
+  for (const token of allowlist || []) {
+    const literal = String(token || "").trim();
+    if (!literal) continue;
+    const needle = literal.toLowerCase();
+    if ((tree || []).some((proc) =>
+      `${proc?.name || ""}\n${proc?.cmdline || ""}`.toLowerCase().includes(needle))) return literal;
+  }
+  return null;
+}
+
 /**
- * Decide se um servidor está OCIOSO (seguro para descarregar).
- * @param {{sessionId:string|null, cpu:number|null, eventsMtimeMs:number|null}} server — item do scan.
- * @param {{cpu:number}|null} prevSnapshot — snapshot anterior (null = cold-start).
- * @param {number} [now]
- * @returns {boolean} true só quando AMBOS os sinais confirmam ociosidade e há linha de base de CPU.
+ * Pure, tree-aware idle decision. I/O adapters provide the process tree and persist nextSnapshot.
  */
-export function isIdle(server, prevSnapshot, now = Date.now()) {
-  if (!server || !server.sessionId) return false;               // sem lock → não sabemos a sessão → não mexe
-  if (server.eventsMtimeMs == null) return false;               // sem events → não confiável → não mexe
-  if ((now - server.eventsMtimeMs) <= IDLE_EVENTS_MS) return false; // sinal 1: houve evento recente → viva
-  if (!prevSnapshot || prevSnapshot.cpu == null || server.cpu == null) return false; // cold-start → nunca mata
-  const delta = server.cpu - prevSnapshot.cpu;                  // sinal 2: CPU consumida desde a base
-  return delta >= 0 && delta < CPU_DELTA_THRESHOLD;             // ~0 → nada trabalhou → ociosa
+export function evaluateIdle({
+  server,
+  previous,
+  tree,
+  config,
+  now = Date.now(),
+  cpuCount = 1,
+} = {}) {
+  const idleTimeoutMs = Number(config?.idleTimeoutMs);
+  const activeCpuRatio = Number(config?.activeCpuRatio);
+  const minSampleMs = Number(config?.minSampleMs);
+  const safeCpuCount = Math.max(1, Number(cpuCount) || 1);
+  const pin = matchingPin(tree, config?.allowlist);
+
+  if (pin) {
+    return {
+      idle: false,
+      reason: `pin:${pin}`,
+      nextSnapshot: snapshotFor(tree, now, now),
+      diagnostics: { pin, allowlist: [...(config?.allowlist || [])] },
+    };
+  }
+
+  const validPrevious = previous?.version === 2
+    && previous.pidCpu && typeof previous.pidCpu === "object"
+    && Number.isFinite(Number(previous.at))
+    && Number.isFinite(Number(previous.idleSince));
+  if (!validPrevious) {
+    return {
+      idle: false,
+      reason: "cold-start",
+      nextSnapshot: snapshotFor(tree, now, now),
+      diagnostics: { migratedLegacySnapshot: previous != null },
+    };
+  }
+
+  if (Number(server?.eventsMtimeMs) > Number(previous.at)) {
+    return {
+      idle: false,
+      reason: "events-active",
+      nextSnapshot: snapshotFor(tree, now, now),
+      diagnostics: { eventsMtimeMs: Number(server.eventsMtimeMs) },
+    };
+  }
+
+  const deltaWallMs = now - Number(previous.at);
+  if (!Number.isFinite(deltaWallMs) || deltaWallMs < minSampleMs) {
+    return {
+      idle: false,
+      reason: "sample-too-short",
+      nextSnapshot: previous,
+      diagnostics: { deltaWallMs, minSampleMs },
+    };
+  }
+
+  let cpuBusy100ns = 0;
+  const pidDeltas = {};
+  const treeChanges = [];
+  for (const proc of tree || []) {
+    const pid = Number(proc?.pid);
+    const cpu = Number(proc?.cpu);
+    if (!Number.isInteger(pid) || pid <= 0 || !Number.isFinite(cpu) || cpu < 0) continue;
+    const before = Number(previous.pidCpu[pid]);
+    if (!Number.isFinite(before)) treeChanges.push({ pid, change: "added" });
+    else if (cpu < before) treeChanges.push({ pid, change: "cpu-regressed" });
+    const delta = Number.isFinite(before) ? Math.max(0, cpu - before) : cpu;
+    pidDeltas[pid] = delta;
+    cpuBusy100ns += delta;
+  }
+  const cpuRatio = (cpuBusy100ns / HUNDRED_NS_PER_MS) / (deltaWallMs * safeCpuCount);
+  const diagnostics = {
+    deltaWallMs,
+    cpuBusy100ns,
+    cpuRatio,
+    cpuCount: safeCpuCount,
+    pidDeltas,
+    allowlist: [...(config?.allowlist || [])],
+    treeChanges,
+  };
+  if (treeChanges.length) {
+    return {
+      idle: false,
+      reason: "tree-changed",
+      nextSnapshot: snapshotFor(tree, now, now),
+      diagnostics,
+    };
+  }
+  if (cpuRatio >= activeCpuRatio) {
+    return {
+      idle: false,
+      reason: "cpu-active",
+      nextSnapshot: snapshotFor(tree, now, now),
+      diagnostics,
+    };
+  }
+
+  const idleSince = Number(previous.idleSince);
+  const idleForMs = Math.max(0, now - idleSince);
+  const idle = idleForMs >= idleTimeoutMs;
+  return {
+    idle,
+    reason: idle ? "idle-timeout" : "idle-countdown",
+    nextSnapshot: snapshotFor(tree, now, idleSince),
+    diagnostics: { ...diagnostics, idleSince, idleForMs, idleTimeoutMs },
+  };
 }
