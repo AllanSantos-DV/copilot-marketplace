@@ -1,13 +1,15 @@
 // scan-hook.mjs — runner do command hook (SessionStart / UserPromptSubmit). Processo SEPARADO, timeout 20s.
-// Varre e DESCARREGA as sessões ociosas (as OUTRAS — a sessão atual está protegida pela guarda de
-// auto-preservação, pois este processo é descendente do servidor dela). UserPromptSubmit tem THROTTLE de
-// 1h, para cobrir quem trabalha horas numa sessão só sem abrir outra. Fire-and-forget: nunca bloqueia o
-// chat, nunca lança, sai 0.
-import { unloadIdle } from "./lib/unload.mjs";
+// v0.7: CLIENTE FINO do daemon único — nunca importa lib/unload.mjs (scan/guards/kill ficam só no daemon).
+// Quando o automático está habilitado, apenas ENCONTRA/SOBE o daemon e pede a ele para avaliar (o daemon
+// é quem escaneia e mata, uma vez só para N sessões). UserPromptSubmit tem THROTTLE de 1h, para cobrir
+// quem trabalha horas numa sessão só sem abrir outra. Fire-and-forget: nunca bloqueia o chat, nunca
+// lança, sai 0. Desabilitado é o caminho barato: nem contata o daemon (fail-closed).
 import { logLine } from "./lib/log.mjs";
 import { resolveCopilotHome } from "./lib/home.mjs";
 import { shouldScan, markScan } from "./lib/throttle.mjs";
 import { readConfig } from "./lib/config.mjs";
+import { ensureDaemon } from "./ensure-daemon.mjs";
+import { requestUnload } from "./lib/daemon-client.mjs";
 
 const THROTTLE_MS = 60 * 60 * 1000;          // 1h para o UserPromptSubmit
 const EVENT_NAMES = new Map([
@@ -41,7 +43,8 @@ async function readHookInput() {
   catch (e) { return { parseError: String(e?.message || e) }; }
 }
 
-// Injeção de deps (default = as reais) só para o teste de ORDEM: throttle PRIMEIRO, readConfig SÓ se liberar.
+// Injeção de deps (default = as reais) só para o teste de ORDEM: throttle PRIMEIRO, readConfig SÓ se
+// liberar, e o daemon SÓ é contatado se o automático estiver ligado (fail-closed barato quando desligado).
 export async function main({
   home = resolveCopilotHome(),
   evento = null,
@@ -51,9 +54,10 @@ export async function main({
 } = {}) {
   const ss = deps.shouldScan || shouldScan;
   const rc = deps.readConfig || readConfig;
-  const ui = deps.unloadIdle || unloadIdle;
   const ms = deps.markScan || markScan;
   const log = deps.logLine || logLine;
+  const ensureDaemonFn = deps.ensureDaemon || ensureDaemon;
+  const requestUnloadFn = deps.requestUnload || requestUnload;
   const ev = resolveEvent({ hookInput, fallback: evento || process.argv[2] });
   if (!ev) {
     log({
@@ -67,10 +71,11 @@ export async function main({
   const cfg = rc({ home });
   if (!cfg.enabled) { log({ evento: ev, action: "skip-disabled" }); return { skipped: "disabled" }; } // automático OFF
   try {
-    const res = await ui({ home, dryRun: false, config: cfg });
+    // nudge fino: o SCAN/kill de verdade roda no processo do daemon, não aqui (hook nunca importa unload.mjs).
+    const res = await requestUnloadFn({ ensureDaemonFn: () => ensureDaemonFn(home), dryRun: false });
     ms(home);
     log({
-      evento: ev, action: "scan",
+      evento: ev, action: "hook-nudge",
       killed: res.killed?.length || 0,
       candidates: res.candidates?.length || 0,
       skipped: res.skipped?.length || 0,

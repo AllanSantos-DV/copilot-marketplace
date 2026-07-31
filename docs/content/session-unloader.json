@@ -1,11 +1,11 @@
 {
-  "tagline": "Você para uma sessão do Copilot, mas o servidor dela continua vivo comendo RAM. Descarrega da memória as sessões realmente ociosas — sem apagar nada: o app reabre com chat e histórico.",
-  "lede": "O app do Copilot **não tem** \"fechar sessão\": quando você aperta stop, o processo-servidor daquela sessão fica **carregado na memória**, e as paradas se empilham — nesta máquina chegaram a **~100 processos `copilot.exe`** somando **~9 GB**, com várias sessões \"paradas\" ainda vivas à toa. O **session-unloader** recolhe as ociosas da memória: mata a **árvore do processo-servidor** sem tocar no disco, e o **lazy-load** do app reabre a sessão depois, com chat e histórico intactos. E só descarrega o que está **comprovadamente** parado — **inatividade contínua de toda a árvore** de processos (raiz e descendentes) pelo tempo configurado, sem CPU nem evento novo o período inteiro.",
+  "tagline": "Você para uma sessão do Copilot, mas o servidor dela continua vivo comendo RAM. Um daemon único descarrega da memória as sessões realmente ociosas — sem apagar nada: o app reabre com chat e histórico.",
+  "lede": "O app do Copilot **não tem** \"fechar sessão\": quando você aperta stop, o processo-servidor daquela sessão fica **carregado na memória**, e as paradas se empilham — nesta máquina chegaram a **~100 processos `copilot.exe`** somando **~9 GB**, com várias sessões \"paradas\" ainda vivas à toa. O **session-unloader** recolhe as ociosas da memória: mata a **árvore do processo-servidor** sem tocar no disco, e o **lazy-load** do app reabre a sessão depois, com chat e histórico intactos. Um **daemon único** é o dono de todo o trabalho pesado — cada sessão é só um **cliente fino** que aponta pra ele —, e só descarrega o que está **comprovadamente** parado: **inatividade contínua de toda a árvore** de processos (raiz e descendentes) pelo tempo configurado, sem CPU nem evento novo o período inteiro.",
   "highlights": [
-    { "title": "Reversível de verdade", "body": "Descarregar **não apaga** a sessão — mata só o processo na RAM. O lazy-load do app a reabre com chat e histórico intactos; as extensões voltam com um `reload extension`." },
-    { "title": "Ociosidade da árvore inteira, no seu tempo", "body": "Soma o delta de CPU do servidor **e de todos os descendentes**; qualquer atividade, PID novo/reciclado ou processo allowlisted reinicia o relógio. Tempo (15 min–24 h) e allowlist são **configuráveis no canvas** — o padrão seguro é 60 min." },
-    { "title": "Guardas antes de todo kill", "body": "Nunca a própria sessão nem seus ancestrais; revalida que o PID ainda é um servidor (anti-TOCTOU); e jamais derruba daemons compartilhados como memória, `embed-house` e `Action-mcp`." },
-    { "title": "Sozinho ou sob comando", "body": "Automático **desligado por padrão** (fail-closed); quando ligado conscientemente no canvas, roda por hooks no início da sessão e a cada ~1 h nas longas. Sob demanda pela tool `unload_idle` — **dry-run por padrão**: lista antes, descarrega só com `force`." }
+    { "title": "Um daemon, N sessões", "body": "Um processo **singleton** (por porta + lockfile) é o dono do scan, da telemetria e do painel. Cada sessão fala com ele por um **cliente HTTP fino** — `extension.mjs` nunca importa scan/guardas/telemetria: 1 leitura de processos serve todas as sessões abertas." },
+    { "title": "Sampler quente, sem custo no request", "body": "O scan roda em segundo plano com *coalescing* (nunca dois em voo; rajadas de pedidos viram no máximo 1 scan rodando + 1 enfileirado). O painel lê sempre o último snapshot pronto — `/data` responde a quente em poucos milissegundos, com estado explícito `fresh`/`scanning`/`stale`/`error`." },
+    { "title": "Telemetria viva, não só histórico", "body": "Tail incremental do log (nunca relê o arquivo inteiro) com cursor persistido e contadores cumulativos. Os cards do painel — carregadas, ativas, protegidas, candidatas agora, RAM carregada/liberável — vêm do **snapshot atual**, por isso seguem se movendo mesmo com o automático desligado." },
+    { "title": "Automático desligado até você ligar", "body": "O agendamento **fica fora** por padrão (fail-closed): o painel mostra um banner vermelho persistente. Ao ligar conscientemente no canvas, um **scheduler único** do daemon passa a avaliar em cadência própria — a janela de inatividade é atingida mesmo sem nenhum prompt novo. Sob demanda, a tool `unload_idle` continua **dry-run por padrão**." }
   ],
   "sections": [
     {
@@ -13,8 +13,8 @@
       "title": "O que é",
       "blocks": [
         { "type": "p", "text": "O app do Copilot para uma sessão, mas **não a descarrega**: o processo-servidor dela segue vivo na memória. Sessão após sessão, isso se acumula — várias \"paradas\" continuam ocupando RAM sem você perceber." },
-        { "type": "p", "text": "Este plugin faz o passo que falta: **recolhe da memória** as sessões ociosas. Ele mata a **árvore do processo-servidor** — e só isso; a sessão **continua no disco**. Quando você reabre, o **lazy-load** do app monta tudo de novo, com chat e histórico no lugar (as extensões voltam com um `reload extension`). É **100% reversível**." },
-        { "type": "note", "tone": "info", "text": "Funciona de dois jeitos: **sozinho**, por hooks de sessão (desligado por padrão — você liga conscientemente no canvas), e **sob comando**, pela tool `unload_idle` (com `dry-run` por padrão). Windows-only nesta versão — a varredura usa WMI/CIM." }
+        { "type": "p", "text": "Este plugin faz o passo que falta: **recolhe da memória** as sessões ociosas. Um **daemon único** por máquina é o dono de todo o trabalho — scan de processos, decisão de ociosidade, telemetria e o painel —, e cada sessão fala com ele por um cliente fino, sem nunca subir um servidor local próprio. A descarga em si mata só a **árvore do processo-servidor**; a sessão **continua no disco**. Quando você reabre, o **lazy-load** do app monta tudo de novo, com chat e histórico no lugar (as extensões voltam com um `reload extension`). É **100% reversível**." },
+        { "type": "note", "tone": "info", "text": "Funciona de dois jeitos: **sozinho**, por um scheduler do daemon (desligado por padrão — você liga conscientemente no canvas), e **sob comando**, pela tool `unload_idle` (com `dry-run` por padrão). Windows-only nesta versão — a varredura usa WMI/CIM." }
       ]
     },
     {
@@ -25,13 +25,31 @@
           "type": "steps",
           "items": [
             { "title": "Instale o plugin", "text": "Pelo marketplace (comando na seção Instalar). Precisa de Windows e Node." },
-            { "title": "Reinicie o app uma vez", "text": "Para os hooks de sessão e a tool `unload_idle` entrarem." },
-            { "title": "Deixe rodar sozinho", "text": "Os hooks varrem no início de cada sessão e, para quem fica horas numa só, a cada ~1 h. É fire-and-forget: nunca trava o chat." },
-            { "title": "Confira antes, sem risco", "text": "Chame `unload_idle`: por padrão é **dry-run** e só lista as sessões ociosas candidatas." },
-            { "title": "Descarregue quando quiser", "text": "Rode `unload_idle` com `force: true` para recolher de verdade — ou passe `sessionId` para uma sessão específica." },
-            { "title": "Acompanhe pelo log", "text": "Cada passada grava em `~/.copilot/logs/unloader.log`: o que caiu, o que foi preservado e por quê." }
+            { "title": "Reinicie o app uma vez", "text": "Para o canvas do painel e a tool `unload_idle` entrarem." },
+            { "title": "Abra o painel quando quiser", "text": "O canvas acha (ou sobe) o daemon único e mostra status, telemetria e as sessões carregadas agora — sem ligar nada." },
+            { "title": "Confira antes, sem risco", "text": "Chame `unload_idle` ou clique **Descarregar ociosas agora**: por padrão é **dry-run** e só lista as sessões ociosas candidatas." },
+            { "title": "Ligue o automático (opcional)", "text": "No canvas, o interruptor liga o scheduler do daemon — a partir daí ele avalia em cadência própria, sem depender de você digitar nada." },
+            { "title": "Acompanhe pelo log ou pelo painel", "text": "Cada passada grava em `~/.copilot/logs/unloader.log`; o painel lê o mesmo histórico em tempo real (contadores + série curta)." }
           ]
         }
+      ]
+    },
+    {
+      "id": "painel-daemon-unico",
+      "title": "O painel e o daemon único",
+      "blocks": [
+        { "type": "p", "text": "Um único processo (`server-daemon.mjs`, singleton por porta) concentra **tudo**: sampler de processos, avaliação de ociosidade, snapshot, telemetria, configuração, descarga manual e o agendamento automático quando ligado. O canvas de **cada sessão é um cliente fino** (`extension.mjs`): só acha ou sobe o daemon (`ensure-daemon.mjs`) e aponta pra URL dele — **1 leitura de processos para N sessões**, em vez de cada sessão escanear por conta própria." },
+        {
+          "type": "list",
+          "items": [
+            "**Sampler quente** (`lib/sampler.mjs`) — escaneia em segundo plano, fora do caminho do request; *coalescing* garante no máximo 1 scan em voo + 1 enfileirado, mesmo sob rajada de pedidos.",
+            "**`/data` sempre responde na hora** com o último snapshot pronto e um estado explícito: `fresh` (dentro da janela), `scanning` (scan em andamento), `stale` (mais velho que o esperado — dispara novo scan) ou `error` (última tentativa falhou, sem inventar dado).",
+            "**Telemetria viva** (`lib/telemetry-store.mjs`) — tail incremental do NDJSON com cursor persistido; nunca relê o arquivo inteiro. Trunca/rotação e linhas corrompidas são sinalizados, nunca escondidos.",
+            "**Scheduler opcional** (`lib/scheduler.mjs`) — só existe *ativo* quando você liga o automático no canvas; em cadência própria, independente de prompt. Desligado, é totalmente inerte."
+          ]
+        },
+        { "type": "note", "tone": "warn", "text": "**O automático nasce desligado.** Enquanto estiver assim, o painel mostra um banner vermelho persistente e o scheduler não roda nada — só a tool `unload_idle` (dry-run por padrão) e o botão **Reescanear** movem alguma coisa. Ligar é uma escolha explícita, feita no canvas." },
+        { "type": "note", "tone": "info", "text": "Falha do daemon é **visível**, nunca mascarada: se ele não subir, o painel e a tool `unload_idle` mostram o erro explícito. Não existe um segundo servidor local de fallback — isso quebraria o preceito de 1 leitura de processos para todas as sessões." }
       ]
     },
     {
@@ -56,14 +74,15 @@
       "id": "guardas",
       "title": "Guardas antes de descarregar",
       "blocks": [
-        { "type": "p", "text": "Passado o sinal duplo, ainda há um pente-fino antes de qualquer kill. **Todas** as guardas têm de passar:" },
+        { "type": "p", "text": "Passado o sinal duplo, ainda há um pente-fino antes de qualquer kill — e as ações no painel são autenticadas do mesmo jeito que a tool. **Todas** as guardas têm de passar:" },
         {
           "type": "list",
           "items": [
             "**Auto-preservação** — nunca encerra a própria sessão nem seus processos ancestrais.",
             "**Anti-TOCTOU** — revalida na hora que o PID ainda é um servidor de sessão; se foi reciclado, aborta.",
             "**Daemons compartilhados intocáveis** — nunca derruba singletons que servem todas as sessões (memória, `embed-house`, `Action-mcp`).",
-            "**Lock anti-race** — dois hooks disparando juntos não colidem: um executa, o outro sai quieto."
+            "**Lock anti-race** — dois hooks (ou dois cliques no painel) disparando juntos não colidem: um executa, o outro sai quieto.",
+            "**`callerPid` só adiciona proteção** — nunca autoriza um kill sozinho, mesmo forjado; as mutações exigem token no header, nunca no body/URL."
           ]
         }
       ]
@@ -72,60 +91,72 @@
       "id": "como-funciona",
       "title": "Como funciona",
       "blocks": [
-        { "type": "p", "text": "Cada passada roda em **processo separado**, fire-and-forget, e segue sempre o mesmo caminho:" },
+        { "type": "p", "text": "Cada sessão sobe (ou reaproveita) o daemon único e segue sempre o mesmo caminho:" },
         {
           "type": "steps",
           "items": [
-            { "title": "Trava", "text": "Um lock garante que dois hooks simultâneos não rodem juntos." },
-            { "title": "Fotografa", "text": "Lista os servidores de sessão vivos (CIM) com PID, sessão, CPU e a hora do último evento." },
+            { "title": "Acha ou sobe o daemon", "text": "`ensure-daemon.mjs` procura o lockfile de descoberta; se não achar um daemon vivo, sobe um novo (singleton por porta)." },
+            { "title": "Sampler fotografa em segundo plano", "text": "Lista os servidores de sessão vivos (CIM) com PID, sessão, CPU e a hora do último evento — fora do caminho do request, com coalescing." },
             { "title": "Decide", "text": "Aplica a janela de inatividade contínua da árvore inteira e, nas candidatas, o pente-fino das guardas." },
             { "title": "Descarrega", "text": "Mata a árvore do processo-servidor e remove o snapshot — a sessão continua no disco." },
-            { "title": "Registra", "text": "Anota no log o que caiu, o que foi preservado e o motivo." }
+            { "title": "Registra", "text": "Anota no log o que caiu, o que foi preservado e o motivo; a telemetria do painel lê o mesmo log incrementalmente." }
           ]
         },
-        { "type": "p", "text": "O log conta a história de cada passada — o que caiu, o que foi poupado e por quê:" },
+        { "type": "p", "text": "O log conta a história de cada passada — o que caiu, o que foi poupado e por quê; é o mesmo log que alimenta a telemetria do painel:" },
         {
           "type": "code",
           "lang": "json",
           "copy": true,
           "code": "{\"ts\":\"2026-07-23T14:02:10Z\",\"evento\":\"session-start\",\"action\":\"scan\",\"killed\":4,\"candidates\":4,\"skipped\":7}\n{\"ts\":\"2026-07-23T14:02:10Z\",\"action\":\"killed\",\"sessionId\":\"a1c9b2…\",\"pid\":24680,\"reason\":\"idle: árvore inteira sem CPU/evento há 62min\"}\n{\"ts\":\"2026-07-23T14:02:10Z\",\"action\":\"skipped\",\"pid\":13372,\"reason\":\"self: ancestral do scan\"}"
         },
-        { "type": "note", "tone": "info", "text": "Só a varredura é Windows-only (WMI/CIM). A interface interna `{ scan, procMap, treeKill }` já isola o SO, então outros backends entram sem mexer na lógica de decisão." }
+        { "type": "note", "tone": "info", "text": "Só a varredura é Windows-only (WMI/CIM). A interface interna `{ scan, procMap, treeKill }` já isola o SO, então outros backends entram sem mexer na lógica de decisão nem no daemon." }
       ]
     }
   ],
   "requirements": [
     "Windows 10/11 (a varredura usa WMI/CIM)",
     "App do GitHub Copilot (CLI) com suporte a plugins",
-    "Node 18+ (runtime dos hooks e da tool)",
+    "Node 18+ (runtime do daemon, dos hooks e da tool)",
     "PowerShell disponível (`Get-CimInstance`)"
   ],
   "faq": [
     { "q": "Perco a conversa quando descarrega?", "a": "Não. Descarregar mata só o processo na memória; a sessão fica no disco. Ao reabri-la, o lazy-load restaura chat e histórico, e um `reload extension` traz as extensões de volta. O que não persiste em disco — shells abertos, conexões MCP, contexto só em memória — não volta, uma troca aceitável depois da janela de inatividade configurada." },
     { "q": "Ele pode matar a sessão em que estou trabalhando?", "a": "Não. A guarda de auto-preservação nunca encerra a sessão atual nem seus processos ancestrais, e a janela de inatividade contínua mantém de pé qualquer árvore com eventos recentes ou CPU em uso em qualquer nível da descendência." },
     { "q": "E um subagente ou uma mesa de ADR rodando?", "a": "Ficam protegidos. Cada um deles vive em algum nível da árvore do processo-servidor e, ao queimar CPU ou gravar eventos, reinicia o relógio da árvore inteira — a sessão só é candidata se **nenhum** processo da descendência se mexer pelo tempo configurado." },
-    { "q": "Dá pra ajustar o tempo e a allowlist?", "a": "Sim. No canvas, a seção Política de segurança deixa escolher o timeout (15 min–24 h) e somar uma allowlist adicional literal. As proteções de voz e `liveWorker` são obrigatórias e não podem ser removidas; o automático continua desligado por padrão até você ligar conscientemente." },
-    { "q": "Como testo sem risco?", "a": "A tool `unload_idle` é dry-run por padrão: ela só lista as sessões ociosas candidatas. Você só descarrega de fato ao passar `force: true`." },
+    { "q": "O automático já vem ligado?", "a": "Não. Fica desligado por padrão (fail-closed) — o painel mostra um banner vermelho persistente até você ligar conscientemente o interruptor no canvas. Enquanto isso, só a tool `unload_idle` (dry-run por padrão) e o botão **Reescanear** movem alguma coisa." },
+    { "q": "Por que um daemon único em vez de cada sessão escanear sozinha?", "a": "Porque N sessões escaneando ao mesmo tempo custaria N leituras redundantes de processos. O daemon único faz 1 leitura para todas: cada sessão é só um cliente fino que aponta pra ele, e o painel lê sempre o último snapshot já pronto — sem esperar um scan novo a cada abertura." },
+    { "q": "Dá pra ajustar o tempo e a allowlist?", "a": "Sim. No canvas, a seção Política de segurança deixa escolher o timeout (15 min–24 h) e somar uma allowlist adicional literal. As proteções de voz e `liveWorker` são obrigatórias e não podem ser removidas." },
+    { "q": "Como testo sem risco?", "a": "A tool `unload_idle` e o botão **Descarregar ociosas agora** do painel são dry-run por padrão: só listam as sessões ociosas candidatas. Você só descarrega de fato ao passar `force: true` (ou confirmar no painel)." },
     { "q": "Funciona no macOS ou Linux?", "a": "Ainda não — esta versão é Windows-only (WMI/CIM). A interface interna de scan e kill já está isolada para receber outros sistemas depois." }
   ],
   "files": {
-    "boot.mjs": "Runner dos hooks de sessão: varre e descarrega as ociosas em processo separado (fire-and-forget).",
-    "extension.mjs": "Expõe a tool `unload_idle` ao agente (dry-run por padrão; `force` descarrega).",
-    "hooks.json": "Liga os gatilhos automáticos: `SessionStart` e `UserPromptSubmit` (com throttle).",
+    "server-daemon.mjs": "O DAEMON ÚNICO (singleton por porta): dono do sampler, telemetria, scheduler e do painel.",
+    "ensure-daemon.mjs": "Find-or-start do daemon único a partir de qualquer sessão.",
+    "extension.mjs": "Cliente fino: expõe a tool `unload_idle` e o canvas do painel; nunca importa o núcleo pesado.",
+    "boot.mjs": "Runner dos hooks de sessão: dispara nudges finos ao daemon (nunca escaneia localmente).",
     "plugin.json": "Metadados do plugin + marcadores (extension + hooks).",
     "README.md": "Documentação vinda do repositório de origem.",
+    "lib/dashboard.mjs": "HTML/API do painel: status, telemetria, sessões carregadas e as ações (descarregar/reescanear/automático).",
+    "lib/sampler.mjs": "Sampler singleton do daemon: scan em segundo plano com coalescing — nunca dois scans em voo.",
+    "lib/scheduler.mjs": "Scheduler do automático: só ativo quando `config.enabled:true`; cadência própria, independente de prompt.",
+    "lib/telemetry-store.mjs": "Telemetria operacional incremental: tail do NDJSON com cursor persistido + contadores cumulativos.",
+    "lib/daemon-client.mjs": "Cliente HTTP fino do daemon único — único ponto de contato entre a sessão e o núcleo pesado.",
+    "lib/daemon-lifecycle.mjs": "Decisão pura do idle-exit do daemon: só sai sozinho com automático desligado, sem lease e sem scan em voo.",
+    "lib/canvas-meta.mjs": "Identidade do canvas (id/título), sem dependências — mantém `extension.mjs` fora do grafo pesado.",
+    "lib/daemon-lock.mjs": "Porta fixa + lockfile de descoberta do daemon único.",
     "lib/unload.mjs": "Orquestra a descarga: lock → scan → decide ocioso → guardas → mata a árvore → log.",
     "lib/scan.mjs": "Enumera os servidores de sessão vivos (CIM) com PID, sessão, CPU e última atividade.",
     "lib/snapshot.mjs": "Guarda o snapshot por PID (CPU acumulada + `idleSince`) que alimenta a decisão de ociosidade da árvore.",
     "lib/idle-decision.mjs": "O núcleo da decisão: soma CPU do servidor e descendentes, reinicia o relógio e aplica o timeout/allowlist configurados.",
     "lib/config.mjs": "Lê/valida a configuração do canvas (timeout, allowlist, automático) — fail-closed em qualquer entrada inválida.",
     "lib/guards.mjs": "As travas antes do kill: auto-preservação, anti-TOCTOU e daemons intocáveis.",
-    "lib/lock.mjs": "Lock anti-race: dois hooks simultâneos não colidem.",
-    "lib/throttle.mjs": "Cadência do scan no `UserPromptSubmit` (throttle de ~1 h).",
+    "lib/lock.mjs": "Lock anti-race: dois hooks/ações simultâneas não colidem.",
+    "lib/throttle.mjs": "Cadência do nudge no `UserPromptSubmit` (throttle de ~1 h).",
     "lib/procmap.mjs": "Fotografia de todos os processos (`pid → ppid`) que as guardas consultam.",
     "lib/process-utils.mjs": "Utilitários compartilhados: mata a árvore do processo e sonda se um PID está vivo.",
     "lib/pwsh.mjs": "Executa o PowerShell da varredura com timeout — nunca trava o hook.",
     "lib/home.mjs": "Resolve a raiz do Copilot (`~/.copilot`).",
-    "lib/log.mjs": "Log append-only em `~/.copilot/logs/unloader.log`."
+    "lib/log.mjs": "Log append-only em `~/.copilot/logs/unloader.log`.",
+    "lib/telemetry.mjs": "Parser puro legado (reprocessamento total das linhas) — telemetry-store.mjs é o caminho quente do daemon."
   }
 }

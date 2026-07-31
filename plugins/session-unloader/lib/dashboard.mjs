@@ -3,33 +3,25 @@
 // Reuses the same tree-aware decision core and kill guards as the automatic hook.
 // Segurança: bind 127.0.0.1; página busca /data e renderiza com textContent (nunca innerHTML de dados) → anti-XSS.
 // Ciclo de vida: porta persistida (sobrevive a reload) + close() que destrói sockets (padrão modo-auto, evita porta presa).
-// Custo: o scan ao vivo (spawn PowerShell) é guardado por cache TTL de 30s; o front atualiza a cada 10s → ≤2 scans/min.
+// v0.7: o scan sai do caminho do request — `Sampler` (lib/sampler.mjs) é o SINGLETON que faz o scan em
+// segundo plano com coalescing (nunca 2 scans em voo); `/data` só lê o último snapshot (síncrono, <=100ms
+// a quente). A telemetria usa `TelemetryStore` (lib/telemetry-store.mjs), tail incremental do NDJSON.
 import { createServer } from "node:http";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { resolveCopilotHome } from "./home.mjs";
-import { scanServers } from "./scan.mjs";
-import { getProcMap } from "./procmap.mjs";
-import { ancestorsOf, guardKill, tokensPorSessao } from "./guards.mjs";
-import { readSnapshot } from "./snapshot.mjs";
-import { parseTelemetry } from "./telemetry.mjs";
-import { pidAlive } from "./process-utils.mjs";
 import { unloadIdle } from "./unload.mjs";
 import { readConfig, writeConfig } from "./config.mjs";
 import { logLine } from "./log.mjs";
-import { evaluateServerIdle } from "./idle-decision.mjs";
-import { availableParallelism } from "node:os";
+import { Sampler } from "./sampler.mjs";
+import { TelemetryStore } from "./telemetry-store.mjs";
 
-export const CANVAS_ID = "session-unloader-panel";
-export const CANVAS_INSTANCE = "session-unloader-panel";
-export const CANVAS_TITLE = "🧹 Session Unloader";
-
-const SCAN_TTL_MS = 30000;
+export { CANVAS_ID, CANVAS_INSTANCE, CANVAS_TITLE } from "./canvas-meta.mjs";
 
 const stateDir = (home) => join(home, "session-state");
 const portFile = (home) => join(stateDir(home), ".unloader-dashboard-port.json");
-const logFile = (home) => join(home, "logs", "unloader.log");
 const metaFile = (home) => join(stateDir(home), ".unloader-meta.json");
+const SESSION_ID_RE = /^[A-Za-z0-9._-]{1,128}$/;
 
 function readPreferredPort(home) {
   try { const o = JSON.parse(readFileSync(portFile(home), "utf8")); const p = Number(o.port); return (p > 1024 && p < 65536) ? p : null; } catch { return null; }
@@ -37,7 +29,6 @@ function readPreferredPort(home) {
 function writePreferredPort(home, port) {
   try { mkdirSync(stateDir(home), { recursive: true }); writeFileSync(portFile(home), JSON.stringify({ port })); } catch { /* best-effort */ }
 }
-function readLogLines(home) { try { return readFileSync(logFile(home), "utf8").split(/\r?\n/); } catch { return []; } }
 function readLastScan(home) { try { return JSON.parse(readFileSync(metaFile(home), "utf8")).lastScan || null; } catch { return null; } }
 function sessionName(home, sid) {
   try { const m = /^name:\s*(.+)$/m.exec(readFileSync(join(stateDir(home), sid, "workspace.yaml"), "utf8")); return m ? m[1].trim() : sid.slice(0, 8); }
@@ -60,14 +51,25 @@ async function readJsonBody(req, maxBytes = 64 * 1024) {
 }
 
 export class Dashboard {
-  constructor({ home = resolveCopilotHome(), token = null, port = 0 } = {}) {
+  constructor({
+    home = resolveCopilotHome(),
+    token = null,
+    port = 0,
+    version = "0.0.0-dev",
+    startTime = Date.now(),
+    sampler = null,
+    telemetryStore = null,
+  } = {}) {
     this.home = home;
     this.token = token; // setado no DAEMON → exige ?token=; o fallback in-process fica sem (loopback local)
     this.port = port;   // porta FIXA (daemon = arbiter) ou 0 (fallback = efêmera)
+    this.version = version;
+    this.startTime = startTime;
     this.url = null;
     this._server = null;
     this._sockets = new Set();
-    this._scanCache = null; // { data:{servers,procMap,at,error}, ts }
+    this.sampler = sampler || new Sampler({ home, sessionNameFn: (sid) => sessionName(this.home, sid) });
+    this.telemetryStore = telemetryStore || new TelemetryStore({ home });
   }
 
   async ensureServer() {
@@ -100,15 +102,27 @@ export class Dashboard {
   async _handle(req, res) {
     const u = new URL(req.url || "/", "http://127.0.0.1");
     const tk = req.headers["x-token"] || u.searchParams.get("token"); // POST usa header X-Token; GET usa query
-    if (this.token && tk !== this.token) { // gate só no daemon (token setado)
+    if (this.token && tk !== this.token) { // gate só no daemon (token setado) — protege TODO endpoint, inclusive /health
       res.statusCode = 403; res.setHeader("Connection", "close"); res.end("forbidden"); return;
     }
     if (req.method === "POST" && u.pathname.startsWith("/action/")) { return this._handleAction(u, req, res); }
-    if (u.pathname === "/health") { res.setHeader("Connection", "close"); res.end("ok"); return; }
+    if (u.pathname === "/health") {
+      // raso e instantâneo por design: nunca dispara scan (só reporta metadados do processo do daemon).
+      res.setHeader("Content-Type", "application/json"); res.setHeader("Connection", "close");
+      res.end(JSON.stringify({
+        ok: true,
+        pid: process.pid,
+        version: this.version,
+        startTime: new Date(this.startTime).toISOString(),
+        uptimeMs: Date.now() - this.startTime,
+        state: this.sampler.isScanning() ? "scanning" : "ready",
+      }));
+      return;
+    }
     if (u.pathname === "/data") {
       const callerPid = Number(u.searchParams.get("callerPid")) || null;
       res.setHeader("Content-Type", "application/json"); res.setHeader("Connection", "close");
-      res.end(JSON.stringify(await this._snapshot(callerPid)));
+      res.end(JSON.stringify(this._snapshot(callerPid)));
       return;
     }
     if (u.pathname === "/" || u.pathname === "/index.html") {
@@ -120,12 +134,17 @@ export class Dashboard {
   }
 
   // Ações do painel (POST + token). callerPid vem da query (nunca do body) → protege quem clicou.
+  // callerPid só ADICIONA proteção (some ao conjunto de ancestrais protegidos); nunca AUTORIZA um kill —
+  // ausência ou forja de callerPid nunca enfraquece as guardas (elas rodam do mesmo jeito com callerPid:null).
   async _handleAction(u, req, res) {
     const json = (code, obj) => { res.statusCode = code; res.setHeader("Content-Type", "application/json"); res.setHeader("Connection", "close"); res.end(JSON.stringify(obj)); };
     const action = u.pathname.slice("/action/".length);
     const callerPid = Number(u.searchParams.get("callerPid")) || null;
 
-    if (action === "rescan") { this._scanCache = null; return json(200, { ok: true, live: (await this._snapshot(callerPid)).live }); }
+    if (action === "rescan") {
+      await this.sampler.nudge(readConfig({ home: this.home }), callerPid);
+      return json(200, { ok: true, live: this._live(callerPid) });
+    }
 
     if (action === "toggle") {
       const next = writeConfig({ enabled: !readConfig({ home: this.home }).enabled }, { home: this.home });
@@ -139,7 +158,6 @@ export class Dashboard {
       catch (error) { return json(error?.code === "REQUEST_TOO_LARGE" ? 413 : 400, { error: String(error?.message || error) }); }
       try {
         const next = writeConfig(patch, { home: this.home });
-        this._scanCache = null;
         logLine({
           action: "config",
           idleTimeoutMs: next.idleTimeoutMs,
@@ -155,13 +173,18 @@ export class Dashboard {
     }
 
     if (action === "unload") {
+      const sessionIdRaw = u.searchParams.get("sessionId");
+      if (sessionIdRaw && !SESSION_ID_RE.test(sessionIdRaw)) {
+        return json(400, { error: "sessionId inválido" });
+      }
       if (this._unloading) return json(409, { error: "descarga já em execução" }); // mutex anti-double-click
       this._unloading = true;
       try {
-        const dryRun = u.searchParams.get("dryRun") === "1";
-        const r = await unloadIdle({ home: this.home, dryRun, callerPid }); // guardas + callerPid protegem
-        this._scanCache = null; // estado mudou → invalida o scan cacheado
+        const dryRun = u.searchParams.get("dryRun") !== "0"; // dry-run é o padrão seguro
+        // guardas + callerPid protegem; callerPid nunca AUTORIZA — só reforça auto-preservação.
+        const r = await unloadIdle({ home: this.home, dryRun, sessionId: sessionIdRaw || null, callerPid });
         logLine({ action: dryRun ? "panel-dryrun" : "panel-unload", killed: r.killed?.length || 0, candidates: r.candidates?.length || 0, skipped: r.skipped?.length || 0 });
+        await this.sampler.nudge(readConfig({ home: this.home }), callerPid); // estado mudou → força um scan novo
         return json(200, r);
       } catch (e) { return json(500, { error: String(e?.message || e) }); }
       finally { this._unloading = false; }
@@ -169,76 +192,36 @@ export class Dashboard {
     return json(404, { error: "ação desconhecida" });
   }
 
-  async _snapshot(callerPid = null) {
+  // Leitura SÍNCRONA e imediata — nunca bloqueia em scan. O sampler nudge-a a si mesmo quando stale.
+  _snapshot(callerPid = null) {
     const config = readConfig({ home: this.home });
-    const live = await this._live(callerPid, config);
+    const freshness = this.sampler.snapshot(config, callerPid);
+    const telemetry = this.telemetryStore.read();
+    if (freshness.data?.counts) telemetry.live = freshness.data.counts;
     const status = {
       active: true,
       enabled: config.enabled,
       config,
       lastScan: readLastScan(this.home),
-      loadedNow: live && Array.isArray(live.sessions) ? live.sessions.length : null,
+      loadedNow: freshness.data ? freshness.data.sessions.length : null,
       generatedAt: new Date().toISOString(),
+      daemonVersion: this.version,
+      daemonUptimeMs: Date.now() - this.startTime,
     };
-    return { status, telemetry: parseTelemetry(readLogLines(this.home)), live };
+    return {
+      status,
+      freshness,
+      telemetry,
+      live: {
+        sessions: freshness.data ? freshness.data.sessions : [],
+        cachedAt: freshness.cachedAt,
+        error: freshness.lastError,
+      },
+    };
   }
 
-  async _live(callerPid = null, config = readConfig({ home: this.home })) {
-    const now = Date.now();
-    // cache guarda o SCAN BRUTO (caro); a marcação por callerPid é aplicada por request (barato).
-    let raw = this._scanCache && (now - this._scanCache.ts) < SCAN_TTL_MS ? this._scanCache.data : null;
-    if (!raw) {
-      try { raw = { servers: await scanServers({ home: this.home }), procMap: await getProcMap(), at: now }; }
-      catch (e) { raw = { servers: [], procMap: new Map(), error: String(e?.message || e), at: now }; }
-      this._scanCache = { data: raw, ts: now };
-    }
-    const selfPid = process.pid;
-    const selfAncestors = ancestorsOf(selfPid, raw.procMap);
-    const callerAncestors = callerPid ? ancestorsOf(callerPid, raw.procMap) : new Set();
-    const protectedPids = new Set([...selfAncestors, ...callerAncestors, selfPid]);
-    if (callerPid) protectedPids.add(callerPid);
-    const perSessionTokens = tokensPorSessao(raw.procMap);
-    const sessions = raw.servers.map((s) => {
-      const decision = evaluateServerIdle({
-        server: s,
-        previous: s.sessionId ? readSnapshot(s.sessionId, { home: this.home }) : null,
-        procMap: raw.procMap,
-        config,
-        now,
-        cpuCount: availableParallelism(),
-      });
-      let verdict, icon;
-      if (!s.sessionId) { verdict = "casca (sem sessão)"; icon = "⚪"; }
-      else if (callerPid && callerAncestors.has(s.pid)) { verdict = "esta sessão"; icon = "🟢"; }
-      else if (!decision.idle) {
-        const pinned = decision.reason.startsWith("pin:");
-        const failClosed = decision.diagnostics?.failClosed === true;
-        verdict = `${pinned || failClosed ? "protegida" : "ativa"} (${decision.reason})`;
-        icon = pinned || failClosed ? "🔒" : "🟢";
-      }
-      else {
-        const g = guardKill(s, {
-          selfPid,
-          selfAncestors: protectedPids,
-          procMap: raw.procMap,
-          pidAlive,
-          perSessionTokens,
-          descendantsResult: decision.descendantsResult,
-        });
-        if (g.ok) { verdict = "candidata"; icon = "🔴"; }
-        else { verdict = "protegida (" + g.reason + ")"; icon = "🔒"; }
-      }
-      return {
-        pid: s.pid,
-        name: s.sessionId ? sessionName(this.home, s.sessionId) : "(servidor sem sessão)",
-        idleMin: Number.isFinite(decision.diagnostics?.idleForMs)
-          ? Math.round(decision.diagnostics.idleForMs / 60000)
-          : null,
-        wsMb: s.wsMb == null ? null : Number(s.wsMb),
-        verdict, icon, reason: decision.reason, diagnostics: decision.diagnostics,
-      };
-    });
-    return { sessions, cachedAt: new Date(raw.at).toISOString(), error: raw.error };
+  _live(callerPid = null) {
+    return this._snapshot(callerPid).live;
   }
 
   close() {
@@ -247,6 +230,7 @@ export class Dashboard {
     this._server = null; this.url = null;
   }
 }
+
 
 const PAGE_HTML = `<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -286,6 +270,7 @@ tr:last-child td{border-bottom:none}
 <body><div class="wrap">
 <h1>🧹 Session Unloader <span id="live" class="dot"></span></h1>
 <div class="sub" id="status">carregando…</div>
+<div class="sub" id="freshness">—</div>
 <div id="banner" class="warn-banner" style="display:none">⚠️ Modo automático DESLIGADO — sessões ociosas não são descarregadas sozinhas.</div>
 <div class="actions">
 <button id="btn-unload" class="btn primary">Descarregar ociosas agora</button>
@@ -304,6 +289,8 @@ tr:last-child td{border-bottom:none}
   </label>
 </div>
 <div class="cards" id="cards"></div>
+<h2>Estado ao vivo (snapshot atual)</h2>
+<div class="cards" id="cards-live"></div>
 <h2>Sessões carregadas agora</h2>
 <table><thead><tr><th></th><th>Sessão</th><th>Ocioso</th><th>RAM</th><th>Situação</th></tr></thead><tbody id="live-tb"><tr><td class="empty" colspan="5">escaneando…</td></tr></tbody></table>
 <h2>Últimas descargas</h2>
@@ -314,10 +301,17 @@ tr:last-child td{border-bottom:none}
 function el(tag,txt){var e=document.createElement(tag);if(txt!=null)e.textContent=txt;return e;}
 function fmtTime(iso){if(!iso)return "—";try{return new Date(iso).toLocaleString("pt-BR");}catch(e){return "—";}}
 function card(label,value,cls){var d=el("div");d.className="card"+(cls?(" "+cls):"");var n=el("div",value);n.className="n";var l=el("div",label);l.className="l";d.appendChild(n);d.appendChild(l);return d;}
+function fmtDur(ms){if(ms==null)return "—";if(ms<1000)return Math.round(ms)+"ms";var s=ms/1000;if(s<60)return s.toFixed(1)+"s";var m=Math.floor(s/60);return m+"min"+Math.round(s%60)+"s";}
+function fmtAge(ms){if(ms==null)return "—";return fmtDur(ms)+" atrás";}
+function stateLabel(st){return {fresh:"🟢 atualizado",scanning:"🔄 escaneando…",stale:"🟡 desatualizando",error:"🔴 erro"}[st]||st||"—";}
 var configInitialized=false;
 function render(d){
-  var s=d.status||{},t=d.telemetry||{},live=d.live||{};
+  var s=d.status||{},t=d.telemetry||{},live=d.live||{},fr=d.freshness||{};
   document.getElementById("status").textContent="Ativo · última varredura: "+fmtTime(s.lastScan)+" · "+(s.loadedNow!=null?s.loadedNow:"?")+" sessão(ões) carregada(s)";
+  document.getElementById("freshness").textContent=
+    stateLabel(fr.state)+" · snapshot há "+fmtAge(fr.age)+" · scan levou "+fmtDur(fr.durationMs)+
+    " · daemon no ar há "+fmtDur(s.daemonUptimeMs)+" (v"+(s.daemonVersion||"?")+")"+
+    (fr.lastError?(" · ⚠️ "+fr.lastError):"");
   var enabled=s.enabled!==false;
   document.getElementById("banner").style.display=enabled?"none":"block";
   document.getElementById("toggle").checked=enabled;
@@ -335,7 +329,17 @@ function render(d){
   cards.appendChild(card("descarregadas (total)",String(t.totalKilled||0),"aqua"));
   cards.appendChild(card("descarregadas hoje",String(t.killedToday||0),"aqua"));
   cards.appendChild(card("RAM liberada (MB)",String(t.ramFreedMb||0),"coral"));
-  cards.appendChild(card("protegidas (guarda)",String(t.totalSkipped||0)));
+  cards.appendChild(card("preservadas por guarda",String(t.totalSkipped||0)));
+  cards.appendChild(card("scans (daemon)",String(t.totalScans||0)));
+  cards.appendChild(card("falhas de scan/kill",String((t.totalScanFails||0)+(t.totalKillFails||0))));
+  var lc=t.live||{};
+  var cardsLive=document.getElementById("cards-live");cardsLive.textContent="";
+  cardsLive.appendChild(card("carregadas agora",String(lc.loaded!=null?lc.loaded:"—")));
+  cardsLive.appendChild(card("ativas",String(lc.active!=null?lc.active:"—"),"aqua"));
+  cardsLive.appendChild(card("protegidas agora",String(lc.protectedCount!=null?lc.protectedCount:"—")));
+  cardsLive.appendChild(card("candidatas agora",String(lc.candidates!=null?lc.candidates:"—"),"coral"));
+  cardsLive.appendChild(card("RAM carregada (MB)",String(lc.ramLoadedMb!=null?lc.ramLoadedMb:"—")));
+  cardsLive.appendChild(card("RAM liberável (MB)",String(lc.ramReleasableMb!=null?lc.ramReleasableMb:"—"),"coral"));
   var tb=document.getElementById("live-tb");tb.textContent="";
   var sess=(live&&live.sessions)||[];
   if(!sess.length){var tr=el("tr");var td=el("td",live&&live.error?("erro: "+live.error):"nenhuma sessão carregada");td.className="empty";td.colSpan=5;tr.appendChild(td);tb.appendChild(tr);}
