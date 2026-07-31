@@ -7,6 +7,7 @@
 // Contrato: ProfilePort (ver src/core/ports.mjs).
 
 import { getRole } from "../agents/roles.mjs";
+import { recallIssue } from "../memory/memoryPort.mjs";
 import { extractJson } from "../util/extractJson.mjs";
 
 function parseJson(t) { return extractJson(t); }
@@ -88,7 +89,7 @@ export function createModoAutonomo({ log = () => {} } = {}) {
       let memText = "";
       const m = caps.memory?.recall ? await caps.memory.recall(q, { topK: 3 }) : null;
       if (m && m.ok) memText = (m.results || []).map((r) => "- " + String(r.text || "").slice(0, 200)).join("\n");
-      else if (m && m.ok === false && m.error) log(`[modo-autonomo] memória indisponível (${m.error}) — segue`);
+      else { const iss = recallIssue(m, "modo-autonomo"); if (iss) log(iss); }
       const u = await caps.factory.run("validador",
         `PERGUNTA DA SESSÃO:\n${q}\n\nPLANO VIVO / ADR:\n${planText || "(sem plano)"}\n\nMEMÓRIA DO PROJETO:\n${memText || "(sem memória)"}\n\nChame a ferramenta submit_validation com o veredito. NÃO responda em texto.`,
         { timeoutMs: 60000, schema: VALIDATOR_SCHEMA, availableTools: [] });

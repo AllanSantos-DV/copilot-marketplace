@@ -2,6 +2,7 @@
 // grande, entende o CODE-BASE ATUAL pra não garimpar na mão: usa o ScopePort (grafo semântico se disponível,
 // senão garimpo manual honesto), monta um MAPA e roda o ANALISTA sobre ele → o que existe, o que reusar,
 // onde tocar, lacunas. Reusa memória do projeto quando houver. FAIL LOUD: escopo/analista falhou → LANÇA.
+import { recallIssue } from "../memory/memoryPort.mjs";
 
 export function createModoScopo({ log = () => {} } = {}) {
   return {
@@ -39,7 +40,7 @@ export function createModoScopo({ log = () => {} } = {}) {
       if (caps.memory?.recall) {
         const m = await caps.memory.recall(s, { topK: 3 });
         if (m && m.ok) mem = (m.results || []).map((r) => "- " + String(r.text || "").slice(0, 160)).join("\n");
-        else if (m && m.ok === false && m.error) log(`[modo-scopo] memória indisponível (${m.error})`);
+        else { const iss = recallIssue(m, "modo-scopo"); if (iss) log(iss); }
       }
 
       const r = await caps.factory.run("analista",
