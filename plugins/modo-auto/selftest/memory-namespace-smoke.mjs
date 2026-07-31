@@ -9,6 +9,7 @@
 // vivo — e uma primeira versão deste teste passou VAZIA justamente por isso: o port caía no atalho de "offline" e
 // as asserções nunca rodavam. Verde por caminho não-executado é pior que vermelho.
 
+import { tmpDir } from "./tmpProjeto.mjs";
 import assert from "node:assert";
 import { readdirSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,7 +27,7 @@ const PROJ = "owner/projeto";
 // INSTALADO (aninhado em ~/.copilot, sem marcador) LANÇA — e a suíte inteira ficava vermelha por causa do LOCAL,
 // não da regra. Estes testes exercitam namespace/filtro, não resolução de escopo: então eles criam o próprio
 // projeto, com marcador, e ficam independentes de onde o processo está.
-const PROJETO_FAKE = mkdtempSync(join(tmpdir(), "proj-fake-"));
+const PROJETO_FAKE = tmpDir("proj-fake-");
 mkdirSync(join(PROJETO_FAKE, ".memory"), { recursive: true });
 writeFileSync(join(PROJETO_FAKE, ".memory", "project.json"), JSON.stringify({ metadata: { defaults: { project_id: PROJ } } }));
 
