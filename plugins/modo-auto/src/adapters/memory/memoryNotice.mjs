@@ -20,9 +20,18 @@
  * @returns {string} uma linha, sem markdown, segura para ser lida em voz alta
  */
 export function statusMemoriaCurto({ escopo = null, origem = "?", suspeita = null } = {}) {
-  if (!escopo) return "MEMÓRIA: indisponível — esta deliberação rodou SEM o acervo do projeto (os agentes não viram decisões anteriores).";
+  // Sem memória o dono precisa do CONSERTO junto, não só do diagnóstico: é o único caso em que ele tem algo a
+  // fazer. O aviso longo (com o mesmo conserto) ia por log — invisível em voz/daemon, medido. Colocar aqui é o
+  // que faz a instrução chegar de fato a quem pode agir.
+  if (!escopo) {
+    return "MEMÓRIA: indisponível — esta deliberação rodou SEM o acervo do projeto (os agentes não viram decisões anteriores). " +
+      "Para ligar: instale o plugin copilot-memory e trabalhe num repo com git remote origin, ou crie .memory/project.json com metadata.defaults.project_id.";
+  }
   if (suspeita && suspeita.risco === "fork" && suspeita.alternativa) {
     return `MEMÓRIA: ativa no escopo ${escopo}, mas este repo parece um FORK (upstream ${suspeita.alternativa}) — o acervo lido é o do fork.`;
+  }
+  if (suspeita && suspeita.risco === "submodule") {
+    return `MEMÓRIA: ativa no escopo ${escopo}, que é de um SUBMODULE${suspeita.alternativa ? ` dentro de ${suspeita.alternativa}` : ""} — o acervo lido é o do submodule, não o do projeto que o contém.`;
   }
   if (suspeita && suspeita.risco === "espelho") {
     return `MEMÓRIA: ativa no escopo ${escopo}, porém o diretório é um artefato ANINHADO em outro repositório — confira se o escopo é o projeto certo.`;
