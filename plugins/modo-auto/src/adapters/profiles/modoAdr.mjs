@@ -74,6 +74,12 @@ const RECALL_MIN_SCORE = (() => {
 // de 5 KB, picado em vários pedaços, só o primeiro carregaria o marcador, e por isso marcação em texto NÃO seria
 // defesa confiável. Aqui o tamanho é o que torna a marcação utilizável.
 const ADR_RECORD_MARK = "[ADR-REGISTRO]";
+// NAMESPACE do arquivo de ADRs. A saída da mesa vai para `<project_id>#adr`, e o recall dela é escopado a
+// `<project_id>` — logo o que ela grava NUNCA volta na busca que ela mesma faz. É a separação ESTRUTURAL que
+// substitui a garantia frágil anterior (marcador no texto + torcer para o registro caber num chunk só, o que
+// acoplava a defesa ao chunker de um servidor de terceiro e quebraria em silêncio num documento maior).
+// O arquivo continua consultável de propósito: quem quiser o histórico de decisões busca nesse escopo.
+const ADR_NAMESPACE = "adr";
 function adrRecord(briefing, plan) {
   const sec = /^##\s*Decis[ãa]o\s*$([\s\S]*?)(?=^##\s|$(?![\s\S]))/mi.exec(String(plan || ""));
   const decisao = (sec ? sec[1] : String(plan || "")).trim().replace(/\s+/g, " ").slice(0, 500);
@@ -194,11 +200,11 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
       if (!written) throw new Error("modo-adr vivo: writeAdrPlan nao gravou o plano do ADR (sem workspaceDir?)");
     }
     if (caps.memory?.save) {
-      const sv = await caps.memory.save(adrRecord(bf, plan), { type: "adr-registro", tags: ["adr", "registro"] });
+      const sv = await caps.memory.save(adrRecord(bf, plan), { type: "adr-registro", tags: ["adr", "registro"], namespace: ADR_NAMESPACE });
       if (sv && sv.ok === false) log(`[modo-adr] AVISO: memória não salvou o registro do ADR (${sv.error || "offline"})`);
       // snapshot dos sessionIds → permite REABRIR a mesa (resume) depois. Express não tem mesa → pula.
       if (res.snapshot && res.snapshot.length) {
-        const svSnap = await caps.memory.save(JSON.stringify({ subject: bf.slice(0, 120), snapshot: res.snapshot }), { type: "adr-mesa-snapshot", tags: ["adr", "mesa-viva", "reabrir"] });
+        const svSnap = await caps.memory.save(JSON.stringify({ subject: bf.slice(0, 120), snapshot: res.snapshot }), { type: "adr-mesa-snapshot", tags: ["adr", "mesa-viva", "reabrir"], namespace: ADR_NAMESPACE });
         if (svSnap && svSnap.ok === false) log(`[modo-adr] AVISO: memória não salvou o snapshot da mesa (${svSnap.error || "offline"})`);
       }
     }
@@ -255,9 +261,9 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
       const mem = caps.memory?.recall ? await caps.memory.recall(bf, { topK: 4, minScore: RECALL_MIN_SCORE }) : null;
       if (mem && mem.ok) {
         const rel = (mem.results || [])
-          // A mesa NUNCA reconsome o próprio registro: mesmo compacto, um ADR anterior não é "o que já existe
-          // no projeto" para efeito de reúso — é saída dela mesma. Este é o fecho do ciclo de auto-envenenamento
-          // (o corte principal é no WRITE, acima; aqui é a rede de segurança para o que já está gravado).
+          // Rede de segurança para o LEGADO: registros gravados ANTES da separação por namespace ainda vivem no
+          // escopo principal e voltariam na busca. Este filtro por marcador cobre esses — e só esses. Ele NÃO é
+          // mais a garantia (a garantia é o namespace, que não depende de chunker); é limpeza do que já ficou.
           .filter((r) => r && !String(r.text || "").includes(ADR_RECORD_MARK))
           .filter((r) => r.score == null || Number(r.score) >= RECALL_MIN_SCORE);
         const cortados = (mem.results || []).length - rel.length;
@@ -303,7 +309,7 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
         written = caps.plan.writeAdrPlan(plan); // adr-plan.md SEPARADO — a mesa NÃO toca no plan.md (fail-loud)
         if (!written) throw new Error("modo-adr: writeAdrPlan nao gravou o plano do ADR (sem workspaceDir?)");
       }
-      const saved = caps.memory?.save ? await caps.memory.save(adrRecord(bf, plan), { type: "adr-registro", tags: ["adr", "registro"] }) : null;
+      const saved = caps.memory?.save ? await caps.memory.save(adrRecord(bf, plan), { type: "adr-registro", tags: ["adr", "registro"], namespace: ADR_NAMESPACE }) : null;
       if (saved && saved.ok === false) log(`[modo-adr] AVISO: memória não salvou o plano (${saved.error || "offline"})`);
 
       // 5) VALIDAÇÃO PROFUNDA (opt-in): painel multi-família critica o PLANO → riscos corroborados × isolados.
