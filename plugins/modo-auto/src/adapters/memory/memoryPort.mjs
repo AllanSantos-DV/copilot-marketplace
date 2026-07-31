@@ -6,6 +6,12 @@ import { discover } from "./daemon.mjs";
 import { tryResolveProjectId } from "./projectId.mjs";
 import { MemoryClient } from "./client.mjs";
 
+// Tipos que são SAÍDA DE AGENTE — o que a própria mesa produz. Eles NUNCA podem cair no escopo principal do
+// projeto: é exatamente assim que a mesa passa a consumir o que ela mesma escreveu. Exigir `namespace` aqui é
+// FAIL LOUD (Princípio 10): uma chamada errada QUEBRA na hora, em vez de gravar em silêncio no lugar errado e
+// só aparecer semanas depois como "o plano falou de um assunto que eu não pedi".
+export const AGENT_OUTPUT_TYPES = Object.freeze(["adr-registro", "adr-mesa-snapshot", "plan"]);
+
 /**
  * Escopo de consulta/gravação. Fonte ÚNICA da regra: se write e read montarem o escopo por caminhos diferentes,
  * eles divergem e o que foi gravado vira inalcançável — foi exatamente o que aconteceu quando o namespace entrou
@@ -22,25 +28,42 @@ export function buildScope(projectId, namespace = null) {
  * Monta o metadata de gravação. PURO de propósito: é aqui que mora a separação de escopo, e sem daemon vivo não
  * daria para testá-la através do port (o connect() exige o serviço no ar). Regra: `namespace` SUFIXA o project_id
  * — e como o recall é escopado ao project_id puro, o que vai para um namespace nunca volta na busca principal.
+ * FAIL LOUD: saída de agente SEM namespace LANÇA. Aceitar essa chamada e gravar no escopo principal seria
+ * re-envenenar o corpus em silêncio — o defeito voltaria pela porta que eu acabei de fechar.
  * @param {{ projectId?: string|null, type?: string, tags?: string[], namespace?: string|null }} a
+ * @throws {Error} quando um tipo de saída de agente é gravado sem namespace
  */
 export function buildSaveMetadata({ projectId = null, type = "note", tags = [], namespace = null } = {}) {
+  const ns = namespace ? String(namespace).trim() : "";
+  if (AGENT_OUTPUT_TYPES.includes(type) && !ns) {
+    throw new Error(
+      `memoryPort.save: type "${type}" é SAÍDA DE AGENTE e exige 'namespace' — gravar isso no escopo do projeto faz a ` +
+      `mesa consumir o que ela mesma escreveu (o bug do plano que falava de outro assunto). Passe { namespace: "adr" }.`,
+    );
+  }
   const metadata = { type };
-  const scope = buildScope(projectId, namespace);
+  const scope = buildScope(projectId, ns || null);
   if (scope) metadata.project_id = scope;
   if (Array.isArray(tags) && tags.length) metadata.tags = tags;
+  // 2ª camada de identificação: mesmo que alguém consulte o escopo errado um dia, o documento SE DECLARA como
+  // produção de agente. É metadado (viaja com o doc), não marcador no texto — não depende de chunker.
+  if (AGENT_OUTPUT_TYPES.includes(type)) metadata.source_type = "agent_output";
   return metadata;
 }
 
 /**
- * @param {{ cwdProvider?: ()=>string, clientFactory?: (url:string)=>object, log?: (m:string)=>void }} [opts]
+ * @param {{ cwdProvider?: ()=>string, clientFactory?: (url:string)=>object, log?: (m:string)=>void,
+ *           discoverFn?: ()=>Promise<{url:string}|null> }} [opts]
+ *   `discoverFn` existe para TESTE DE CONTRATO: sem ele, nada abaixo de `connect()` é exercitável sem um daemon
+ *   vivo — e foi justamente aí que um teste meu passou VERDE sem executar nenhuma asserção (caía no atalho de
+ *   offline). Injetar a descoberta é o que permite provar o caminho ONLINE de verdade.
  * @returns {import("../../core/ports.mjs").MemoryPort}
  */
-export function createMemoryPort({ cwdProvider = () => process.cwd(), clientFactory = () => null, log = () => {} } = {}) {
+export function createMemoryPort({ cwdProvider = () => process.cwd(), clientFactory = () => null, log = () => {}, discoverFn = discover } = {}) {
   let cached = null; // { client, projectId }
 
   async function connect() {
-    const info = await discover();
+    const info = await discoverFn();
     if (!info) { log("memória offline (sem daemon vivo)"); cached = null; return null; }
     // clientFactory pode devolver o client do PLUGIN (reuso); null/undefined → cai no vendado (default).
     const client = clientFactory(info.url) || new MemoryClient(info.url);

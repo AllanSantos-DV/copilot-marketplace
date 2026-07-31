@@ -73,6 +73,20 @@ const ADR_RECORD_MARK = "[ADR-REGISTRO]";
 // acoplava a defesa ao chunker de um servidor de terceiro e quebraria em silêncio num documento maior).
 // O arquivo continua consultável de propósito: quem quiser o histórico de decisões busca nesse escopo.
 const ADR_NAMESPACE = "adr";
+
+// FONTE ÚNICA da redação do contexto (usada pelo caminho VIVO e pelo LEGADO). Duas redações significavam que a
+// correção valia só num dos caminhos — foi assim que o legado ficou com o rótulo "JÁ EXISTE (reúse)", o mesmo que
+// mandava consolidar o recall, e ainda ignorava as decisões anteriores que já estavam calculadas.
+export function reuseBlockFor(existing, priorAdrs) {
+  return (existing
+    ? `\n\nCONTEXTO DE REÚSO (memória do projeto — NÃO é o assunto desta mesa e NÃO deve ser consolidado):\n` +
+      `Use SOMENTE o que casar com o BRIEFING acima, para não reinventar o que já existe. ` +
+      `O que não tiver relação com o briefing, IGNORE por completo — não traga esses temas para o plano.\n${existing}`
+    : "") + (priorAdrs
+    ? `\n\nDECISÕES ANTERIORES DESTA MESA (arquivo de ADRs — leia para NÃO CONTRADIZER nem refazer o que já foi\n` +
+      `decidido; NÃO é o assunto desta mesa e NÃO deve ser consolidado no plano):\n${priorAdrs}`
+    : "");
+}
 function adrRecord(briefing, plan) {
   const sec = /^##\s*Decis[ãa]o\s*$([\s\S]*?)(?=^##\s|$(?![\s\S]))/mi.exec(String(plan || ""));
   const decisao = (sec ? sec[1] : String(plan || "")).trim().replace(/\s+/g, " ").slice(0, 500);
@@ -108,14 +122,7 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
     // instrução "CONSOLIDE isto, não invente nem fuja" — então o documentador consolidava obedientemente
     // material de OUTRO assunto. Aqui ele vem rotulado e com a regra de descarte explícita: se não casar com
     // o briefing, IGNORE. O assunto da mesa é o BRIEFING, sempre.
-    const reuseBlock = (ex) => (ex
-      ? `\n\nCONTEXTO DE REÚSO (memória do projeto — NÃO é o assunto desta mesa e NÃO deve ser consolidado):\n` +
-        `Use SOMENTE o que casar com o BRIEFING acima, para não reinventar o que já existe. ` +
-        `O que não tiver relação com o briefing, IGNORE por completo — não traga esses temas para o plano.\n${ex}`
-      : "") + (priorAdrs
-      ? `\n\nDECISÕES ANTERIORES DESTA MESA (arquivo de ADRs — leia para NÃO CONTRADIZER nem refazer o que já foi\n` +
-        `decidido; NÃO é o assunto desta mesa e NÃO deve ser consolidado no plano):\n${priorAdrs}`
-      : "");
+    const reuseBlock = (ex) => reuseBlockFor(ex, priorAdrs);
 
     let otfPhases = null, engine = "viva-otf"; // captura das fases + qual motor de escrita foi usado
 
@@ -273,7 +280,14 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
         if (cortados > 0) log(`[modo-adr] recall: ${cortados} registro(s) de ADR legado descartado(s) — a mesa não reconsome a própria saída`);
         existing = rel.map((r) => "- " + String(r.text || "").slice(0, 220)).join("\n");
       }
-      else if (mem && mem.ok === false && mem.error) log(`[modo-adr] memória indisponível (${mem.error}) — segue sem contexto`);
+      else if (mem && mem.ok === false) {
+        // OFFLINE NÃO É "sem resultado". Antes, `{ok:false, offline:true}` caía no mesmo lugar que "a busca não
+        // achou nada" — então uma memória fora do ar (ou um clientFactory mal configurado) produzia um plano SEM
+        // reúso com cara de plano normal. Degradação legítima, mas tem que ser DITA.
+        log(mem.offline
+          ? `[modo-adr] memória OFFLINE — o plano será construído SEM o contexto de reúso do projeto (degradação sinalizada, não é "nada encontrado")`
+          : `[modo-adr] memória indisponível (${mem.error}) — segue sem contexto`);
+      }
       if (caps.memory?.recall) {
         try {
           const adrs = await caps.memory.recall(bf, { topK: 3, namespace: ADR_NAMESPACE });
@@ -287,9 +301,12 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
       if (!caps.factory?.runMany) throw new Error("modo-adr.buildPlan (legado): caps.factory.runMany ausente");
 
       // 2) mesa de ADR: os papéis analisam o briefing grounded no que existe.
+      // O bloco de contexto é montado pela MESMA função do caminho vivo (`reuseBlock`) — antes o legado tinha a
+      // sua própria redação ("JÁ EXISTE (reúse)"), que era exatamente o rótulo que mandava consolidar o recall, e
+      // ainda ignorava as decisões anteriores. Duas redações = a correção vale só num dos caminhos.
+      const ctxBlock = reuseBlockFor(existing, priorAdrs);
       const rolePrompt =
-        `BRIEFING:\n${bf}\n\n` +
-        `O QUE JÁ EXISTE NO PROJETO (memória — reúse, não reinvente):\n${existing || "(nada relevante)"}\n\n` +
+        `BRIEFING:\n${bf}${ctxBlock}\n\n` +
         `No seu papel, dê o parecer que ajuda a montar um PLANO sólido (curto e acionável).`;
       const pareceres = await caps.factory.runMany(ADR_ROLES, rolePrompt, { stage: "adr", group: gid, topic });
       const failed = pareceres.filter((o) => !o.ok);
@@ -300,8 +317,7 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
 
       // 3) o DOCUMENTADOR escreve o plano em FASES. FAIL LOUD — se falha, NÃO usa as notas cruas como plano.
       const planPrompt =
-        `BRIEFING:\n${bf}\n\n` +
-        `${existing ? "JÁ EXISTE (reúse):\n" + existing + "\n\n" : ""}` +
+        `BRIEFING:\n${bf}${ctxBlock}\n\n` +
         `PARECERES DA MESA DE ADR:\n${notes}\n\n` +
         `Escreva um PLANO DE EXECUÇÃO em markdown. FORMATO OBRIGATÓRIO: cada fase é um CABEÇALHO "## Fase N: <título>" ` +
         `seguido de (a) OBJETIVO; (b) REQUISITO concreto e AUTOSSUFICIENTE com os critérios TESTÁVEIS (quem implementa ` +
