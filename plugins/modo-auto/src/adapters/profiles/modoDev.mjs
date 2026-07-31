@@ -86,7 +86,7 @@ export function createModoDev({ log = () => {}, gates, maxRounds = 4, perReviewe
 
       // contexto: o que já existe (memória offline = degradado explícito, não erro mascarado).
       let existing = "";
-      const mem = caps.memory?.recall ? await caps.memory.recall(ph, { topK: 3 }) : null;
+      const mem = caps.memory?.recall ? await caps.memory.recall(ph, { topK: 3, tag: "modo-dev" }) : null;
       if (mem && mem.ok) existing = (mem.results || []).map((r) => "- " + String(r.text || "").slice(0, 180)).join("\n");
       else { const iss = recallIssue(mem, "modo-dev"); if (iss) log(iss); }
       // DECISÕES ANTERIORES (namespace #adr). Quem CONSTRÓI uma fase precisa saber o que a mesa já DECIDIU — senão

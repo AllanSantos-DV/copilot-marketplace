@@ -10,6 +10,7 @@
 // as asserções nunca rodavam. Verde por caminho não-executado é pior que vermelho.
 
 import assert from "node:assert";
+import { readdirSync, readFileSync } from "node:fs";
 import { buildSaveMetadata, createMemoryPort, AGENT_OUTPUT_TYPES, recallIssue, RECALL_ALLOWED_TYPES } from "../src/adapters/memory/memoryPort.mjs";
 
 let pass = 0, total = 0;
@@ -189,31 +190,87 @@ await runA("as decisões anteriores chegam ao prompt do dev, rotuladas como 'nã
   assert.ok(/NÃO contradiga/.test(txt), "com a instrução explícita de não contradizer");
 });
 
-console.log("2ª camada de leitura: allowlist positiva (o servidor não sabe negar)");
-run("com excludeAgentOutput, o filtro vai por LISTA de tipos legítimos", () => {
+console.log("2ª camada de leitura: FAIL-CLOSED por escopo (allowlist positiva — o servidor não sabe negar)");
+run("a allowlist de leitura e a lista de saída de agente são disjuntas", () => {
   assert.ok(Array.isArray(RECALL_ALLOWED_TYPES) && RECALL_ALLOWED_TYPES.length >= 3, "precisa de allowlist");
   for (const t of AGENT_OUTPUT_TYPES) {
     assert.ok(!RECALL_ALLOWED_TYPES.includes(t), `tipo de saída de agente "${t}" NÃO pode estar na allowlist de leitura`);
   }
 });
-await runA("o recall filtrado manda type=allowlist ao client (é assim que exclui o legado)", async () => {
+
+// A rede que faltava. A versão anterior desta camada era OPT-IN e ficou ligada em 1 de 7 chamadas — guarda que
+// precisa ser lembrada não é guarda. Estes testes travam o DEFAULT: chamada nova nasce filtrada sem fazer nada.
+const portEspiao = () => {
   const calls = [];
   const port = createMemoryPort({
     discoverFn: async () => ({ url: "http://fake" }),
     clientFactory: () => ({ search: async (q, o) => { calls.push(o); return { results: [] }; }, save: async () => ({ id: "1" }) }),
   });
-  const r = await port.recall("q", { excludeAgentOutput: true });
+  return { port, calls };
+};
+
+await runA("DEFAULT do escopo principal é FILTRADO (fail-closed: caller novo nasce seguro)", async () => {
+  const { port, calls } = portEspiao();
+  const r = await port.recall("q");
   assert.strictEqual(r.ok, true);
-  assert.deepStrictEqual(calls[0].metadata.type, RECALL_ALLOWED_TYPES, "o filtro tem que ir como LISTA: " + JSON.stringify(calls[0].metadata));
+  assert.deepStrictEqual(calls[0].metadata.type, RECALL_ALLOWED_TYPES, "sem pedir nada, o filtro tem que ir: " + JSON.stringify(calls[0].metadata));
+  assert.strictEqual(r.filtered, true, "o retorno tem que DIZER que filtrou");
 });
-await runA("sem a flag, NÃO filtra por tipo (opt-in, nunca ligado por baixo do pano)", async () => {
-  const calls = [];
-  const port = createMemoryPort({
-    discoverFn: async () => ({ url: "http://fake" }),
-    clientFactory: () => ({ search: async (q, o) => { calls.push(o); return { results: [] }; }, save: async () => ({ id: "1" }) }),
+
+await runA("ler um NAMESPACE não filtra (o arquivo de ADRs é saída de agente por desenho — filtrar = amnésia)", async () => {
+  const { port, calls } = portEspiao();
+  const r = await port.recall("q", { namespace: "adr" });
+  assert.ok(!("type" in (calls[0].metadata || {})), "namespace não pode levar filtro de tipo: " + JSON.stringify(calls[0].metadata));
+  assert.strictEqual(r.filtered, false, "e o retorno tem que dizer que NÃO filtrou");
+});
+
+// Caso NEGATIVO exigido pelo painel profundo: em .mjs não há tipo em runtime, então um valor "quase-true"
+// (string, 1, objeto) NÃO pode desligar a guarda por coerção. A escotilha exige o booleano exato.
+for (const forjado of ["true", 1, {}, [], "sim"]) {
+  await runA(`escotilha NÃO abre por coerção — includeAgentOutput=${JSON.stringify(forjado)} continua filtrando`, async () => {
+    const { port, calls } = portEspiao();
+    const r = await port.recall("q", { includeAgentOutput: forjado });
+    assert.deepStrictEqual(calls[0].metadata.type, RECALL_ALLOWED_TYPES, "valor truthy não-booleano NÃO pode desligar a 2ª camada");
+    assert.strictEqual(r.filtered, true);
   });
-  await port.recall("q");
-  assert.ok(!("type" in (calls[0].metadata || {})), "sem opt-in não pode aparecer filtro de tipo");
+}
+
+await runA("escotilha abre SÓ com o booleano exato true — e AVISA no log (nunca em silêncio)", async () => {
+  const avisos = [];
+  const port = createMemoryPort({
+    log: (m) => avisos.push(m),
+    discoverFn: async () => ({ url: "http://fake" }),
+    clientFactory: () => ({ search: async () => ({ results: [] }), save: async () => ({ id: "1" }) }),
+  });
+  const r = await port.recall("q", { includeAgentOutput: true, tag: "teste" });
+  assert.strictEqual(r.filtered, false, "com true exato, a camada desliga");
+  assert.ok(avisos.some((m) => /includeAgentOutput=true/.test(m) && /teste/.test(m)), "abrir a escotilha tem que deixar rastro no log: " + JSON.stringify(avisos));
+});
+
+// GATE ESTRUTURAL (o painel apontou que "bloqueante" sem CI é social). Com fail-closed não há opt-in a esquecer,
+// então o que precisa de vigilância é o CONTRÁRIO: alguém desligar a guarda. Este teste QUEBRA O BUILD se um
+// `includeAgentOutput` aparecer no código de produção sem estar declarado aqui.
+const ESCOTILHAS_AUTORIZADAS = Object.freeze([]); // nenhuma hoje: os 2 casos legítimos usam `namespace`
+const DEFINE_A_REGRA = "memoryPort.mjs"; // onde a opção NASCE; vigiar aqui seria vigiar a própria guarda
+run("nenhuma escotilha não-declarada no código de produção (gate que quebra o build)", () => {
+  const raiz = new URL("../src/", import.meta.url);
+  const achados = [];
+  const varrer = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const u = new URL(e.name + (e.isDirectory() ? "/" : ""), dir);
+      if (e.isDirectory()) varrer(u);
+      else if (e.name.endsWith(".mjs") && e.name !== DEFINE_A_REGRA) {
+        readFileSync(u, "utf8").split("\n").forEach((l, i) => {
+          // Qualquer menção num CHAMADOR conta — inclusive `includeAgentOutput: algumaVar`, que passaria
+          // despercebido por um casamento só de `: true` e ainda assim abriria a guarda em runtime.
+          if (/includeAgentOutput\s*:/.test(l)) achados.push(`${e.name}:${i + 1}`);
+        });
+      }
+    }
+  };
+  varrer(raiz);
+  const naoAutorizados = achados.filter((a) => !ESCOTILHAS_AUTORIZADAS.includes(a));
+  assert.deepStrictEqual(naoAutorizados, [], "escotilha aberta em produção sem estar declarada em ESCOTILHAS_AUTORIZADAS: " + naoAutorizados.join(", "));
 });
 
 console.log(`\nmemory-namespace-smoke: ${pass}/${total} OK`);

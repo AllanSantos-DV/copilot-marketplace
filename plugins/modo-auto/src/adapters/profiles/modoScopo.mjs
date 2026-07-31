@@ -38,7 +38,7 @@ export function createModoScopo({ log = () => {} } = {}) {
 
       let mem = "";
       if (caps.memory?.recall) {
-        const m = await caps.memory.recall(s, { topK: 3 });
+        const m = await caps.memory.recall(s, { topK: 3, tag: "modo-scopo" });
         if (m && m.ok) mem = (m.results || []).map((r) => "- " + String(r.text || "").slice(0, 160)).join("\n");
         else { const iss = recallIssue(m, "modo-scopo"); if (iss) log(iss); }
       }

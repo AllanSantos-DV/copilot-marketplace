@@ -51,5 +51,10 @@ export class MemoryClient {
     return this.#req("POST", "/api/v1/documents", body);
   }
 
+  // Existe para o TEARDOWN do teste negativo ao vivo: aquele teste PRECISA plantar um documento de saída de agente
+  // no escopo principal (é o veneno que a 2ª camada tem que barrar), e deixar esse lixo no corpus real do projeto
+  // envenenaria de verdade o que o teste existe para proteger. Sem delete, a única saída seria não testar.
+  remove(documentId) { return this.#req("DELETE", "/api/v1/documents/" + encodeURIComponent(documentId)); }
+
   health() { return this.#req("GET", "/health"); }
 }

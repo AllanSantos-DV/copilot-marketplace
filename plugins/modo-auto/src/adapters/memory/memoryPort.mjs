@@ -13,9 +13,8 @@ import { MemoryClient } from "./client.mjs";
 export const AGENT_OUTPUT_TYPES = Object.freeze(["adr-registro", "adr-mesa-snapshot", "plan"]);
 
 // Tipos LEGÍTIMOS de conhecimento (o que uma mesa pode reusar). É a allowlist da 2ª camada de leitura: como o
-// servidor só sabe igualdade e pertence-a-lista, a exclusão de saída de agente é expressa pelo POSITIVO. Manter
-// em sincronia com o que o produto grava — um tipo novo que não entrar aqui some do recall filtrado, e por isso
-// o filtro é OPT-IN (o chamador escolhe), nunca ligado por baixo do pano.
+// servidor só sabe igualdade e pertence-a-lista, a exclusão de saída de agente é expressa pelo POSITIVO.
+// Manter em sincronia com o que o produto grava.
 export const RECALL_ALLOWED_TYPES = Object.freeze(["knowledge", "decision", "note", "bugfix"]);
 
 /**
@@ -98,26 +97,52 @@ export function createMemoryPort({ cwdProvider = () => process.cwd(), clientFact
      * Busca semântica no escopo do projeto. `namespace` consulta um escopo IRMÃO (ex.: o arquivo de ADRs em
      * `<project>#adr`), que é onde a mesa guarda a própria saída para não se reconsumir. Sem `namespace`, busca o
      * escopo principal — e por construção NÃO enxerga os namespaces, que é o ponto.
+     *
+     * FAIL-CLOSED: no escopo PRINCIPAL a allowlist de tipos legítimos é aplicada POR PADRÃO. Ler um `namespace`
+     * desliga a allowlist (o arquivo é saída de agente por desenho — filtrá-lo o esvaziaria). A escotilha
+     * `includeAgentOutput: true` existe para o caso raro, exige o booleano exato `true` e é LOGADA.
+     * `tag` identifica o chamador NO LOG (não é credencial: string não é garantia, e a garantia aqui é o default).
      */
-    async recall(query, { topK = 5, minScore = null, namespace = null, excludeAgentOutput = false } = {}) {
+    async recall(query, { topK = 5, minScore = null, namespace = null, includeAgentOutput = false, tag = "?" } = {}) {
       const c = cached || await connect();
       if (!c) return { ok: false, offline: true, results: [] }; // daemon offline = degradado legítimo (não erro)
       try {
         const scope = buildScope(c.projectId, namespace);
         const metadata = scope ? { project_id: scope } : {};
-        // 2ª CAMADA DE LEITURA — por ALLOWLIST POSITIVA, não por negação.
-        // Eu havia declarado esta camada inviável depois de medir que o servidor rejeita `$ne`/`$not`. Estava
-        // olhando a capacidade errada: lendo o FONTE do native-java (`MetadataUtils.appendMetadataValueFilter`)
-        // vi que o filtro de ARRAY vira `EXISTS … value IN (?,?,…)` — e MEDI ao vivo que funciona
-        // (`type:"bugfix"` → 17 de 20; `type:["bugfix","decision"]` → 20). Ou seja: "NÃO seja saída de agente"
-        // não é expressável, mas "SEJA um dos tipos legítimos" é — e dá o mesmo resultado prático.
-        // Por que isso importa: cobre o LEGADO. Documentos de agente gravados ANTES do namespace vivem no escopo
-        // principal e voltariam no recall; a allowlist os deixa de fora sem depender de marcador em texto.
-        // LIMITE HONESTO: um documento sem `type` também fica de fora quando o filtro está ligado — por isso é
-        // OPT-IN do chamador, não default silencioso.
-        if (excludeAgentOutput) metadata.type = RECALL_ALLOWED_TYPES;
+        // 2ª CAMADA DE LEITURA — FAIL-CLOSED, e a chave da regra é o ESCOPO, não quem chama.
+        //
+        // Eu primeiro escrevi esta camada como OPT-IN (`excludeAgentOutput`), e ela ficou ligada em 1 de 7
+        // chamadas. Guarda que precisa ser lembrada é guarda que não existe: o caller número 8 nasce inseguro, e
+        // esse é o caso COMUM, não o excepcional. É a minha lição recorrente ("consertar UM caller não conserta a
+        // CLASSE") cometida outra vez — agora a regra mora aqui, e a chamada nasce segura sem fazer nada.
+        //
+        // POR QUE A CHAVE É O ESCOPO E NÃO UM caller-id: a alternativa considerada era uma allowlist de
+        // chamadores. Em .mjs não existe tipo em runtime — um caller-id é só uma string, e string se forja
+        // (basta interpolar). Já o `namespace` é ESTRUTURAL: ele muda o escopo consultado. E a medição dos 7
+        // pontos de chamada mostrou que os ÚNICOS dois que legitimamente querem saída de agente
+        // (`modoAdr` e `modoDev` lendo o arquivo de decisões) são exatamente os dois que passam `namespace`.
+        // Ou seja: quem lê um namespace já se isolou por construção — o arquivo de ADRs É saída de agente por
+        // desenho, e filtrá-lo o esvaziaria (era o bug de amnésia que eu já causei uma vez). Quem lê o escopo
+        // PRINCIPAL nunca quer saída de agente: é literalmente o auto-envenenamento.
+        //
+        // A allowlist é POSITIVA porque o servidor não sabe negar: `$ne`/`$not` são rejeitados, mas
+        // `EXISTS … value IN (?,?)` funciona (medido: `type:"bugfix"` → 17 de 20). "NÃO seja saída de agente"
+        // não é expressável; "SEJA um dos tipos legítimos" é, e dá o mesmo resultado.
+        //
+        // CUSTO MEDIDO ANTES DE INVERTER (não é estimativa): 5 consultas reais no corpus deste projeto, 150
+        // chunks devolvidos sem filtro. A allowlist cortou **1** — e era exatamente o documento de saída de
+        // agente legado plantado para o teste. Nenhum conhecimento legítimo foi perdido.
+        // LIMITE HONESTO que sobra: documento gravado SEM `type` também fica de fora (o filtro exige a chave).
+        // Por isso a escotilha existe — mas ela é explícita, ruidosa, e não é o default.
+        const escopoPrincipal = !namespace;
+        if (escopoPrincipal && includeAgentOutput !== true) metadata.type = RECALL_ALLOWED_TYPES;
+        if (escopoPrincipal && includeAgentOutput === true) {
+          // Escotilha ABERTA: nunca em silêncio. Sem isto, um `includeAgentOutput: true` colado por engano some
+          // no meio do código e reabre o envenenamento sem deixar rastro.
+          log(`[${tag}] recall com includeAgentOutput=true no ESCOPO PRINCIPAL — a 2ª camada está DESLIGADA nesta chamada (saída de agente pode voltar)`);
+        }
         const r = await c.client.search(query, { topK, metadata: Object.keys(metadata).length ? metadata : undefined, ...(minScore != null ? { minScore } : {}) });
-        return { ok: true, results: (r && r.results) || [], projectId: scope };
+        return { ok: true, results: (r && r.results) || [], projectId: scope, filtered: escopoPrincipal && includeAgentOutput !== true };
       } catch (e) {
         const error = e?.message || String(e);
         log("recall ERRO (surfaced, não mascarado): " + error);
