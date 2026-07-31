@@ -51,6 +51,15 @@ export function createMemoryTools({ recall, projectId, maxChamadas = DEFAULT_MAX
       try {
         const q = a && typeof a.query === "string" ? a.query.trim() : "";
         if (!q) return JSON.stringify({ ok: false, error: "query vazia" });
+        // FAIL-CLOSED POR BUSCA, não só no boot. A ausência de escopo já impede a tool de existir — mas se ela
+        // existe, cada chamada confere de novo. Sem isto, um escopo que se torne inválido entre a criação da
+        // tool e a chamada cairia no ramo genérico e apareceria como "offline", disfarçando erro de ESCOPO de
+        // serviço-fora-do-ar. São coisas diferentes: uma é infra, a outra é configuração errada.
+        if (!projectId) {
+          const erro = "escopo de projeto ausente — a busca NÃO foi feita (isto não é 'daemon offline': é escopo não resolvido)";
+          log(`[memoria] busca RECUSADA: ${erro}`);
+          return JSON.stringify({ ok: false, error: erro, escopoAusente: true });
+        }
         if (state.usadas >= state.max) {
           // Recusa EXPLICADA, não silêncio: o modelo precisa saber que parou por orçamento e não por ausência
           // de resultado — senão ele conclui "não há nada na memória", que é uma conclusão falsa.
@@ -61,9 +70,16 @@ export function createMemoryTools({ recall, projectId, maxChamadas = DEFAULT_MAX
         const topK = Math.min(MAX_TOP_K, Math.max(1, Number(a.topK) || DEFAULT_TOP_K));
         const r = await recall(q, { topK });
         if (!r || r.ok !== true) {
-          // Degradação DISTINGUÍVEL: "não tenho memória aqui" ≠ "busquei e não achei". Sem isso o modelo trata
-          // indisponibilidade como ausência de conhecimento.
+          // Degradação DISTINGUÍVEL, com TRÊS estados e não dois: "não tenho memória aqui" ≠ "o escopo não
+          // resolveu" ≠ "busquei e não achei". Antes, escopo não resolvido caía no mesmo ramo do daemon fora do
+          // ar (`semConexao` devolve `offline:true` quando não há client) e o modelo — e o log — não tinham
+          // como distinguir infra quebrada de configuração errada.
+          if (r && r.error && /escopo não resolvido/.test(r.error)) {
+            log(`[memoria] busca RECUSADA por ESCOPO: ${r.error}`);
+            return JSON.stringify({ ok: false, error: r.error, escopoAusente: true });
+          }
           const motivo = r && r.offline ? "memória indisponível (daemon fora do ar)" : (r && r.error) || "memória indisponível";
+          log(`[memoria] busca falhou: ${motivo}`);
           return JSON.stringify({ ok: false, error: motivo, indisponivel: true });
         }
         const results = (r.results || []).map((x) => ({

@@ -54,6 +54,12 @@ const cwdHostil = tmpDir("hostil-");
 mkdirSync(join(cwdHostil, ".memory"), { recursive: true });
 writeFileSync(join(cwdHostil, ".memory", "project.json"), JSON.stringify({ metadata: { defaults: { project_id: PROJ_HOSTIL } } }));
 
+/** CWD DO PAI: resolve para o projeto que a mesa viva DEVE ler. O liveWorker resolve o escopo do cwd que o pai
+ *  lhe passa — então este é o eixo que varia no teste da mesa viva. */
+const cwdDoPai = tmpDir("pai-");
+mkdirSync(join(cwdDoPai, ".memory"), { recursive: true });
+writeFileSync(join(cwdDoPai, ".memory", "project.json"), JSON.stringify({ metadata: { defaults: { project_id: PROJ_PAI } } }));
+
 function rodarWorker({ memoryScope, cwd, prompt, timeoutMs = 150000 }) {
   return new Promise((resolve) => {
     const env = { ...process.env, NODE_NO_WARNINGS: "1", MODO_AUTO_DUMP_TOOLS: "1" };
@@ -106,6 +112,30 @@ try {
       assert.deepStrictEqual((m.custom || []).filter((n) => /memory/i.test(n)), [], "sem escopo cravado, NENHUMA tool de memória pode existir: " + manifesto);
     }
     assert.ok(!(out + err).includes(MARCA_HOSTIL), "sem escopo cravado o worker não pode ler projeto NENHUM — nem o do cwd dele");
+  });
+  await run("[E2E mesa VIVA] liveWorker em CWD HOSTIL lê SÓ o projeto do pai (o outro caminho, não coberto antes)", async () => {
+    // O E2E acima cobre o worker ONE-SHOT. A mesa viva usa outro binário (`liveWorker.mjs`) e outro canal de
+    // escopo (env, não stdin) — provar um não prova o outro, e é a mesa viva que roda na maioria dos casos.
+    const { createLiveWorker } = await import(new URL("../src/adapters/agents/liveWorkerClient.mjs", import.meta.url).href);
+    // O cwd hostil TEM um marcador declarando outro projeto: se o filho resolvesse escopo sozinho, cairia nele.
+    // E injeto um env STALE de propósito — era exatamente por aí que um escopo velho virava memória real.
+    process.env.MODO_AUTO_WORKER_MEMORY_SCOPE = "stale/escopo-vazado-do-env";
+    let w = null;
+    try {
+      w = createLiveWorker({ role: "documentacao", system: "Responda de forma curta e literal.", model: "claude-haiku-4.5", cwd: cwdDoPai });
+      await w.ready();
+      const r = await w.turn(`Use memory_search com a query "${QUERY}". Responda APENAS com o texto EXATO do primeiro trecho, sem comentar.`, { timeoutMs: 120000 });
+      const texto = String(r.text || r.error || "");
+      assert.ok(texto.includes(MARCA_PAI), "a mesa viva tinha que ler o projeto do PAI: " + texto.slice(0, 250).replace(/\s+/g, " "));
+      assert.ok(!texto.includes(MARCA_HOSTIL), "VAZOU: a mesa viva leu outro projeto");
+      assert.ok(!texto.includes("stale"), "VAZOU: o escopo velho do ENV foi usado — o delete não está valendo");
+    } catch (e) {
+      if (/SDK|credencial|ENOENT|spawn/i.test(String(e?.message || e))) { console.log("    (liveWorker não subiu aqui: " + String(e?.message || e).slice(0, 100) + ")"); return; }
+      throw e;
+    } finally {
+      delete process.env.MODO_AUTO_WORKER_MEMORY_SCOPE;
+      if (w) { try { await w.close(); } catch { /* já morreu */ } }
+    }
   });
 } finally {
   for (const id of criados) { try { await raw.remove(id); } catch (e) { console.log("  AVISO: teardown falhou para " + id); } }
