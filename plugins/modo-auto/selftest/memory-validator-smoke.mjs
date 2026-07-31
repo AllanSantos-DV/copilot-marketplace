@@ -14,10 +14,10 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { computeToolExposure } from "../src/adapters/agents/workerLib.mjs";
 import { ROLES } from "../src/adapters/agents/roles.mjs";
-import { resolveProjectId, tryResolveProjectId, projectIdStrength, assertSafeProjectId, normalizeGitRemote, detectarEscopoSuspeito } from "../src/adapters/memory/projectId.mjs";
+import { resolveProjectId, tryResolveProjectId, projectIdStrength, assertSafeProjectId, normalizeGitRemote, detectarEscopoSuspeito, resolveProjectIdWithProvenance } from "../src/adapters/memory/projectId.mjs";
 import { createMemoryPort } from "../src/adapters/memory/memoryPort.mjs";
 import { createMemoryTools, MEMORY_TOOL_NAMES } from "../src/adapters/memory/memoryTools.mjs";
-import { avisoMemoria } from "../src/adapters/memory/memoryNotice.mjs";
+import { avisoMemoria, statusMemoriaCurto } from "../src/adapters/memory/memoryNotice.mjs";
 import { conciliarVereditos, auditarMemoria, renderAuditado, promptAuditoria, MEMORY_VERDICT_SCHEMA, VEREDITOS } from "../src/adapters/memory/memoryValidator.mjs";
 
 let pass = 0, total = 0;
@@ -414,6 +414,60 @@ await runA("detectarEscopoSuspeito: origin+upstream diferentes = fork; marcador 
   mkdirSync(join(d, ".memory"), { recursive: true });
   writeFileSync(join(d, ".memory", "project.json"), JSON.stringify({ metadata: { defaults: { project_id: "original/proj" } } }));
   assert.strictEqual(detectarEscopoSuspeito(d).risco, null, "com marcador declarado, o alarme SOME (o dono já decidiu)");
+});
+
+console.log("status curto: o canal que o HUMANO de fato recebe (o log não serve em voz/daemon)");
+run("sem memória, o status DIZ que a deliberação rodou cega", () => {
+  // O aviso completo ia por logHost → log da sessão do host, que NÃO aparece numa sessão por voz/daemon.
+  // Medido antes nesta sessão e registrado na memória do projeto. Log é pra depurar; o RESULTADO é o que chega.
+  const s = statusMemoriaCurto({ escopo: null });
+  assert.match(s, /MEMÓRIA: indisponível/);
+  assert.match(s, /SEM o acervo/, "e tem que ser inequívoco: " + s);
+  assert.ok(!/\n/.test(s), "uma linha só — vai junto do resultado e pode ser lida em voz alta");
+});
+run("com memória, o status diz escopo e origem", () => {
+  const s = statusMemoriaCurto({ escopo: "acme/proj", origem: "git-remote" });
+  assert.match(s, /acme\/proj/); assert.match(s, /git remote/); assert.match(s, /somente leitura/);
+});
+run("fork e espelho aparecem NO STATUS, não só no log", () => {
+  assert.match(statusMemoriaCurto({ escopo: "eu/p", suspeita: { risco: "fork", alternativa: "orig/p" } }), /FORK.*orig\/p/);
+  assert.match(statusMemoriaCurto({ escopo: "x/y", suspeita: { risco: "espelho" } }), /ANINHADO/);
+});
+
+console.log("procedência EMITIDA pelo resolver (não reconstruída depois)");
+await runA("resolveProjectIdWithProvenance devolve id + origem + de onde saiu, numa chamada só", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const g = (a, c) => execFileSync("git", a, { cwd: c, stdio: ["ignore", "pipe", "ignore"], timeout: 8000, windowsHide: true });
+  try { execFileSync("git", ["--version"], { stdio: "ignore", timeout: 5000 }); } catch { return; }
+  const d = mkdtempSync(join(tmpdir(), "prov-"));
+  g(["init", "-q"], d); g(["remote", "add", "origin", "https://github.com/Acme/P.git"], d);
+  const p1 = resolveProjectIdWithProvenance(d);
+  assert.strictEqual(p1.projectId, "github.com/acme/p");
+  assert.strictEqual(p1.source, "git-remote");
+  assert.match(p1.remoteUrl || "", /github\.com\/Acme\/P/, "a URL que ORIGINOU o id tem que vir junto: " + JSON.stringify(p1));
+  mkdirSync(join(d, ".memory"), { recursive: true });
+  writeFileSync(join(d, ".memory", "project.json"), JSON.stringify({ metadata: { defaults: { project_id: "acme/canonico" } } }));
+  const p2 = resolveProjectIdWithProvenance(d);
+  assert.strictEqual(p2.projectId, "acme/canonico");
+  assert.strictEqual(p2.source, "declared");
+  assert.match(p2.markerPath || "", /project\.json$/, "e o CAMINHO do marcador: " + JSON.stringify(p2));
+});
+await runA("ESPELHO aninhado em repo alheio é detectado (a causa-raiz do falso positivo recorrente)", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const g = (a, c) => execFileSync("git", a, { cwd: c, stdio: ["ignore", "pipe", "ignore"], timeout: 8000, windowsHide: true });
+  try { execFileSync("git", ["--version"], { stdio: "ignore", timeout: 5000 }); } catch { return; }
+  const base = mkdtempSync(join(tmpdir(), "host-"));
+  g(["init", "-q"], base); g(["remote", "add", "origin", "https://github.com/host/repo.git"], base);
+  writeFileSync(join(base, "a.txt"), "conteudo");
+  g(["add", "a.txt"], base); g(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "base"], base);
+  assert.strictEqual(detectarEscopoSuspeito(base).risco, null, "o repo REAL (com arquivos rastreados) não é espelho");
+  // O artefato instalado: existe DENTRO do repo, mas não pertence a ele (zero arquivos rastreados).
+  const artefato = join(base, "extensions", "plugin-x");
+  mkdirSync(artefato, { recursive: true });
+  writeFileSync(join(artefato, "index.mjs"), "// instalado");
+  const s = detectarEscopoSuspeito(artefato);
+  assert.strictEqual(s.risco, "espelho", "artefato ANINHADO tem que ser reconhecido: " + JSON.stringify(s));
+  assert.match(String(s.repoDeCima || ""), /host-/, "e apontar QUAL repo estava respondendo por ele");
 });
 
 console.log(`\nmemory-validator-smoke: ${pass}/${total} OK`);

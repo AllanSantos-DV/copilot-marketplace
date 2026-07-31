@@ -99,15 +99,32 @@ export function assertSafeProjectId(projectId) {
   return s;
 }
 
-/** Resolve o project_id lógico. LANÇA quando não há identificador estável (fail-loud, por desenho). */
-export function resolveProjectId(workspacePath) {
+/**
+ * Resolve o project_id COM a procedência. Existe porque a origem estava sendo RECONSTRUÍDA depois, por uma
+ * segunda chamada (`projectIdStrength`) — ou seja, o "de onde veio" mostrado ao humano era uma dedução, não o
+ * que o resolver de fato usou. Entre as duas chamadas o disco pode mudar, e a dedução pode simplesmente
+ * discordar do valor exibido. Quem resolve é quem sabe: agora o resolver EMITE a origem, o caminho do marcador
+ * e a URL do remote que originaram o id.
+ * @returns {{ projectId:string, source:"declared"|"git-remote", markerPath:string|null, remoteUrl:string|null, root:string|null }}
+ * @throws quando não há identificador estável (mesmo contrato fail-loud de `resolveProjectId`)
+ */
+export function resolveProjectIdWithProvenance(workspacePath) {
   const dir = workspacePath && String(workspacePath).trim() ? String(workspacePath).trim() : null;
   if (!dir) throw new Error("Não foi possível resolver project_id: workspace vazio. " + SCOPE_HELP);
   const root = findProjectRoot(dir);
-  if (root) { const declared = declaredIdAt(root); if (declared) return assertSafeProjectId(declared); }
-  const norm = normalizeGitRemote(git(["remote", "get-url", "origin"], dir));
-  if (norm) return assertSafeProjectId(norm);
+  if (root) {
+    const declared = declaredIdAt(root);
+    if (declared) return { projectId: assertSafeProjectId(declared), source: "declared", markerPath: projectConfigPath(root), remoteUrl: null, root };
+  }
+  const remoteUrl = git(["remote", "get-url", "origin"], dir);
+  const norm = normalizeGitRemote(remoteUrl);
+  if (norm) return { projectId: assertSafeProjectId(norm), source: "git-remote", markerPath: null, remoteUrl: String(remoteUrl).trim(), root: root || null };
   throw new Error("Não foi possível resolver project_id para: " + workspacePath + ". " + SCOPE_HELP);
+}
+
+/** Resolve o project_id lógico. LANÇA quando não há identificador estável (fail-loud, por desenho). */
+export function resolveProjectId(workspacePath) {
+  return resolveProjectIdWithProvenance(workspacePath).projectId;
 }
 
 /** De ONDE o id viria: "declared" | "git-remote" | "none". "none" significa que o resolver LANÇA. */
@@ -137,6 +154,28 @@ export function detectarEscopoSuspeito(workspacePath) {
   // Marcador declarado VENCE e encerra a dúvida: o dono já disse qual é o projeto. Nada a avisar.
   const root = findProjectRoot(dir);
   if (root && declaredIdAt(root)) return { risco: null, escopo: declaredIdAt(root), alternativa: null };
+
+  // ESPELHO INSTALADO / ARTEFATO ANINHADO — a causa-raiz do falso positivo que voltou ~6 vezes nesta sessão.
+  // Um artefato instalado (ex.: `~/.copilot/extensions/<plugin>`) mora DENTRO de um repo git que não é dele.
+  // Como git anda para CIMA, qualquer pergunta feita dali é respondida pelo repo de cima — e o auditor conclui
+  // "o código está numa versão antiga / sem tag / sem remote", porque está lendo OUTRO repositório.
+  //
+  // O sinal é de POSSE, e precisa de DUAS condições: (a) o diretório não tem nada rastreado, e (b) o repo que
+  // responde por ele TEM conteúdo rastreado — ou seja, existe um repo real por cima, e este diretório não faz
+  // parte dele. Sem a segunda condição, um repositório recém-criado (`git init`, ainda sem commit) seria
+  // acusado de espelho: ele também não tem arquivos rastreados, e por um motivo completamente legítimo.
+  // (Este teste me pegou na primeira versão — a suíte reprovou o detector antes de ele ir para produção.)
+  const dentroDeRepo = git(["rev-parse", "--is-inside-work-tree"], dir) === "true";
+  if (dentroDeRepo) {
+    const rastreadosAqui = git(["ls-files"], dir);
+    const top = git(["rev-parse", "--show-toplevel"], dir);
+    if ((rastreadosAqui === null || rastreadosAqui.trim() === "") && top) {
+      const rastreadosNoTopo = git(["ls-files"], top);
+      const topoTemConteudo = rastreadosNoTopo !== null && rastreadosNoTopo.trim() !== "";
+      if (topoTemConteudo) return { risco: "espelho", escopo: null, alternativa: null, repoDeCima: top };
+    }
+  }
+
   const origem = normalizeGitRemote(git(["remote", "get-url", "origin"], dir));
   const upstream = normalizeGitRemote(git(["remote", "get-url", "upstream"], dir));
   if (origem && upstream && origem !== upstream) return { risco: "fork", escopo: origem, alternativa: upstream };

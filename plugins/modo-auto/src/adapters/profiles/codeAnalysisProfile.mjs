@@ -4,6 +4,7 @@
 // pode duplicar perfil. FAIL LOUD: assunto/factory/mesa ausente → LANÇA. Evidência ausente = degradação SINALIZADA.
 
 import { getRole } from "../agents/roles.mjs";
+import { escopoParaWorker } from "../memory/memoryTools.mjs";
 import { selectSeed } from "../adr/templateRegistry.mjs";
 import { createOutlineBuilder } from "../adr/outlineBuilder.mjs";
 import { fillSlots } from "../adr/slotFiller.mjs";
@@ -65,7 +66,7 @@ export function createCodeAnalysisProfile(cfg) {
       const otfWriteDoc = async ({ transcript, synthesis }) => {
         const deliberation = `SÍNTESE:\n${synthesis || "(sem síntese)"}\n\nDELIBERAÇÃO:\n${transcript}\n\nEVIDÊNCIA:\n${evidence}`;
         const template = createOutlineBuilder(selectSeed(seedType, { log }), { log }).lock();
-        const runAgent = (p) => caps.factory.run("documentacao", p, { timeoutMs: 180000, stage: tag, group: otfTrace, traceId: otfTrace });
+        const runAgent = (p) => caps.factory.run("documentacao", p, { timeoutMs: 180000, stage: tag, group: otfTrace, traceId: otfTrace, memoryScope: escopoParaWorker(caps) });
         let slots = await fillSlots(template, { deliberation, runAgent });
         let adr = assembleAdr(template, slots);
         const dv = await checkDivergence(caps.embedder, { adrText: adr, deliberation, slots, template });
@@ -78,7 +79,7 @@ export function createCodeAnalysisProfile(cfg) {
         return adr;
       };
       const freeFormWriteDoc = async ({ transcript, synthesis }) => {
-        const r = await caps.factory.run("documentacao", `${freeFormInstruction} Fundamente na SÍNTESE (${synthesis || "-"}) e na DELIBERAÇÃO abaixo. Comece em "## Contexto" e traga "## Fase N: <título>". Você NÃO tem ferramentas: NÃO diga que registrou arquivos, NÃO escreva resumo executivo nem peça autorização — só o ADR.\n\n${transcript}`, { timeoutMs: 180000, stage: tag, group: otfTrace, traceId: otfTrace });
+        const r = await caps.factory.run("documentacao", `${freeFormInstruction} Fundamente na SÍNTESE (${synthesis || "-"}) e na DELIBERAÇÃO abaixo. Comece em "## Contexto" e traga "## Fase N: <título>". Você NÃO tem ferramentas: NÃO diga que registrou arquivos, NÃO escreva resumo executivo nem peça autorização — só o ADR.\n\n${transcript}`, { timeoutMs: 180000, stage: tag, group: otfTrace, traceId: otfTrace, memoryScope: escopoParaWorker(caps) });
         if (!r.ok || !r.text) throw new Error(`${id}: fallback free-form falhou: ${r.error || "sem texto"}`);
         return r.text;
       };
