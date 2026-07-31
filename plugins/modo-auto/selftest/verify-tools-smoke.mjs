@@ -48,21 +48,24 @@ if (!DEV_REPO) {
 }
 // git_grep (--untracked: vê o working tree). O padrão "ausente" é MONTADO em runtime p/ não existir em NENHUM
 // arquivo — inclusive este teste (senão o próprio git_grep --untracked acharia o literal aqui).
-// Só vale no repo dev: no ARTEFATO INSTALADO o git_grep RECUSA por design (o alvo é artefato aninhado em repo
-// alheio), então exigir matches ali seria exigir justamente o comportamento que a v0.2.97 corrigiu. Foi o
-// selftest rodando de dentro da instalação que expôs esta suposição — nenhum teste no repo pegaria.
-if (!DEV_REPO) {
-  const t = J(tool("git_grep"), { repo: REPO, pattern: "createFindingsTracker" });
-  assert.strictEqual(t.count, null, "fora do repo dev, git_grep tem que RECUSAR (null+error), não devolver 0 calado");
-  assert.ok(t.error, "e dizer por quê");
-  skip("git_grep: no artefato instalado a recusa é o comportamento CORRETO (null+error, nunca '0 matches' falso)");
-} else {
-  const absent = ["zzz", "sym", "nao", "existe", Date.now().toString(36)].join("_");
+// A INVARIANTE não é "repo dev × resto" (isso era binário demais e quebrou num 3º caso legítimo: o artefato
+// vendado DENTRO da vitrine, onde ele É rastreado e o grep funciona corretamente). A invariante é a ANCORAGEM:
+// se o alvo pertence a um repo válido, o grep RESPONDE; se não pertence, RECUSA com erro. O que nunca pode
+// acontecer é "0 matches" calado sem repo válido — esse é o falso "não existe" que estas tools existem p/ matar.
+{
+  const ancorado = resolveRepoRoot(REPO) !== null;
   const y = J(tool("git_grep"), { repo: REPO, pattern: "createFindingsTracker" });
-  const n = J(tool("git_grep"), { repo: REPO, pattern: absent });
-  assert.ok(y.count >= 1 && y.matches[0].file, "acha o símbolo real: " + JSON.stringify(y).slice(0, 120));
-  assert.strictEqual(n.count, 0, "símbolo inexistente (runtime-único) = 0 matches");
-  ok("git_grep: confirma se um símbolo/import existe no working tree (refuta 'não existe' falso)");
+  if (!ancorado) {
+    assert.strictEqual(y.count, null, "sem repo válido, git_grep tem que RECUSAR (null+error), não devolver 0 calado");
+    assert.ok(y.error, "e dizer por quê");
+    skip("git_grep: alvo sem repo válido → recusa explicada (nunca '0 matches' falso)");
+  } else {
+    const absent = ["zzz", "sym", "nao", "existe", Date.now().toString(36)].join("_");
+    const n = J(tool("git_grep"), { repo: REPO, pattern: absent });
+    assert.ok(y.count >= 1 && y.matches[0].file, "ancorado num repo, tem que achar o símbolo real: " + JSON.stringify(y).slice(0, 120));
+    assert.strictEqual(n.count, 0, "símbolo inexistente (runtime-único) = 0 matches");
+    ok("git_grep: ancorado num repo válido, confirma o que existe e o que não existe");
+  }
 }
 // file_contains
 {
@@ -108,11 +111,18 @@ ok("VERIFY_TOOL_NAMES = allowlist fail-closed (6 tools custom read-only; sem she
   // No repo dev, tem que ACHAR a raiz. Fora dele (artefato instalado dentro de OUTRO repo, como
   // installed-plugins/ dentro de ~/.copilot), tem que devolver null: é a defesa que impede auditar o repo
   // ERRADO e concluir "untracked/sem história" sobre arquivos que estão versionados em outro lugar.
-  if (DEV_REPO) {
-    assert.ok(resolveRepoRoot(REPO), "no repo dev, resolveRepoRoot acha a raiz");
-    ok("resolveRepoRoot: acha a raiz do repo dev");
+  // A invariante NÃO é o contexto ("sou repo dev?"), é a PERTINÊNCIA: resolveRepoRoot devolve raiz **se e somente
+  // se** o alvo pertence àquele repo (tem arquivos rastreados lá). Isso vale nos três casos reais: repo dev
+  // (pertence), artefato instalado dentro de ~/.copilot (NÃO pertence → null), e artefato vendado dentro da
+  // vitrine (pertence → raiz da vitrine). Testar contexto em vez de invariante foi o que quebrou no clone
+  // anônimo — o teste exigia null onde o comportamento correto era responder.
+  const root = resolveRepoRoot(REPO);
+  const rastreados = (() => { try { return git(["-C", REPO, "ls-files"]).trim().length > 0; } catch { return false; } })();
+  if (rastreados) {
+    assert.ok(root, "alvo COM arquivos rastreados tem que resolver a raiz do repo a que pertence");
+    ok("resolveRepoRoot: alvo pertence ao repo → devolve a raiz (" + root + ")");
   } else {
-    assert.strictEqual(resolveRepoRoot(REPO), null, "artefato aninhado em repo alheio → null (nunca o repo de cima)");
+    assert.strictEqual(root, null, "alvo SEM arquivos rastreados (artefato alheio aninhado) → null, nunca o repo de cima");
     ok("resolveRepoRoot: artefato aninhado em repo ALHEIO devolve null (não audita o repo errado)");
   }
   const NONREPO = tmpdir();

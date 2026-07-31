@@ -12,6 +12,12 @@ import { MemoryClient } from "./client.mjs";
 // só aparecer semanas depois como "o plano falou de um assunto que eu não pedi".
 export const AGENT_OUTPUT_TYPES = Object.freeze(["adr-registro", "adr-mesa-snapshot", "plan"]);
 
+// Tipos LEGÍTIMOS de conhecimento (o que uma mesa pode reusar). É a allowlist da 2ª camada de leitura: como o
+// servidor só sabe igualdade e pertence-a-lista, a exclusão de saída de agente é expressa pelo POSITIVO. Manter
+// em sincronia com o que o produto grava — um tipo novo que não entrar aqui some do recall filtrado, e por isso
+// o filtro é OPT-IN (o chamador escolhe), nunca ligado por baixo do pano.
+export const RECALL_ALLOWED_TYPES = Object.freeze(["knowledge", "decision", "note", "bugfix"]);
+
 /**
  * Mensagem ÚNICA para o estado do recall. Existe porque o mesmo defeito se repetia em 5 chamadores: todos
  * tratavam só `m.error`, então `{ok:false, offline:true}` (que NÃO tem `.error`) caía no mesmo ramo de "não achei
@@ -93,13 +99,24 @@ export function createMemoryPort({ cwdProvider = () => process.cwd(), clientFact
      * `<project>#adr`), que é onde a mesa guarda a própria saída para não se reconsumir. Sem `namespace`, busca o
      * escopo principal — e por construção NÃO enxerga os namespaces, que é o ponto.
      */
-    async recall(query, { topK = 5, minScore = null, namespace = null } = {}) {
+    async recall(query, { topK = 5, minScore = null, namespace = null, excludeAgentOutput = false } = {}) {
       const c = cached || await connect();
       if (!c) return { ok: false, offline: true, results: [] }; // daemon offline = degradado legítimo (não erro)
       try {
         const scope = buildScope(c.projectId, namespace);
-        const metadata = scope ? { project_id: scope } : undefined;
-        const r = await c.client.search(query, { topK, metadata, ...(minScore != null ? { minScore } : {}) });
+        const metadata = scope ? { project_id: scope } : {};
+        // 2ª CAMADA DE LEITURA — por ALLOWLIST POSITIVA, não por negação.
+        // Eu havia declarado esta camada inviável depois de medir que o servidor rejeita `$ne`/`$not`. Estava
+        // olhando a capacidade errada: lendo o FONTE do native-java (`MetadataUtils.appendMetadataValueFilter`)
+        // vi que o filtro de ARRAY vira `EXISTS … value IN (?,?,…)` — e MEDI ao vivo que funciona
+        // (`type:"bugfix"` → 17 de 20; `type:["bugfix","decision"]` → 20). Ou seja: "NÃO seja saída de agente"
+        // não é expressável, mas "SEJA um dos tipos legítimos" é — e dá o mesmo resultado prático.
+        // Por que isso importa: cobre o LEGADO. Documentos de agente gravados ANTES do namespace vivem no escopo
+        // principal e voltariam no recall; a allowlist os deixa de fora sem depender de marcador em texto.
+        // LIMITE HONESTO: um documento sem `type` também fica de fora quando o filtro está ligado — por isso é
+        // OPT-IN do chamador, não default silencioso.
+        if (excludeAgentOutput) metadata.type = RECALL_ALLOWED_TYPES;
+        const r = await c.client.search(query, { topK, metadata: Object.keys(metadata).length ? metadata : undefined, ...(minScore != null ? { minScore } : {}) });
         return { ok: true, results: (r && r.results) || [], projectId: scope };
       } catch (e) {
         const error = e?.message || String(e);
