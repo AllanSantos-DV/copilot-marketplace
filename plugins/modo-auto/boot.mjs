@@ -149,7 +149,7 @@ export async function bootstrap({
 // runtime. Roda em todo SessionStart (após o 1º prune não há o que remover → barato). Best-effort, NUNCA lança.
 const RUNTIME_KEEP = new Set([
   "extension.mjs", "boot.mjs", "plugin.json", "hooks.json", "package.json", "LICENSE",
-  "src", "embed-house", "agents", ".canvas-sync.json", ".canvas-sync-ignore",
+  "src", "embed-house", "agents", "selftest", ".canvas-sync.json", ".canvas-sync-ignore",
   // Alvo do `npm test` do pacote publicado: sem ele a poda apagaria o script e o `npm test` do runtime voltaria
   // a falhar com "Cannot find module" — o mesmo erro opaco que ele existe para eliminar.
   "scripts",
