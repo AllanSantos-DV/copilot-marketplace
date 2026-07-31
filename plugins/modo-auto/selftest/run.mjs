@@ -10,7 +10,7 @@
 //
 // Uso: `npm run selftest` (ou `node selftest/run.mjs`) de dentro da instalação.
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,5 +51,12 @@ if (!STRICT) {
   // Dizer que o verde é PARCIAL faz parte do verde. Sem esta linha, quem publica lê "12/12 OK" e conclui que o
   // isolamento entre projetos foi provado — quando ele pode nem ter sido exercitado.
   console.log("⚠️ modo PERMISSIVO: testes que dependem do daemon/SDK dão SKIP e contam como ok. Para o gate COMPLETO (exigido antes de publicar), rode com MODO_AUTO_STRICT=1 — ali skip vira FALHA e o isolamento entre projetos é de fato exercitado.");
+} else if (!fail.length) {
+  // CARIMBO DO GATE COMPLETO. "Rodei sob STRICT" era afirmação minha em prosa; agora vira um arquivo que o
+  // release lê e grava na proveniência. Disciplina externa que ninguém verifica não é gate — é intenção.
+  try {
+    writeFileSync(join(ROOT, ".strict-gate.json"), JSON.stringify({ strict: true, pass, total: files.length, em: new Date().toISOString() }, null, 2));
+    console.log("✅ gate COMPLETO (STRICT) — carimbo gravado em .strict-gate.json; o release vai registrá-lo na proveniência.");
+  } catch { /* sem permissão de escrita: o verde acima continua válido, só não fica carimbado */ }
 }
 process.exit(fail.length ? 1 : 0);

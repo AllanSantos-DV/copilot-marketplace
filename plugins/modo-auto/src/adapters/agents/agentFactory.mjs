@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { getRole, dynamicRole, CORE_ROLES } from "./roles.mjs";
-import { validarEscopoInjetado } from "../memory/memoryTools.mjs";
+import { validarEscopoInjetado, assinarEscopo, segredoDoProcesso } from "../memory/memoryTools.mjs";
 import { designRole } from "./architect.mjs";
 import { SKILLS_ROOT, composeSystem } from "../skills/skillLoader.mjs";
 import { resolveNode } from "../util/resolveNode.mjs";
@@ -134,6 +134,7 @@ export function createAgentFactory({ cwdProvider = () => process.cwd(), model, g
       // ambiente do pai — de um teste, de um shell, de outra sessão — seja lido por engano se algum caminho do
       // filho um dia consultar o env. Higiene de ambiente é barata; escopo errado em silêncio, não.
       delete env.MODO_AUTO_WORKER_MEMORY_SCOPE;
+  env.MODO_AUTO_SCOPE_SECRET = segredoDoProcesso(); // o filho precisa dele p/ VERIFICAR a assinatura do escopo
       env.NODE_NO_WARNINGS = "1";   // silencia ExperimentalWarning do Node (ex.: node:sqlite do CLI) que poluía o stderr e MASCARAVA o erro real no diagnóstico. Propaga ao subprocesso do CLI (env herdado).
       env.MODO_AUTO_WORKER_CWD = cwd || cwdProvider();
       if (chosenModel) env.MODO_AUTO_WORKER_MODEL = chosenModel;
@@ -198,7 +199,13 @@ export function createAgentFactory({ cwdProvider = () => process.cwd(), model, g
         // argumento que não existe mais. O caller só pode OPTAR POR NÃO TER (`semMemoria: true`), nunca
         // apontar para outro lugar.
         const escopo = semMemoria ? null : (() => { try { return memoryScopeProvider ? memoryScopeProvider() : null; } catch { return null; } })();
-        if (escopo) job.memoryScope = validarEscopoInjetado(escopo);
+        if (escopo) {
+          job.memoryScope = validarEscopoInjetado(escopo);
+          // ASSINATURA: o job viaja por stdin, e qualquer código que spawne o binário do worker consegue
+          // escrever ali. A forma não prova nada ("outro/projeto" é bem-formado); a assinatura prova que o
+          // escopo saiu DESTA factory. Sem ela, o filho recusa e roda sem memória.
+          job.memoryScopeSig = assinarEscopo(job.memoryScope);
+        }
         // availableTools:[] = papel TEXT-only (crítica/veredito) → desliga os built-ins do CLI. Papéis
         // construtores/revisores VIVOS NÃO passam isto (mantêm as ferramentas — controle é por atividade).
         if (Array.isArray(availableTools)) job.availableTools = availableTools;

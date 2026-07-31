@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { assinarEscopo, segredoDoProcesso } from "../src/adapters/memory/memoryTools.mjs";
 
 const STRICT = process.env.MODO_AUTO_STRICT === "1";
 let pass = 0, total = 0;
@@ -33,7 +34,7 @@ const PROIBIDAS = /mem[oó]r|recall|memory|save|store|embed/i;
 /** Spawna o worker REAL com um job mínimo e devolve o manifesto que ele declarou de dentro. */
 function manifestoDe(job, { timeoutMs = 90000 } = {}) {
   return new Promise((resolve) => {
-    const env = { ...process.env, MODO_AUTO_DUMP_TOOLS: "1", NODE_NO_WARNINGS: "1" };
+    const env = { ...process.env, MODO_AUTO_DUMP_TOOLS: "1", NODE_NO_WARNINGS: "1", MODO_AUTO_SCOPE_SECRET: segredoDoProcesso() };
     delete env.NODE_OPTIONS; delete env.COPILOT_SDK_PATH;
     const child = spawn(process.execPath, [WORKER], { env, stdio: ["pipe", "pipe", "pipe"] });
     let err = "", achou = null;
@@ -97,7 +98,7 @@ for (const c of CASOS) {
 await run("[matriz viva] com escopo CRAVADO o papel recebe memory_search — e SÓ ele, e só leitura", async () => {
   // Fecha a outra ponta da matriz: até aqui todos os casos provam a AUSÊNCIA. Este prova a PRESENÇA controlada,
   // no processo real: quando o pai crava o escopo, a tool aparece no manifesto do worker — e é uma só, de busca.
-  const { manifesto, stderr } = await manifestoDe({ role: "documentacao", system: "s", prompt: "ok", idleGraceMs: 20000, memoryScope: "dono/projeto-de-teste" });
+  const { manifesto, stderr } = await manifestoDe({ role: "documentacao", system: "s", prompt: "ok", idleGraceMs: 20000, memoryScope: "dono/projeto-de-teste", memoryScopeSig: assinarEscopo("dono/projeto-de-teste") });
   assert.ok(manifesto, "não veio manifesto: " + (stderr || "").slice(0, 200));
   assert.deepStrictEqual(manifesto.custom, ["memory_search"], "com escopo cravado, o manifesto tem a tool de LEITURA: " + JSON.stringify(manifesto));
   const escrita = (manifesto.custom || []).filter((n) => /save|write|delete|update|grava/i.test(n));
@@ -105,7 +106,7 @@ await run("[matriz viva] com escopo CRAVADO o papel recebe memory_search — e S
 });
 
 await run("[matriz viva] papel fail-closed NÃO ganha memória nem com escopo cravado", async () => {
-  const { manifesto } = await manifestoDe({ role: "revisor", system: "s", prompt: "ok", idleGraceMs: 20000, memoryScope: "dono/projeto-de-teste", availableTools: [], schema: { name: "submit_x", description: "d", parameters: { type: "object", properties: {}, required: [] } } });
+  const { manifesto } = await manifestoDe({ role: "revisor", system: "s", prompt: "ok", idleGraceMs: 20000, memoryScope: "dono/projeto-de-teste", memoryScopeSig: assinarEscopo("dono/projeto-de-teste"), availableTools: [], schema: { name: "submit_x", description: "d", parameters: { type: "object", properties: {}, required: [] } } });
   assert.ok(manifesto, "não veio manifesto");
   assert.deepStrictEqual(manifesto.custom, ["submit_x"], "text-only continua text-only: " + JSON.stringify(manifesto));
 });
@@ -117,7 +118,7 @@ await run("[matriz viva] MESA VIVA com escopo cravado recebe memory_search (é o
   // verdade e o manifesto é lido de dentro.
   const { spawn: sp } = await import("node:child_process");
   const LIVE = fileURLToPath(new URL("../src/adapters/agents/liveWorker.mjs", import.meta.url));
-  const env = { ...process.env, MODO_AUTO_DUMP_TOOLS: "1", NODE_NO_WARNINGS: "1", MODO_AUTO_WORKER_ROLE: "tecnico", MODO_AUTO_WORKER_SYSTEM: "s", MODO_AUTO_WORKER_MEMORY_SCOPE: "dono/projeto-de-teste" };
+  const env = { ...process.env, MODO_AUTO_DUMP_TOOLS: "1", NODE_NO_WARNINGS: "1", MODO_AUTO_WORKER_ROLE: "tecnico", MODO_AUTO_WORKER_SYSTEM: "s", MODO_AUTO_WORKER_MEMORY_SCOPE: "dono/projeto-de-teste", MODO_AUTO_WORKER_MEMORY_SIG: assinarEscopo("dono/projeto-de-teste"), MODO_AUTO_SCOPE_SECRET: segredoDoProcesso() };
   delete env.NODE_OPTIONS; delete env.COPILOT_SDK_PATH;
   const achado = await new Promise((resolve) => {
     const c = sp(process.execPath, [LIVE], { env, stdio: ["pipe", "pipe", "pipe"] });

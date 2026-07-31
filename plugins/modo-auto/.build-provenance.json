@@ -1,14 +1,14 @@
 {
   "kind": "operational-audit",
   "commit": {
-    "sha": "d8f21f0cc68121e025f00f4c35fe6f8d60db7f18",
-    "shortSha": "d8f21f0"
+    "sha": "bcfe94fd80c14cfce794aea7f9b3b20e54dd1e59",
+    "shortSha": "bcfe94f"
   },
   "branch": "develop",
-  "tag": "v0.6.3",
+  "tag": "v0.6.4",
   "remote": "https://github.com/AllanSantos-DV/modo-auto.git",
   "clean": true,
-  "version": "0.6.3",
+  "version": "0.6.4",
   "pushed": true,
   "remoteBranches": [
     "origin/develop",
@@ -19,6 +19,11 @@
     "reproducible": "o ARTEFATO é público e verificável: clone https://github.com/AllanSantos-DV/copilot-marketplace e rode `node plugins/modo-auto/selftest/run.mjs` — ele imprime este mesmo commit/tag.",
     "verifyCommand": "git clone --depth 1 https://github.com/AllanSantos-DV/copilot-marketplace && node copilot-marketplace/plugins/modo-auto/selftest/run.mjs"
   },
-  "generatedAt": "2026-07-31T19:49:44.137Z",
+  "strictGate": {
+    "passou": true,
+    "testes": "12/12",
+    "em": "2026-07-31T20:23:01.686Z"
+  },
+  "generatedAt": "2026-07-31T20:23:02.067Z",
   "indeterminate": []
 }

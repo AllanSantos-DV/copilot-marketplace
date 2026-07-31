@@ -129,6 +129,12 @@ export function writeProvenance({ root, out, git, exists = fsExists, read = fsRe
     }
   }
 
+  let strictGate = null;
+  try {
+    const g = JSON.parse(fsRead(join(root, ".strict-gate.json"), "utf8"));
+    strictGate = g && g.strict === true ? { passou: true, testes: `${g.pass}/${g.total}`, em: g.em } : null;
+  } catch { strictGate = null; } // sem carimbo = gate completo NAO rodou; null diz isso sem inventar
+
   const provenance = {
     kind: PROVENANCE_KIND,
     commit: { sha, shortSha },
@@ -150,11 +156,15 @@ export function writeProvenance({ root, out, git, exists = fsExists, read = fsRe
     // o ARTEFATO DISTRIBUÍDO é — pela vitrine pública, que embarca `selftest/` e se auto-verifica.
     // Ou seja: o carimbo passa a dizer ONDE a reprodução é possível, em vez de deixar o leitor concluir que é
     // impossível. Não é campo cosmético: é a diferença entre "não confere" e "confere aqui".
-    sourceAccess: {
-      note: "o repositório de ORIGEM é privado — `git ls-remote` nele responde 'Repository not found' para terceiros (404 do GitHub para repo privado). Isso NÃO é falha da proveniência.",
+    sourceAccess: {      note: "o repositório de ORIGEM é privado — `git ls-remote` nele responde 'Repository not found' para terceiros (404 do GitHub para repo privado). Isso NÃO é falha da proveniência.",
       reproducible: "o ARTEFATO é público e verificável: clone https://github.com/AllanSantos-DV/copilot-marketplace e rode `node plugins/modo-auto/selftest/run.mjs` — ele imprime este mesmo commit/tag.",
       verifyCommand: "git clone --depth 1 https://github.com/AllanSantos-DV/copilot-marketplace && node copilot-marketplace/plugins/modo-auto/selftest/run.mjs",
     },
+    // GATE ESTRITO: o release passa a DECLARAR se o gate completo rodou. Antes isso era afirmação minha em
+    // prosa ("rodei sob STRICT"), o que não é verificável por ninguém. Agora o selftest deixa um carimbo e a
+    // proveniência o registra — quem lê o artefato sabe se o isolamento foi de fato exercitado. `null` = não
+    // rodou, e null diz isso sem inventar.
+    strictGate,
     generatedAt: now(),
     indeterminate,
   };

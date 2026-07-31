@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { sdkIndexUrl, textOf, CLEAN_DIRECTIVE, runTurnWithHeartbeat, WORKER_FIX_COMMAND, computeToolExposure } from "./workerLib.mjs";
+import { verificarEscopo } from "../memory/memoryTools.mjs";
 import { usageFromEvent, mergeUsage } from "../activity/costMeter.mjs";
 import { makeSubmitTool, runUntilSubmitted } from "./structuredResult.mjs";
 
@@ -60,7 +61,17 @@ async function readStdin() {
     // "não tinha memória" de "tinha e não usou". Não é fail-closed de bloqueio (memória é opcional por decisão
     // de produto: sem o plugin o modo-auto funciona igual), é fail-closed de CAPACIDADE + registro do fato.
     let memoryToolset = [], memoryState = null;
-    if (job.memoryScope) {
+    // VERIFICAÇÃO DA PROVENIÊNCIA. O job chega por stdin, que qualquer código que spawne este binário consegue
+    // escrever — inclusive um teste ou outro agente. Confiar no campo era a porta dos fundos que sobrou depois
+    // de eu remover o parâmetro da API: a API ficou fechada, o TRANSPORTE não. A assinatura prova que o escopo
+    // saiu da factory deste processo. Sem assinatura válida: recusa, registra, e roda sem memória.
+    const verif = job.memoryScope
+      ? verificarEscopo(job.memoryScope, job.memoryScopeSig, process.env.MODO_AUTO_SCOPE_SECRET)
+      : { ok: false, motivo: "sem escopo cravado" };
+    if (job.memoryScope && !verif.ok) {
+      try { process.stderr.write(`\x1e#MEM ESCOPO RECUSADO para o papel ${job.role}: ${verif.motivo} — rodando SEM memória\n`); } catch { /* stderr fechado */ }
+    }
+    if (verif.ok) {
       try {
         const [pm, tm] = await Promise.all([import("../memory/memoryPort.mjs"), import("../memory/memoryTools.mjs")]);
         const port = pm.createMemoryPort({ projectId: job.memoryScope, log: () => {} });

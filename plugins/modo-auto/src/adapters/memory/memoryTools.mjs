@@ -1,4 +1,5 @@
 import { assertSafeProjectId } from "./projectId.mjs";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 // TOOLSET DE MEMÓRIA READ-ONLY para o worker. Molde: `research/researchTools.mjs` (factory, cap no closure,
 // handler que NUNCA lança para o SDK e sempre devolve JSON string).
@@ -102,6 +103,42 @@ export function createMemoryTools({ recall, projectId, maxChamadas = DEFAULT_MAX
 
 /** Nomes das tools de memória — para o manifesto e para os testes de isolamento saberem o que procurar. */
 export const MEMORY_TOOL_NAMES = Object.freeze(["memory_search"]);
+
+/**
+ * ASSINATURA DO ESCOPO. O escopo viaja do pai para o filho por um canal (stdin/env) que qualquer código que
+ * spawne o binário do worker consegue escrever. Validar FORMA não resolve — `outro/projeto` tem forma perfeita.
+ * O que resolve é PROVENIÊNCIA: só quem tem o segredo do processo pai consegue produzir uma assinatura válida.
+ *
+ * O que isto fecha, com honestidade sobre o limite: um chamador INTERNO (outro perfil, outro agente, um teste
+ * que spawna o worker direto) não consegue mais injetar um escopo — era o caso real, e é o que quase aconteceu
+ * duas vezes nesta sessão. O que NÃO fecha: um processo que controle o ambiente inteiro pode gerar o próprio
+ * par segredo+assinatura. Essa não é a fronteira de confiança aqui — quem controla o processo já controla tudo.
+ * O segredo vive só em memória, muda a cada boot do pai, e nunca é persistido.
+ */
+const SEGREDO = randomBytes(32).toString("hex");
+
+export function assinarEscopo(escopo, segredo = SEGREDO) {
+  return createHmac("sha256", segredo).update(String(escopo)).digest("hex").slice(0, 32);
+}
+
+/**
+ * Confere a assinatura no FILHO. Sem assinatura válida, o escopo é RECUSADO — e recusar significa rodar sem
+ * memória, com o fato registrado, nunca buscar no escopo não-verificado.
+ * @returns {{ ok:true, escopo:string } | { ok:false, motivo:string }}
+ */
+export function verificarEscopo(escopo, assinatura, segredo) {
+  if (!escopo) return { ok: false, motivo: "sem escopo" };
+  if (!segredo) return { ok: false, motivo: "sem segredo do processo pai — o escopo não pôde ser verificado" };
+  if (!assinatura) return { ok: false, motivo: "escopo veio SEM assinatura (injeção por fora da factory?)" };
+  const esperada = assinarEscopo(escopo, segredo);
+  // Comparação de tempo constante: o custo é zero e evita transformar a verificação num oráculo.
+  const a = Buffer.from(assinatura, "utf8"), b = Buffer.from(esperada, "utf8");
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return { ok: false, motivo: "assinatura do escopo INVÁLIDA — o escopo não veio da factory deste processo" };
+  return { ok: true, escopo: String(escopo) };
+}
+
+/** Segredo do processo pai, para ser repassado ao filho pelo mesmo canal do spawn. */
+export function segredoDoProcesso() { return SEGREDO; }
 
 /**
  * Escopo de memória para CRAVAR no worker, a partir das caps do perfil. Mora aqui (e não em cada perfil) porque
