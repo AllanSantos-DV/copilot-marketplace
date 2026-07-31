@@ -11,7 +11,28 @@
 // do projeto. O código não tem como saber que está errado; o dono tem.
 
 /**
- * @param {{ escopo?: string|null, origem?: string, motivo?: string }} a
+ * Linha CURTA de status, para ir junto do RESULTADO da tool — não no log.
+ *
+ * Por que existe: o aviso completo saía por `logHost`, que escreve no log da sessão do host. Numa sessão por
+ * VOZ ou por daemon (que é como este produto costuma ser usado), o dono NUNCA vê aquilo — ou seja, a mesa
+ * rodando cega continuava indistinguível da mesa informada, exatamente o defeito que o aviso deveria matar.
+ * Log é para quem depura; o RESULTADO é o que o humano recebe. Esta linha viaja no resultado.
+ * @returns {string} uma linha, sem markdown, segura para ser lida em voz alta
+ */
+export function statusMemoriaCurto({ escopo = null, origem = "?", suspeita = null } = {}) {
+  if (!escopo) return "MEMÓRIA: indisponível — esta deliberação rodou SEM o acervo do projeto (os agentes não viram decisões anteriores).";
+  if (suspeita && suspeita.risco === "fork" && suspeita.alternativa) {
+    return `MEMÓRIA: ativa no escopo ${escopo}, mas este repo parece um FORK (upstream ${suspeita.alternativa}) — o acervo lido é o do fork.`;
+  }
+  if (suspeita && suspeita.risco === "espelho") {
+    return `MEMÓRIA: ativa no escopo ${escopo}, porém o diretório é um artefato ANINHADO em outro repositório — confira se o escopo é o projeto certo.`;
+  }
+  const de = origem === "declared" ? "declarado" : origem === "git-remote" ? "git remote" : origem;
+  return `MEMÓRIA: ativa no escopo ${escopo} (${de}), somente leitura.`;
+}
+
+/**
+ * @param {{ escopo?: string|null, origem?: string, motivo?: string, suspeita?: object|null }} a
  * @returns {{ ativa: boolean, texto: string }}
  */
 export function avisoMemoria({ escopo = null, origem = "?", motivo = "", suspeita = null } = {}) {

@@ -87,29 +87,33 @@ E a mesa — ADR, dev, sombra, o que for — **não procura saber disso**. Na ho
 definição da tool já vai com o `project_id` cravado. O agente não resolve escopo, não olha `cwd`, não recebe
 "projeto" como parâmetro que ele possa errar.
 
-## Quem recebe busca, e quem não recebe (é desenho, e aqui está o porquê)
+## Quem recebe busca, e quem não recebe (decisão, com o histórico da mudança)
 
-A regra é **por forma de trabalho**, não por nome de papel:
+A regra é **por declaração do chamador**, não por categoria fixa de papel:
 
 | quem | recebe busca? | por quê |
 |---|---|---|
 | mesa viva (técnico, negócio, advogado-do-diabo, revisor, pesquisador) | **sim** | o trabalho deles é trazer o que NÃO está no prompt |
 | dev e revisor do `modo_dev` | **sim** | quem revisa pode reprovar algo já decidido no acervo sem saber |
-| papéis com `schema` / `availableTools: []` (documentador, consolidador, auditor) | **não** | eles CONSOLIDAM material já entregue; busca ali convida a explorar em vez de concluir |
+| perfis de análise (`modo_reuso`, `modo_seguranca`) | **sim** | deliberam sobre o código-base; sem acervo, repetem conclusão antiga |
+| papel com allowlist que **não nomeia** memória | **não** | o chamador declarou que aquele papel só conclui a partir do material dado |
+| papel com allowlist que **nomeia** `memory_search` | **sim** | ex.: o auditor de memória — ver abaixo |
 
-A terceira linha é aplicada pela policy única (`computeToolExposure`): allowlist explícita ⇒ sem memória,
-automaticamente. Não depende de ninguém lembrar.
+**Como isso mudou, e por quê (registro da decisão):** a primeira versão proibia memória em QUALQUER papel
+fail-closed, de forma cega — "ele só consolida, não precisa buscar". Três famílias de modelo, em rodadas
+independentes, contestaram com o mesmo argumento: *um juiz precisa de MAIS contexto, não menos*. Estavam
+certas, e o caso concreto prova: o auditor de memória diz "desatualizado" sobre um item — e, sem busca, ele não
+tem como **achar** o que superou aquele item. Aquele veredito era um **julgamento apresentado como
+verificação**.
 
-**Correção registrada:** o dev/revisor do `modo_dev` estava sem busca por descuido, não por desenho — uma
-auditoria apontou que o revisor "pode reprovar algo já decidido e documentado sem nunca saber", e procedia. As
-decisões do ADR já chegavam no prompt, mas prompt é o que o pai adiantou; a busca é o que ele consulta quando
-desconfia. Corrigido em v0.5.4.
+**Decisão:** a allowlist passou a ser a declaração de intenção do chamador. Quem não nomeia, não recebe; quem
+nomeia, recebe — e isso fica explícito no código de quem chama, visível em revisão. O auditor nomeia
+`memory_search` quando há escopo cravado, e o prompt dele diz por quê: *"sem conferir, 'desatualizado' é
+palpite; com isso, é verificação"*. Sem escopo, ele volta a ser text-only puro.
 
-**Trade-off que continua em aberto, nomeado:** o auditor de memória diz "desatualizado" sem poder *verificar*
-que algo mais novo o superou — é um **julgamento**, não uma verificação. Dar busca a ele permitiria provar a
-supersessão citando o documento mais novo; o custo é token e risco de loop (ele já roda sobre N itens por
-deliberação). **Gatilho para reverter:** se os vereditos "desatualizado" começarem a errar na prática, dar busca
-ao auditor com teto baixo.
+**Critério de reversão:** se o auditor passar a gastar buscas sem melhorar a qualidade dos vereditos (medível
+pelo ledger `#MEM`: buscas por auditoria vs. vereditos "desatualizado" que citam o documento superador),
+o teto cai para 1 ou a busca sai. A decisão é reversível de propósito — ela mora numa linha (`availableTools`).
 
 **Positivas:** escrita impossível por construção; escopo nunca derivado de caminho; memória auditável (id
 citável + veredito justificado); o produto continua funcionando sem o plugin.
@@ -133,9 +137,19 @@ documento do vizinho — semanticamente ótimo para a query — apareceria. Não
 **Negativas / limites conhecidos, registrados sem maquiar:**
 
 - `project_id` **errado** não é `project_id` **vazio**: fork, mirror, submodule, `origin` vs `upstream`, ou um
-  marcador desatualizado produzem escopo divergente em **silêncio**. O fail-loud só cobre o vazio. **Mitigação
-  parcial entregue:** ledger de acesso no stderr do worker (`#MEM papel leu N trecho(s) do escopo Z`) — não
-  impede o escopo errado, mas o torna rastreável em vez de invisível.
+  marcador desatualizado produzem escopo divergente em **silêncio**. O fail-loud só cobre o vazio.
+  **Mitigações entregues:** (a) ledger de acesso no stderr do worker (`#MEM papel leu N trecho(s) do escopo Z`);
+  (b) `detectarEscopoSuspeito()` reconhece **fork** (remote `upstream` ≠ `origin`) e **espelho/artefato aninhado**
+  (o diretório não tem nada rastreado, mas o repo que responde por ele tem — é a marca de uma instalação dentro
+  de um repo alheio, e a causa-raiz do falso positivo "o código está numa versão antiga" que se repetiu ~6 vezes);
+  (c) o status curto viaja no RESULTADO das tools, não só no log.
+  **O que continua sem sinal, dito sem maquiar:** mirror remoto e marcador desatualizado — não há fato medível
+  que os distinga de uso legítimo.
+
+- **Onde o aviso aparece.** O aviso longo vai por `logHost`, que escreve no log da sessão do host — e esse log é
+  **invisível numa sessão por voz ou daemon**, que é como o produto costuma ser usado. Por isso existe também um
+  status de UMA linha que viaja no **resultado** das tools da mesa. Log é para depurar; resultado é o que o dono
+  recebe.
 - Monorepo colapsa todos os subprojetos num id só. "Converge" é verdade, mas pode ser escopo **grosso demais**
   quando pacotes internos são produtos distintos.
 - Falta observabilidade de acesso ("worker X leu doc Y do projeto Z") e limites operacionais (timeout, teto de

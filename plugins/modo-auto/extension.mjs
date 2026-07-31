@@ -21,8 +21,8 @@ import { pruneWorkerSessions, formatPrune } from "./src/adapters/agents/workerCo
 import { readProvenance, formatProvenance } from "./src/adapters/health/buildProvenance.mjs";
 import { createToggleState } from "./src/toggle/state.mjs";
 import { createMemoryPort } from "./src/adapters/memory/memoryPort.mjs";
-import { projectIdStrength, detectarEscopoSuspeito } from "./src/adapters/memory/projectId.mjs";
-import { avisoMemoria } from "./src/adapters/memory/memoryNotice.mjs";
+import { projectIdStrength, detectarEscopoSuspeito, resolveProjectIdWithProvenance } from "./src/adapters/memory/projectId.mjs";
+import { avisoMemoria, statusMemoriaCurto } from "./src/adapters/memory/memoryNotice.mjs";
 import { createPlanPort } from "./src/adapters/plan/planPort.mjs";
 import { createAgentFactory } from "./src/adapters/agents/agentFactory.mjs";
 import { createMesa } from "./src/adapters/agents/mesa.mjs";
@@ -147,6 +147,21 @@ const factory = createAgentFactory({ cwdProvider: () => process.cwd(), getRouter
 // caçando no código — só que na camada de cima. O aviso sai UMA vez por processo (não a cada worker, senão vira
 // ruído) e diz o motivo E o conserto.
 let avisouEscopo = false;
+/**
+ * Status da memória em UMA linha, para viajar no RESULTADO das tools da mesa. O aviso longo continua no log
+ * (útil pra depurar), mas o log da sessão do host é INVISÍVEL numa sessão por voz/daemon — que é justamente
+ * como este produto é usado. Se o dono não vê, a mesa cega continua parecendo igual à informada, e o aviso não
+ * cumpriu a função. O resultado da tool é o canal que ele de fato recebe.
+ */
+const statusMesa = () => {
+  let escopo = null, origem = "?", suspeita = null;
+  try {
+    const p = resolveProjectIdWithProvenance(process.cwd());
+    escopo = p.projectId; origem = p.source;
+    suspeita = detectarEscopoSuspeito(process.cwd());
+  } catch { /* sem escopo → statusMemoriaCurto já diz "indisponível" */ }
+  return statusMemoriaCurto({ escopo, origem, suspeita });
+};
 const memoryScopeParaMesa = () => {
   let escopo = null, motivo = "";
   try { escopo = memory.projectId() || null; }
@@ -408,7 +423,7 @@ export const tools = [
       const caminho = r.path ? `triagem: ${r.tier || "?"} → ${r.path === "express" ? "EXPRESSO (sem debate)" : r.path === "mini" ? "mesa-mini (3 papéis, 1 volta)" : "mesa completa"}${r.triageSource && r.triageSource !== "deterministic" ? " [" + r.triageSource + "]" : ""}` : "";
       const meta = r.engine === "viva" ? ` (mesa viva: ${r.rounds} voltas, convergiu=${r.converged})` : "";
       await recordDelivery((briefing || "").slice(0, 120) + " → " + (r.plan || "").slice(0, 200), "plano"); // GAP 3: entrega (aceite por ação)
-      return ok(`plano do ADR gerado${r.written ? " (gravado em adr-plan.md — LEIA-o e incorpore ao SEU plan.md; a mesa ADR NÃO toca no plan.md da sessão)" : ""}${caminho ? " — " + caminho : ""}${meta}:\n\n${r.plan}${dv}`);
+      return ok(`${statusMesa()}\nplano do ADR gerado${r.written ? " (gravado em adr-plan.md — LEIA-o e incorpore ao SEU plan.md; a mesa ADR NÃO toca no plan.md da sessão)" : ""}${caminho ? " — " + caminho : ""}${meta}:\n\n${r.plan}${dv}`);
     },
   },
   {
