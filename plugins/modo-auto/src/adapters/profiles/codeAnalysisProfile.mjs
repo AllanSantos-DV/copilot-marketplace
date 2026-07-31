@@ -46,7 +46,7 @@ export function createCodeAnalysisProfile(cfg) {
         parts.push(caps.codeAnalysis.render(ev));
       }
       if (deep && caps.deep?.review && caps.router) {
-        const dp = await caps.deep.review({ material: s, critiquePrompt: externalPrompt(s), router: caps.router, taskType: "research" });
+        const dp = await caps.deep.review({ material: s, critiquePrompt: externalPrompt(s), router: caps.router, taskType: "research", memoryScope: escopoParaWorker(caps) });
         if (dp.ok) parts.push(`EXTERNO (painel ${dp.families.join("+")}): ${dp.verdict.findings.join("; ") || "(nada corroborado)"}`);
         else log(`[${id}] deep indisponível (${dp.reason})`);
       }

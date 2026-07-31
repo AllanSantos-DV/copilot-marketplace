@@ -158,7 +158,8 @@ const statusMesa = () => {
   try {
     const p = resolveProjectIdWithProvenance(process.cwd());
     escopo = p.projectId; origem = p.source;
-    suspeita = detectarEscopoSuspeito(process.cwd());
+    // A suspeita vem da MESMA chamada — nada de deduzir depois, que era o defeito que este conserto matou.
+    suspeita = { risco: p.risco, alternativa: p.alternativa };
   } catch { /* sem escopo → statusMemoriaCurto já diz "indisponível" */ }
   return statusMemoriaCurto({ escopo, origem, suspeita });
 };
@@ -423,7 +424,7 @@ export const tools = [
       const caminho = r.path ? `triagem: ${r.tier || "?"} → ${r.path === "express" ? "EXPRESSO (sem debate)" : r.path === "mini" ? "mesa-mini (3 papéis, 1 volta)" : "mesa completa"}${r.triageSource && r.triageSource !== "deterministic" ? " [" + r.triageSource + "]" : ""}` : "";
       const meta = r.engine === "viva" ? ` (mesa viva: ${r.rounds} voltas, convergiu=${r.converged})` : "";
       await recordDelivery((briefing || "").slice(0, 120) + " → " + (r.plan || "").slice(0, 200), "plano"); // GAP 3: entrega (aceite por ação)
-      return ok(`${statusMesa()}\nplano do ADR gerado${r.written ? " (gravado em adr-plan.md — LEIA-o e incorpore ao SEU plan.md; a mesa ADR NÃO toca no plan.md da sessão)" : ""}${caminho ? " — " + caminho : ""}${meta}:\n\n${r.plan}${dv}`);
+      return okMesa(`plano do ADR gerado${r.written ? " (gravado em adr-plan.md — LEIA-o e incorpore ao SEU plan.md; a mesa ADR NÃO toca no plan.md da sessão)" : ""}${caminho ? " — " + caminho : ""}${meta}:\n\n${r.plan}${dv}`);
     },
   },
   {
@@ -450,7 +451,7 @@ export const tools = [
       const fix = r.mustFix.length ? "\nCorrigir:\n- " + r.mustFix.join("\n- ") : "";
       const esc = r.escalate ? "\nESCALAR ao orquestrador: " + r.escalate : "";
       await recordDelivery(String(phase).slice(0, 120) + " → impl " + (r.pass ? "PASSOU" : "REPROVOU") + " em " + r.rounds + " rodada(s)", "impl"); // GAP 3: entrega (aceite por ação)
-      return ok(`modo-dev [${status}] (TDD, ${r.rounds} rodada(s)${useDeep ? ", PROFUNDO" : ""})${fix}${esc}\n\nTESTE (RED):\n${r.artifacts.test}\n\nIMPL (GREEN):\n${r.artifacts.impl}`);
+      return okMesa(`modo-dev [${status}] (TDD, ${r.rounds} rodada(s)${useDeep ? ", PROFUNDO" : ""})${fix}${esc}\n\nTESTE (RED):\n${r.artifacts.test}\n\nIMPL (GREEN):\n${r.artifacts.impl}`);
     },
   },
   {
@@ -506,7 +507,7 @@ export const tools = [
       const escBloco = esc ? `\nEscalações (${r.escalations.length}, ${(r.forHuman || []).length} p/ humano):\n${esc}` : "";
       const passou = r.results.filter((x) => x.pass).length;
       await recordDelivery(`pipeline: ${r.results.length} fases (${passou} ok) → ${r.integrationBranch}`, "pipeline"); // GAP 3: código construído = entregável
-      return ok(`modo-pipeline: ${r.results.length} fases em ${r.groups.length} grupos (paralelo=${r.parallel}) → integradas em ${r.integrationBranch}\n${linhas}${escBloco}`);
+      return okMesa(`modo-pipeline: ${r.results.length} fases em ${r.groups.length} grupos (paralelo=${r.parallel}) → integradas em ${r.integrationBranch}\n${linhas}${escBloco}`);
     },
   },
   {
@@ -529,7 +530,7 @@ export const tools = [
     handler: async ({ subject, root }) => {
       const r = await reuso.analyze(subject, { factory, liveMesa, scope, codeAnalysis, deep, embedder, root, get router() { return modelRouter; } }, { deep: deepState.get() });
       await recordDelivery(`reúso: ${String(subject).slice(0, 100)} → ADR ${r.phases ? r.phases.length + " fases" : "fallback"}`, "adr-reuso"); // GAP 3: ADR = entregável
-      return ok(`modo-reuso [${r.engine}] (${r.rounds} voltas; ${r.phases ? r.phases.length + " fases" : "fallback"})\n\nEVIDÊNCIA:\n${r.evidence}\n\n=== ADR DE REÚSO ===\n${r.adr}`);
+      return okMesa(`modo-reuso [${r.engine}] (${r.rounds} voltas; ${r.phases ? r.phases.length + " fases" : "fallback"})\n\nEVIDÊNCIA:\n${r.evidence}\n\n=== ADR DE REÚSO ===\n${r.adr}`);
     },
   },
   {
@@ -553,7 +554,7 @@ export const tools = [
     handler: async ({ subject, root }) => {
       const r = await seguranca.analyze(subject, { factory, liveMesa, scope, codeAnalysis, deep, embedder, root, get router() { return modelRouter; } }, { deep: deepState.get() });
       await recordDelivery(`segurança: ${String(subject).slice(0, 100)} → ADR ${r.phases ? r.phases.length + " fases" : "fallback"}`, "adr-seguranca"); // GAP 3: ADR = entregável
-      return ok(`modo-seguranca [${r.engine}] (${r.rounds} voltas; ${r.phases ? r.phases.length + " fases" : "fallback"})\n\nEVIDÊNCIA:\n${r.evidence}\n\n=== ADR DE SEGURANÇA ===\n${r.adr}`);
+      return okMesa(`modo-seguranca [${r.engine}] (${r.rounds} voltas; ${r.phases ? r.phases.length + " fases" : "fallback"})\n\nEVIDÊNCIA:\n${r.evidence}\n\n=== ADR DE SEGURANÇA ===\n${r.adr}`);
     },
   },
   {
@@ -573,7 +574,7 @@ export const tools = [
     },
     handler: async ({ subject, root }) => {
       const r = await scopo.analyze(subject, { scope, factory, memory }, { root });
-      return ok(`modo-scopo [${r.strategy}${r.reason ? ":" + r.reason : ""}] (hubs=${r.map.hubs}, arquivos=${r.map.files}, nós=${r.map.nodes})\n\n${r.analysis}`);
+      return okMesa(`modo-scopo [${r.strategy}${r.reason ? ":" + r.reason : ""}] (hubs=${r.map.hubs}, arquivos=${r.map.files}, nós=${r.map.nodes})\n\n${r.analysis}`);
     },
   },
   {
@@ -939,11 +940,21 @@ export const tools = [
       const fix = dp.verdict.findings.length ? "\nCORROBORADOS (corrigir):\n- " + dp.verdict.findings.join("\n- ") : "";
       const watch = dp.watch.length ? "\nISOLADOS (verificar):\n- " + dp.watch.join("\n- ") : "";
       const esc = dp.verdict.escalate ? "\nESCALAR: " + dp.verdict.escalate : "";
-      return ok(`deep-gate [${dp.verdict.pass ? "PASSOU" : "REPROVOU"}] — painel ${dp.families.join("+")}${fix}${watch}${esc}`);
+      return okMesa(`deep-gate [${dp.verdict.pass ? "PASSOU" : "REPROVOU"}] — painel ${dp.families.join("+")}${fix}${watch}${esc}`);
     },
   },
 ];
 const ok = (msg) => ({ resultType: "success", textResultForLlm: "modo-auto: " + msg });
+/**
+ * Resultado de uma tool DELIBERATIVA (mesa/painel): carimba o status da memória na frente.
+ *
+ * Existe como wrapper e não como edição em cada tool porque carimbar em N lugares é exatamente o erro que já me
+ * custou dois bugs nesta sessão — a tool N+1 nasce sem o carimbo e ninguém percebe. Aqui, quem delibera usa
+ * `okMesa` e o status vem junto por construção.
+ * Por que no RESULTADO e não no log: o log da sessão do host é invisível em voz/daemon (medido). Se o dono não
+ * vê, a mesa cega continua parecendo igual à informada — que é o defeito inteiro.
+ */
+const okMesa = (msg) => ok(`${statusMesa()}\n${msg}`);
 
 let askOverrideClashed = false; // true se o override de ask_user colidiu (fallback reativo do joinSessionResilient)
 let askClaim = null;            // o claim do ask-bridge quando SOU o dono (p/ release no re-join/exit)
