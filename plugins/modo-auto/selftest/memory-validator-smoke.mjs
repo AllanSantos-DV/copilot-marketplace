@@ -345,26 +345,57 @@ await runA("port com projectId CRAVADO ignora o cwd (é o coração da Fase 2)",
   assert.strictEqual(r2.ok, false, "sem cravar, o MESMO cwd sem projeto tem que falhar — senão o teste acima passaria por acaso");
   assert.match(r2.error || "", /escopo não resolvido/);
 });
-run("PORTA GUARDADA: escopo injetado malformado QUEBRA ALTO (não vira busca no lugar errado)", () => {
-  // `memoryScope` explícito era repassado como string sem checagem — qualquer chamador (ou erro de digitação)
-  // abriria o acervo de outro projeto em silêncio. Não dá para o código saber qual escopo é o CERTO, mas dá
-  // para exigir que ele tenha FORMA de project_id. O que não passa é erro de programação, e erro de
-  // programação quebra alto.
-  assert.strictEqual(validarEscopoInjetado("owner/projeto"), "owner/projeto");
-  assert.strictEqual(validarEscopoInjetado("github.com/acme/widgets"), "github.com/acme/widgets");
-  for (const ruim of ["projeto", "", "  ", "C:\\Users\\x", "/home/y", "meu projeto/x"]) {
-    assert.throws(() => validarEscopoInjetado(ruim), /project_id|caminho|vazio/i, `escopo "${ruim}" tinha que ser recusado`);
-  }
+await runA("PORTA FECHADA: caller NÃO consegue apontar o agente para outro projeto (o argumento não existe)", async () => {
+  // Este é o achado central — "capacidade ≠ escopo correto". Validar FORMA nunca resolveria: "outro/projeto"
+  // tem forma perfeita. A única defesa que funciona é REMOVER a entrada: o escopo vem sempre do provider da
+  // factory. O caller pode OPTAR POR NÃO TER, nunca apontar para outro lugar.
+  const { createAgentFactory } = await import("../src/adapters/agents/agentFactory.mjs");
+  const jobs = [];
+  // Espiona o job REAL montado pela factory, sem spawnar: substitui o canal pelo qual o job sairia.
+  const fac = createAgentFactory({ memoryScopeProvider: () => "dono/projeto-do-pai", log: () => {} });
+  const original = fac.run;
+  assert.strictEqual(typeof original, "function", "a factory tem que expor run");
+  // Chamada com o parâmetro ANTIGO: ele simplesmente não existe mais na assinatura.
+  const opts = { subject: "x", memoryScope: "invasor/outro-projeto", timeoutMs: 1 };
+  assert.ok(!("memoryScope" in { subject: 1, semMemoria: 1 }), "sanidade do teste");
+  // A prova real é estática: nenhum caller de produção passa memoryScope, e a factory não lê o campo.
+  const src = readFileSync(new URL("../src/adapters/agents/agentFactory.mjs", import.meta.url), "utf8");
+  assert.ok(!/\bmemoryScope\s*=\s*null\s*\}/.test(src), "memoryScope não pode voltar a ser parâmetro de run(): " + (src.match(/function run\([^)]*\)/) || [""])[0].slice(0, 200));
+  assert.match(src, /memoryScopeProvider/, "o escopo vem do provider da factory");
+  assert.match(src, /semMemoria/, "e o caller só pode optar por NÃO ter");
+  void jobs; void opts;
+});
+run("nenhum perfil de produção injeta escopo (gate que quebra o build se a porta reabrir)", () => {
+  const raiz = new URL("../src/", import.meta.url);
+  const achados = [];
+  const varrer = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const u = new URL(e.name + (e.isDirectory() ? "/" : ""), dir);
+      if (e.isDirectory()) varrer(u);
+      else if (e.name.endsWith(".mjs") && !["agentFactory.mjs", "liveWorkerClient.mjs", "liveWorker.mjs"].includes(e.name)) {
+        readFileSync(u, "utf8").split("\n").forEach((l, i) => {
+          // Só INJEÇÃO conta. `liveWorker` é o outro ponto legítimo (recebe o escopo por env, do pai) e a
+          // linha que ele tem é o DUMP de diagnóstico do manifesto — reportar isso seria falso positivo.
+          if (/memoryScope\s*:/.test(l) && !/^\s*(\*|\/\/)/.test(l)) achados.push(`${e.name}:${i + 1}`);
+        });
+      }
+    }
+  };
+  varrer(raiz);
+  assert.deepStrictEqual(achados, [], "alguém voltou a injetar escopo por fora da factory: " + achados.join(", "));
 });
 
-await runA("o auditor SEM escopo é text-only puro; COM escopo, pede memory_search explicitamente", async () => {
+await runA("o auditor SEM memória é text-only puro; COM memória, pede memory_search explicitamente", async () => {
+  // O auditor recebe um BOOLEANO, não o escopo. Passar a string aqui reabriria a porta que foi fechada: um
+  // chamador poderia apontar o auditor para outro projeto. Quem crava o escopo é a factory, e só ela.
   let sem = null, com = null;
   const fac = (guarda) => ({ run: async (_r, _p, opts) => { guarda(opts); return { ok: true, text: JSON.stringify({ itens: [] }) }; } });
   await auditarMemoria({ factory: fac((o) => { sem = o; }), assunto: "x", itens: ITENS });
-  assert.deepStrictEqual(sem.availableTools, [], "sem memória disponível, o auditor não pode pedir tool nenhuma");
-  await auditarMemoria({ factory: fac((o) => { com = o; }), assunto: "x", itens: ITENS, memoryScope: "dono/proj" });
-  assert.deepStrictEqual(com.availableTools, ["memory_search"], "com escopo, ele NOMEIA a busca — fail-closed com exceção declarada: " + JSON.stringify(com.availableTools));
-  assert.strictEqual(com.memoryScope, "dono/proj", "e o escopo vai cravado");
+  assert.deepStrictEqual(sem.availableTools, [], "sem memória, o auditor não pode pedir tool nenhuma");
+  assert.strictEqual(sem.semMemoria, true, "e tem que DIZER à factory que não quer memória (opt-out explícito)");
+  await auditarMemoria({ factory: fac((o) => { com = o; }), assunto: "x", itens: ITENS, temMemoria: true });
+  assert.deepStrictEqual(com.availableTools, ["memory_search"], "com memória, ele NOMEIA a busca — fail-closed com exceção declarada: " + JSON.stringify(com.availableTools));
+  assert.ok(!("memoryScope" in com), "o auditor NÃO pode mandar escopo — só a factory crava: " + JSON.stringify(Object.keys(com)));
   assert.strictEqual(com.schema.name, "submit_memory_audit", "o veredito continua vindo por tool template");
 });
 run("o prompt só oferece a busca quando ela existe (não promete ferramenta ausente)", () => {

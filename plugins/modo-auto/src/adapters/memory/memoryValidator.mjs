@@ -107,27 +107,28 @@ export function promptAuditoria(assunto, itens, { podeBuscar = false } = {}) {
  * "memória velha" por "nenhuma memória", que é o defeito pior. FAIL LOUD só para erro de programação (factory
  * ausente).
  *
- * `memoryScope` dá ao auditor a busca — e isso é uma correção de rota, não um extra. A versão anterior o
+ * `temMemoria` diz se o auditor pode BUSCAR — e isso é uma correção de rota, não um extra. A versão anterior o
  * proibia de buscar "porque ele só consolida material dado". Três auditorias apontaram o furo: para dizer
  * "desatualizado" ele precisa achar o que superou o item. Sem busca, aquele veredito era um JULGAMENTO
- * apresentado como verificação. Com busca (teto baixo: 2), ele pode citar o documento mais novo.
+ * apresentado como verificação. Note que é um BOOLEANO, não o escopo: quem crava o escopo é a factory, e passar
+ * a string aqui seria reabrir a porta que foi fechada (um chamador apontando o agente para outro projeto).
  * @param {{ factory:object, assunto:string, itens:{doc_id:string,text:string}[], log?:(m:string)=>void,
- *           timeoutMs?:number, memoryScope?:string|null }} a
+ *           timeoutMs?:number, temMemoria?:boolean }} a
  */
-export async function auditarMemoria({ factory, assunto, itens, log = () => {}, timeoutMs = 90000, memoryScope = null } = {}) {
+export async function auditarMemoria({ factory, assunto, itens, log = () => {}, timeoutMs = 90000, temMemoria = false } = {}) {
   if (!factory || !factory.run) throw new Error("auditarMemoria: factory ausente (config inválida)");
   const alvo = (itens || []).filter((i) => i && i.doc_id && i.text);
   if (!alvo.length) return { ok: true, auditado: false, ...conciliarVereditos(alvo, []), motivo: "nenhum item citável para auditar" };
 
-  const r = await factory.run("revisor", promptAuditoria(assunto, alvo, { podeBuscar: !!memoryScope }), {
+  const r = await factory.run("revisor", promptAuditoria(assunto, alvo, { podeBuscar: !!temMemoria }), {
     subject: "auditor-memoria",
     timeoutMs,
     schema: MEMORY_VERDICT_SCHEMA,
-    memoryScope,
     // FAIL-CLOSED COM EXCEÇÃO DECLARADA: a allowlist é a declaração de intenção do chamador. Aqui ela nomeia
-    // `memory_search` de propósito — o auditor pode CONFERIR, e nada mais. Sem escopo cravado, volta a ser
-    // text-only puro (lista vazia + submit), que é o comportamento correto quando não há memória.
-    availableTools: memoryScope ? [...MEMORY_TOOL_NAMES] : [],
+    // `memory_search` de propósito — o auditor pode CONFERIR, e nada mais. Sem memória, volta a ser text-only
+    // puro (lista vazia + submit), que é o comportamento correto quando não há acervo.
+    availableTools: temMemoria ? [...MEMORY_TOOL_NAMES] : [],
+    ...(temMemoria ? {} : { semMemoria: true }),
   });
   if (!r.ok || !r.text) {
     log(`[memoria] auditor indisponível (${r.error || "sem texto"}) — memória segue SEM auditoria (sinalizado, não é "tudo válido")`);

@@ -79,7 +79,7 @@ export function computeParentIdle(childIdleMs, floor = PARENT_IDLE_FLOOR_MS) {
  *   activity: registro de atividade OPCIONAL (observabilidade do painel) — no-op se ausente.
  * @returns {import("../../core/ports.mjs").AgentFactoryPort}
  */
-export function createAgentFactory({ cwdProvider = () => process.cwd(), model, getRouter = () => null, activity = null, log = () => {} } = {}) {
+export function createAgentFactory({ cwdProvider = () => process.cwd(), model, getRouter = () => null, activity = null, memoryScopeProvider = null, log = () => {} } = {}) {
   const catalog = new Map();
   for (const id of CORE_ROLES) { const r = getRole(id); if (r) catalog.set(id, r); }
 
@@ -100,7 +100,7 @@ export function createAgentFactory({ cwdProvider = () => process.cwd(), model, g
   // opts.system sobrescreve o system do papel; opts.skills (nomes de skills globais) são INJETADAS no
   // system; opts.skillDirectories carrega skills nativas; opts.cwd roda o worker num diretório específico;
   // opts.model força um modelo; senão o ROUTER escolhe por capacidade (papel + opts.taskType).
-  function run(roleId, prompt, { subject, timeoutMs = 200000, maxWallMs = Infinity, system, skillDirectories, skills, cwd, model: modelOverride, taskType, reasoningEffort, stage, group, topic, traceId, availableTools, schema, memoryScope = null } = {}) {
+  function run(roleId, prompt, { subject, timeoutMs = 200000, maxWallMs = Infinity, system, skillDirectories, skills, cwd, model: modelOverride, taskType, reasoningEffort, stage, group, topic, traceId, availableTools, schema, semMemoria = false } = {}) {
     // Papel resolvido: do catálogo/registro; senão, shell APENAS quando há `system` explícito (ex.: gate).
     // Sem papel e sem system → FAIL LOUD (nada de template silencioso; papéis dinâmicos usam factory.design).
     const role = get(roleId) || (system ? { id: roleId, title: roleId, kind: "shell", system } : null);
@@ -185,11 +185,16 @@ export function createAgentFactory({ cwdProvider = () => process.cwd(), model, g
         // "sem teto de parede" explícito (o child lê Number.isFinite(msg.maxWallMs) → ausente = Infinity = off).
         const job = { role: roleId, system: sys, prompt, model: chosenModel, idleGraceMs: timeoutMs, skillDirectories: skillDirs, reasoningEffort: effort, ...(schema ? { schema } : {}) };
         if (Number.isFinite(maxWallMs)) job.maxWallMs = maxWallMs;
-        // ESCOPO DE MEMÓRIA CRAVADO PELO PAI. O pai resolve UMA vez, com o cwd da SESSÃO; o filho recebe pronto
-        // e nunca olha o próprio diretório (que é outro). Sem id resolvível, o campo simplesmente não vai — e o
-        // worker roda sem tool de memória, que é o comportamento correto (adaptador, não dependência).
-        // `memoryScope` só é preenchido pelo caller que TEM o port; ninguém aqui adivinha projeto.
-        if (memoryScope) job.memoryScope = validarEscopoInjetado(memoryScope);
+        // ESCOPO DE MEMÓRIA: o chamador NÃO fornece. Ele era um parâmetro livre (`memoryScope`) e isso era uma
+        // porta dos fundos real — qualquer caller (ou um erro de digitação, ou um valor derivado de dado
+        // externo) podia injetar um escopo VÁLIDO-porém-ERRADO e abrir o acervo de outro projeto. Validar
+        // FORMA não resolve isso: "outro/projeto" tem forma perfeita.
+        // A única defesa que funciona é remover a entrada: o escopo passa a vir SEMPRE do provider injetado na
+        // criação da factory, que resolve a partir do cwd da SESSÃO. Não é uma regra a respeitar — é um
+        // argumento que não existe mais. O caller só pode OPTAR POR NÃO TER (`semMemoria: true`), nunca
+        // apontar para outro lugar.
+        const escopo = semMemoria ? null : (() => { try { return memoryScopeProvider ? memoryScopeProvider() : null; } catch { return null; } })();
+        if (escopo) job.memoryScope = validarEscopoInjetado(escopo);
         // availableTools:[] = papel TEXT-only (crítica/veredito) → desliga os built-ins do CLI. Papéis
         // construtores/revisores VIVOS NÃO passam isto (mantêm as ferramentas — controle é por atividade).
         if (Array.isArray(availableTools)) job.availableTools = availableTools;

@@ -83,7 +83,7 @@ export function createModoDev({ log = () => {}, gates, maxRounds = 4, perReviewe
       // Papéis com `schema` continuam fail-closed (`availableTools: []`): eles EMITEM veredito estruturado a
       // partir do material dado, e a policy única corta a memória deles automaticamente.
       const run = async (role, prompt, skills = null, ms = 180000, modelOverride = null, schema = null) => {
-        const r = await caps.factory.run(role, prompt, { subject: role, timeoutMs: ms, skills, cwd, taskType, model: modelOverride || undefined, stage: "dev", group: gid, topic, memoryScope: escopoParaWorker(caps), ...(schema ? { schema, availableTools: [] } : {}) });
+        const r = await caps.factory.run(role, prompt, { subject: role, timeoutMs: ms, skills, cwd, taskType, model: modelOverride || undefined, stage: "dev", group: gid, topic, ...(schema ? { schema, availableTools: [] } : {}) });
         if (!r.ok || !r.text) throw new Error(`modo-dev: papel "${role}" falhou: ${r.error || "sem texto"}`);
         return r.text;
       };

@@ -46,7 +46,7 @@ export function createCodeAnalysisProfile(cfg) {
         parts.push(caps.codeAnalysis.render(ev));
       }
       if (deep && caps.deep?.review && caps.router) {
-        const dp = await caps.deep.review({ material: s, critiquePrompt: externalPrompt(s), router: caps.router, taskType: "research", memoryScope: escopoParaWorker(caps) });
+        const dp = await caps.deep.review({ material: s, critiquePrompt: externalPrompt(s), router: caps.router, taskType: "research" });
         if (dp.ok) parts.push(`EXTERNO (painel ${dp.families.join("+")}): ${dp.verdict.findings.join("; ") || "(nada corroborado)"}`);
         else log(`[${id}] deep indisponível (${dp.reason})`);
       }
@@ -66,7 +66,7 @@ export function createCodeAnalysisProfile(cfg) {
       const otfWriteDoc = async ({ transcript, synthesis }) => {
         const deliberation = `SÍNTESE:\n${synthesis || "(sem síntese)"}\n\nDELIBERAÇÃO:\n${transcript}\n\nEVIDÊNCIA:\n${evidence}`;
         const template = createOutlineBuilder(selectSeed(seedType, { log }), { log }).lock();
-        const runAgent = (p) => caps.factory.run("documentacao", p, { timeoutMs: 180000, stage: tag, group: otfTrace, traceId: otfTrace, memoryScope: escopoParaWorker(caps) });
+        const runAgent = (p) => caps.factory.run("documentacao", p, { timeoutMs: 180000, stage: tag, group: otfTrace, traceId: otfTrace });
         let slots = await fillSlots(template, { deliberation, runAgent });
         let adr = assembleAdr(template, slots);
         const dv = await checkDivergence(caps.embedder, { adrText: adr, deliberation, slots, template });
@@ -79,7 +79,7 @@ export function createCodeAnalysisProfile(cfg) {
         return adr;
       };
       const freeFormWriteDoc = async ({ transcript, synthesis }) => {
-        const r = await caps.factory.run("documentacao", `${freeFormInstruction} Fundamente na SÍNTESE (${synthesis || "-"}) e na DELIBERAÇÃO abaixo. Comece em "## Contexto" e traga "## Fase N: <título>". Você NÃO tem ferramentas: NÃO diga que registrou arquivos, NÃO escreva resumo executivo nem peça autorização — só o ADR.\n\n${transcript}`, { timeoutMs: 180000, stage: tag, group: otfTrace, traceId: otfTrace, memoryScope: escopoParaWorker(caps) });
+        const r = await caps.factory.run("documentacao", `${freeFormInstruction} Fundamente na SÍNTESE (${synthesis || "-"}) e na DELIBERAÇÃO abaixo. Comece em "## Contexto" e traga "## Fase N: <título>". Você NÃO tem ferramentas: NÃO diga que registrou arquivos, NÃO escreva resumo executivo nem peça autorização — só o ADR.\n\n${transcript}`, { timeoutMs: 180000, stage: tag, group: otfTrace, traceId: otfTrace });
         if (!r.ok || !r.text) throw new Error(`${id}: fallback free-form falhou: ${r.error || "sem texto"}`);
         return r.text;
       };
