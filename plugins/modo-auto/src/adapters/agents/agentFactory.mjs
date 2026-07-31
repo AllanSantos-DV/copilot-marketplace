@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { getRole, dynamicRole, CORE_ROLES } from "./roles.mjs";
+import { envDoWorker } from "./workerLib.mjs";
 import { validarEscopoInjetado, assinarEscopo, segredoDoProcesso } from "../memory/memoryTools.mjs";
 import { designRole } from "./architect.mjs";
 import { SKILLS_ROOT, composeSystem } from "../skills/skillLoader.mjs";
@@ -127,17 +128,18 @@ export function createAgentFactory({ cwdProvider = () => process.cwd(), model, g
     const ctx = getRunContext();
     const act = activity ? activity.start({ role: roleId, taskType: taskType || ctx.taskType || null, model: chosenModel || null, stage: stage || ctx.stage || null, group: group || null, topic: topic || ctx.topic || null, traceId: traceId || ctx.traceId || null }) : null;
     return new Promise((resolve) => {
-      const env = { ...process.env };
-      delete env.NODE_OPTIONS;      // não herdar o resolver hook do fork
-      delete env.COPILOT_SDK_PATH;  // o worker resolve o SDK global via PATH
-      // O escopo do one-shot viaja pelo JOB (stdin), nunca pelo env. Apagar aqui evita que um valor velho no
-      // ambiente do pai — de um teste, de um shell, de outra sessão — seja lido por engano se algum caminho do
-      // filho um dia consultar o env. Higiene de ambiente é barata; escopo errado em silêncio, não.
-      delete env.MODO_AUTO_WORKER_MEMORY_SCOPE;
-  env.MODO_AUTO_SCOPE_SECRET = segredoDoProcesso(); // o filho precisa dele p/ VERIFICAR a assinatura do escopo
-      env.NODE_NO_WARNINGS = "1";   // silencia ExperimentalWarning do Node (ex.: node:sqlite do CLI) que poluía o stderr e MASCARAVA o erro real no diagnóstico. Propaga ao subprocesso do CLI (env herdado).
-      env.MODO_AUTO_WORKER_CWD = cwd || cwdProvider();
-      if (chosenModel) env.MODO_AUTO_WORKER_MODEL = chosenModel;
+      // ENV pelo CHOKE POINT ÚNICO (`envDoWorker`), em ALLOWLIST. Antes era `{...process.env}` + deletes: uma
+      // variável NOVA (segredo, config, escopo de outro produto) chegava ao filho por padrão, e a proteção
+      // dependia de alguém lembrar de excluí-la. Agora nasce bloqueada. E a regra é a MESMA do liveWorkerClient
+      // — a duplicação entre os dois spawners já produziu o mesmo bug duas vezes nesta sessão.
+      const env = envDoWorker({
+        extras: {
+          // O segredo é o que permite ao filho VERIFICAR a assinatura do escopo (que viaja no job, por stdin).
+          MODO_AUTO_SCOPE_SECRET: segredoDoProcesso(),
+          MODO_AUTO_WORKER_CWD: cwd || cwdProvider(),
+          ...(chosenModel ? { MODO_AUTO_WORKER_MODEL: chosenModel } : {}),
+        },
+      });
       // ISOLAMENTO — MEDIDO, não presumido. Testei apontar COPILOT_HOME/XDG_CONFIG_HOME para ~/.copilot com o
       // `configDirectory` isolado: o worker NÃO vazou nenhuma extensão do usuário. Ou seja, este CLI **não honra
       // essas variáveis** e elas NÃO servem de segunda linha de defesa — seria falsa sensação de segurança

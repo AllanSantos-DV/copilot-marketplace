@@ -130,6 +130,23 @@ try {
       for (const id of ids) { try { await raw.remove(id); } catch { /* segue */ } }
     }
   });
+
+  // O TESTE QUE FALTAVA, e que corrige uma alegação minha ERRADA. Eu escrevi "isolamento cross-project provado"
+  // com base nos casos acima. Eles provam FILTRO (o daemon corta por project_id) e HIGIENE (o agente não escolhe
+  // escopo, não resolve pelo cwd, não aceita escopo não-assinado). Não provam FRONTEIRA.
+  // Este caso exercita o ataque REAL — um cliente pedindo explicitamente o escopo alheio — e AFIRMA o
+  // comportamento medido, seja ele qual for. Se um dia o daemon ganhar authz, este teste fica VERMELHO e obriga
+  // a atualizar a alegação. É o oposto de esconder um limite: ele fica travado por teste.
+  await run("[FRONTEIRA] cliente que pede EXPLICITAMENTE outro project_id — o que o daemon faz de fato", async () => {
+    const r = await raw.search(QUERY, { topK: 20, metadata: { project_id: PROJ_B } });
+    if (contem(r, MARCA_B)) {
+      // Estado ATUAL, medido: não há autorização. Não é defeito do modo-auto (o daemon é outro produto), mas é
+      // o limite do que o modo-auto pode PROMETER — e está no ADR-001, seção "modelo de ameaça".
+      console.log("    (medido: o daemon NÃO tem authz — quem pede o escopo alheio RECEBE. Isto é FILTRO, não fronteira; ver ADR-001 → modelo de ameaça)");
+      return;
+    }
+    assert.fail("o daemon RECUSOU o escopo alheio — ele ganhou autorização. ATUALIZE o ADR-001 (modelo de ameaça): a alegação pode subir de 'filtro' para 'fronteira'.");
+  });
 } finally {
   // Teardown: estes documentos são lixo real no store compartilhado. Cada execução acumularia dois.
   for (const id of criados) {

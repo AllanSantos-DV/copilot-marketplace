@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { resolveNode } from "../util/resolveNode.mjs";
 import { workers } from "../util/workerRegistry.mjs";
+import { envDoWorker } from "./workerLib.mjs";
 import { resolveProjectId } from "../memory/projectId.mjs";
 import { validarEscopoInjetado, assinarEscopo, segredoDoProcesso } from "../memory/memoryTools.mjs";
 
@@ -21,29 +22,27 @@ const LIVE_WORKER = join(HERE, "liveWorker.mjs");
  */
 export function createLiveWorker({ role, system, model, cwd, configDir, skillDirectories, reasoningEffort, resume, semMemoria = false, log = () => {} } = {}) {
   if (!role) throw new Error("createLiveWorker: role vazio");
-  const env = { ...process.env };
-  delete env.NODE_OPTIONS; delete env.COPILOT_SDK_PATH;
-  env.NODE_NO_WARNINGS = "1";
-  env.MODO_AUTO_WORKER_CWD = cwd || process.cwd();
-  if (model) env.MODO_AUTO_WORKER_MODEL = model;
-  env.MODO_AUTO_WORKER_SYSTEM = String(system || "");
-  env.MODO_AUTO_WORKER_ROLE = String(role || ""); // Fase 2: o liveWorker usa o papel p/ injetar tools (pesquisador → web)
-  if (configDir) env.MODO_AUTO_WORKER_CONFIGDIR = configDir;
-  if (Array.isArray(skillDirectories) && skillDirectories.length) env.MODO_AUTO_WORKER_SKILLDIRS = JSON.stringify(skillDirectories);
-  if (reasoningEffort) env.MODO_AUTO_WORKER_EFFORT = reasoningEffort;
-  if (resume) env.MODO_AUTO_WORKER_RESUME = String(resume); // RELIGAR: resume a sessão (histórico preservado)
-  // ESCOPO DE MEMÓRIA — a MESMA porta única do worker one-shot, pelas mesmas razões.
-  //
-  // (1) A variável é APAGADA antes de qualquer coisa. O worker herda o `process.env` do pai, e o pai pode estar
-  //     rodando com um `MODO_AUTO_WORKER_MEMORY_SCOPE` velho no ambiente (de um teste, de um shell, de outra
-  //     sessão). Sem o delete, esse valor STALE viraria memória real no filho — medido: o manifesto aceitava um
-  //     escopo vindo do env e montava `memory_search` com ele.
-  // (2) O escopo NÃO vem por parâmetro. Ele é RESOLVIDO aqui, do cwd da sessão, pelo mesmo resolver fail-loud
-  //     do resto do produto. Um caller não pode apontar o agente para outro projeto porque não existe onde
-  //     escrever isso — validar forma não bastaria: "outro/projeto" tem forma perfeita.
-  // (3) Passa por `validarEscopoInjetado` mesmo assim: se o resolver um dia devolver algo estranho, quebra alto
-  //     em vez de virar busca no lugar errado.
-  delete env.MODO_AUTO_WORKER_MEMORY_SCOPE; delete env.MODO_AUTO_WORKER_MEMORY_SIG;
+  // ENV pelo CHOKE POINT ÚNICO (`envDoWorker`), em ALLOWLIST — a MESMA função que o worker one-shot usa.
+  // Ter duas cópias desta decisão já produziu o mesmo bug duas vezes nesta sessão (escopo fechado num caminho e
+  // esquecido no outro). Agora a regra tem um dono só; o próximo caminho de spawn herda a proteção de graça.
+  const env = envDoWorker({
+    extras: {
+      MODO_AUTO_WORKER_CWD: cwd || process.cwd(),
+      MODO_AUTO_WORKER_SYSTEM: String(system || ""),
+      MODO_AUTO_WORKER_ROLE: String(role || ""), // o liveWorker usa o papel p/ injetar tools (pesquisador → web)
+      ...(model ? { MODO_AUTO_WORKER_MODEL: model } : {}),
+      ...(configDir ? { MODO_AUTO_WORKER_CONFIGDIR: configDir } : {}),
+      ...(Array.isArray(skillDirectories) && skillDirectories.length ? { MODO_AUTO_WORKER_SKILLDIRS: JSON.stringify(skillDirectories) } : {}),
+      ...(reasoningEffort ? { MODO_AUTO_WORKER_EFFORT: reasoningEffort } : {}),
+      ...(resume ? { MODO_AUTO_WORKER_RESUME: String(resume) } : {}), // RELIGAR: resume a sessão (histórico preservado)
+    },
+  });
+  // ESCOPO DE MEMÓRIA — mesma porta única do one-shot, pelas mesmas razões:
+  // (1) o env NUNCA traz escopo herdado (o `envDoWorker` remove; um valor velho de teste/shell/outra sessão
+  //     viraria memória real — foi MEDIDO: o manifesto aceitava escopo vindo do env);
+  // (2) o escopo NÃO vem por parâmetro: é RESOLVIDO aqui, do cwd da sessão, pelo resolver fail-loud. Um caller
+  //     não pode apontar o agente para outro projeto porque não existe onde escrever isso;
+  // (3) vai ASSINADO, porque o env é escrivível por quem spawna — forma não prova proveniência.
   if (!semMemoria) {
     try {
       const escopo = resolveProjectId(cwd || process.cwd());

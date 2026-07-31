@@ -13,7 +13,7 @@ import assert from "node:assert";
 import { readFileSync, readdirSync, existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { computeToolExposure } from "../src/adapters/agents/workerLib.mjs";
+import { computeToolExposure, envDoWorker } from "../src/adapters/agents/workerLib.mjs";
 import { ROLES } from "../src/adapters/agents/roles.mjs";
 import { resolveProjectId, tryResolveProjectId, projectIdStrength, assertSafeProjectId, normalizeGitRemote, detectarEscopoSuspeito, resolveProjectIdWithProvenance } from "../src/adapters/memory/projectId.mjs";
 import { createMemoryPort } from "../src/adapters/memory/memoryPort.mjs";
@@ -589,6 +589,43 @@ await runA("o resolver devolve `label` pronto, com o risco embutido", async () =
   const p = resolveProjectIdWithProvenance(d);
   assert.strictEqual(p.source, "git-remote", "source continua semântico — é o que aponta o conserto");
   assert.strictEqual(p.label, "git-remote · FORK", "e o label carrega o alerta: " + JSON.stringify(p));
+});
+
+console.log("CHOKE POINT do env: allowlist, não blocklist (uma variável nova nasce BLOQUEADA)");
+run("envDoWorker só passa o que está declarado — herança acidental não existe", () => {
+  // Antes cada spawner fazia {...process.env} e apagava nomes conhecidos: qualquer variável NOVA chegava ao
+  // filho por padrão, e a proteção dependia de alguém lembrar de excluí-la. Este teste trava o inverso.
+  const base = {
+    PATH: "/bin", HOME: "/home/x",
+    GH_TOKEN: "tok", COPILOT_ALGO: "v",
+    SEGREDO_DA_EMPRESA: "nao-pode-vazar",
+    AWS_SECRET_ACCESS_KEY: "nao-pode-vazar",
+    MODO_AUTO_WORKER_MEMORY_SCOPE: "escopo/velho-herdado",
+    MODO_AUTO_WORKER_MEMORY_SIG: "assinatura-velha",
+    MODO_AUTO_SCOPE_SECRET: "segredo-velho",
+    NODE_OPTIONS: "--require hook", COPILOT_SDK_PATH: "/x",
+  };
+  const env = envDoWorker({ base });
+  assert.strictEqual(env.PATH, "/bin", "o essencial passa");
+  assert.strictEqual(env.GH_TOKEN, "tok", "auth do SDK passa (prefixo declarado)");
+  assert.ok(!("SEGREDO_DA_EMPRESA" in env), "variável não declarada NÃO pode vazar: " + JSON.stringify(Object.keys(env)));
+  assert.ok(!("AWS_SECRET_ACCESS_KEY" in env), "segredo de terceiro NÃO pode vazar");
+  assert.ok(!("NODE_OPTIONS" in env) && !("COPILOT_SDK_PATH" in env), "higiene do fork mantida");
+  for (const k of ["MODO_AUTO_WORKER_MEMORY_SCOPE", "MODO_AUTO_WORKER_MEMORY_SIG", "MODO_AUTO_SCOPE_SECRET"]) {
+    assert.ok(!(k in env), `escopo/segredo NUNCA por herança: ${k} vazou`);
+  }
+});
+run("os extras do spawner vencem (é por ali que o escopo assinado entra)", () => {
+  const env = envDoWorker({ base: { PATH: "/bin" }, extras: { MODO_AUTO_WORKER_MEMORY_SCOPE: "dono/p", MODO_AUTO_SCOPE_SECRET: "s" } });
+  assert.strictEqual(env.MODO_AUTO_WORKER_MEMORY_SCOPE, "dono/p", "o spawner é quem pode injetar — e ele assina");
+  assert.strictEqual(env.MODO_AUTO_SCOPE_SECRET, "s");
+});
+run("os DOIS spawners usam o mesmo choke point (a duplicação já causou o mesmo bug 2×)", () => {
+  for (const f of ["agentFactory.mjs", "liveWorkerClient.mjs"]) {
+    const src = readFileSync(new URL("../src/adapters/agents/" + f, import.meta.url), "utf8");
+    assert.match(src, /envDoWorker\(/, `${f} tem que montar o env pelo choke point único`);
+    assert.ok(!/const env = \{ \.\.\.process\.env/.test(src), `${f} voltou a herdar o env inteiro (blocklist) — a regra tem um dono só`);
+  }
 });
 
 console.log(`\nmemory-validator-smoke: ${pass}/${total} OK`);
