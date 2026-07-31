@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { getRole, dynamicRole, CORE_ROLES } from "./roles.mjs";
+import { validarEscopoInjetado } from "../memory/memoryTools.mjs";
 import { designRole } from "./architect.mjs";
 import { SKILLS_ROOT, composeSystem } from "../skills/skillLoader.mjs";
 import { resolveNode } from "../util/resolveNode.mjs";
@@ -188,7 +189,7 @@ export function createAgentFactory({ cwdProvider = () => process.cwd(), model, g
         // e nunca olha o próprio diretório (que é outro). Sem id resolvível, o campo simplesmente não vai — e o
         // worker roda sem tool de memória, que é o comportamento correto (adaptador, não dependência).
         // `memoryScope` só é preenchido pelo caller que TEM o port; ninguém aqui adivinha projeto.
-        if (memoryScope) job.memoryScope = String(memoryScope);
+        if (memoryScope) job.memoryScope = validarEscopoInjetado(memoryScope);
         // availableTools:[] = papel TEXT-only (crítica/veredito) → desliga os built-ins do CLI. Papéis
         // construtores/revisores VIVOS NÃO passam isto (mantêm as ferramentas — controle é por atividade).
         if (Array.isArray(availableTools)) job.availableTools = availableTools;

@@ -1,3 +1,5 @@
+import { assertSafeProjectId } from "./projectId.mjs";
+
 // TOOLSET DE MEMÓRIA READ-ONLY para o worker. Molde: `research/researchTools.mjs` (factory, cap no closure,
 // handler que NUNCA lança para o SDK e sempre devolve JSON string).
 //
@@ -12,8 +14,7 @@
 // ADAPTADOR, NÃO DEPENDÊNCIA: sem daemon/plugin, `createMemoryTools` devolve `[]` e o worker roda igual, sem
 // tool nenhuma. O produto nunca exige memória para funcionar.
 
-const DEFAULT_MAX_CHAMADAS = 6;
-const DEFAULT_TOP_K = 5;
+const DEFAULT_MAX_CHAMADAS = 6;const DEFAULT_TOP_K = 5;
 const MAX_TOP_K = 10;
 const MAX_TRECHO = 600;
 
@@ -94,4 +95,27 @@ export const MEMORY_TOOL_NAMES = Object.freeze(["memory_search"]);
 export function escopoParaWorker(caps) {
   try { return (caps && caps.memory && caps.memory.projectId && caps.memory.projectId()) || null; }
   catch { return null; }
+}
+
+/**
+ * PORTA GUARDADA na injeção do escopo. Antes, um `memoryScope` explícito era repassado como string, sem
+ * checagem: qualquer chamador — inclusive um erro de digitação ou um valor derivado de dado externo — abriria o
+ * acervo de outro projeto. `assertSafeProjectId` barra forma-de-caminho e vazio, mas não barra um escopo
+ * VÁLIDO-porém-errado; e não existe como o código saber qual é o "certo".
+ *
+ * O que dá para exigir, e é o que se exige aqui: que o valor tenha a FORMA de um id de projeto (declarado
+ * `owner/projeto` ou git-remote `host/owner/repo`) e não seja um literal genérico. Um escopo que não passa
+ * nisso é erro de programação, e erro de programação QUEBRA ALTO — não vira busca silenciosa no lugar errado.
+ * @throws {Error} quando o escopo injetado não tem forma de project_id
+ */
+export function validarEscopoInjetado(escopo) {
+  const s = assertSafeProjectId(escopo); // vazio / cara-de-caminho morrem aqui
+  // Forma mínima de um id de projeto: dois ou mais segmentos separados por "/", sem espaço.
+  if (!/^[^\s/]+(\/[^\s/]+)+$/.test(s)) {
+    throw new Error(
+      `memoryScope inválido: "${s}" não tem forma de project_id (esperado "owner/projeto" ou "host/owner/repo"). ` +
+      `Injetar um escopo malformado faria o agente buscar no lugar errado em silêncio — por isso isto quebra alto.`,
+    );
+  }
+  return s;
 }

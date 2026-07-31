@@ -63,6 +63,9 @@ function emit(obj) { process.stdout.write(JSON.stringify(obj) + "\n"); }
           log: (m) => { try { process.stderr.write("\x1e#MEM " + m + "\n"); } catch { /* stderr fechado */ } },
         }).tools;
       } catch (e) { process.stderr.write("worker aviso: memória indisponível na mesa viva: " + (e?.message || e)); }
+    } else {
+      // Ausência AUDITÁVEL também na mesa viva — mesma regra, mesmo canal.
+      try { process.stderr.write(`\x1e#MEM papel ${role || "?"} SEM escopo cravado — deliberou sem memória\n`); } catch { /* stderr fechado */ }
     }
     // POLICY ÚNICA (`computeToolExposure`) também aqui. A mesa viva montava o toolset por fora, então existiam
     // DUAS regras para "o que este papel pode ter" — e a que a suíte afirmava era a do one-shot. Uma auditoria

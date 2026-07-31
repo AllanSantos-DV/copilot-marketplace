@@ -16,7 +16,7 @@ import { computeToolExposure } from "../src/adapters/agents/workerLib.mjs";
 import { ROLES } from "../src/adapters/agents/roles.mjs";
 import { resolveProjectId, tryResolveProjectId, projectIdStrength, assertSafeProjectId, normalizeGitRemote, detectarEscopoSuspeito, resolveProjectIdWithProvenance } from "../src/adapters/memory/projectId.mjs";
 import { createMemoryPort } from "../src/adapters/memory/memoryPort.mjs";
-import { createMemoryTools, MEMORY_TOOL_NAMES } from "../src/adapters/memory/memoryTools.mjs";
+import { createMemoryTools, MEMORY_TOOL_NAMES, validarEscopoInjetado } from "../src/adapters/memory/memoryTools.mjs";
 import { avisoMemoria, statusMemoriaCurto, eventoMemoria, rotuloEscopo } from "../src/adapters/memory/memoryNotice.mjs";
 import { conciliarVereditos, auditarMemoria, renderAuditado, promptAuditoria, MEMORY_VERDICT_SCHEMA, VEREDITOS } from "../src/adapters/memory/memoryValidator.mjs";
 
@@ -344,8 +344,16 @@ await runA("port com projectId CRAVADO ignora o cwd (é o coração da Fase 2)",
   assert.strictEqual(r2.ok, false, "sem cravar, o MESMO cwd sem projeto tem que falhar — senão o teste acima passaria por acaso");
   assert.match(r2.error || "", /escopo não resolvido/);
 });
-run("id cravado com cara de CAMINHO é recusado (o piso vale também para o cravado)", () => {
-  assert.throws(() => assertSafeProjectId("C:\\Users\\x\\.copilot"), /caminho de sistema de arquivos/);
+run("PORTA GUARDADA: escopo injetado malformado QUEBRA ALTO (não vira busca no lugar errado)", () => {
+  // `memoryScope` explícito era repassado como string sem checagem — qualquer chamador (ou erro de digitação)
+  // abriria o acervo de outro projeto em silêncio. Não dá para o código saber qual escopo é o CERTO, mas dá
+  // para exigir que ele tenha FORMA de project_id. O que não passa é erro de programação, e erro de
+  // programação quebra alto.
+  assert.strictEqual(validarEscopoInjetado("owner/projeto"), "owner/projeto");
+  assert.strictEqual(validarEscopoInjetado("github.com/acme/widgets"), "github.com/acme/widgets");
+  for (const ruim of ["projeto", "", "  ", "C:\\Users\\x", "/home/y", "meu projeto/x"]) {
+    assert.throws(() => validarEscopoInjetado(ruim), /project_id|caminho|vazio/i, `escopo "${ruim}" tinha que ser recusado`);
+  }
 });
 
 await runA("o auditor SEM escopo é text-only puro; COM escopo, pede memory_search explicitamente", async () => {
