@@ -18,6 +18,13 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
 // Os testes LIVE (daemon/SDK) dão SKIP SINALIZADO quando o serviço não está no ar — nunca verde falso.
+//
+// MAS "não verde falso" não é o bastante para um GATE DE RELEASE: com o daemon fora, os smokes que provam o
+// isolamento entre projetos dão skip e o gate fecha VERDE sem ter exercitado a garantia mais importante do
+// produto. Medido: 12/12 offline, 11/12 sob STRICT — o release passava sem provar isolamento.
+// Por isso o runner AVISA quando está rodando permissivo e diz como exigir o gate completo. Quem publica tem
+// que rodar com `MODO_AUTO_STRICT=1`; quem só instalou o artefato (e legitimamente não tem daemon) roda sem.
+const STRICT = process.env.MODO_AUTO_STRICT === "1";
 const files = readdirSync(HERE).filter((f) => f.endsWith("-smoke.mjs")).sort();
 
 if (!files.length) {
@@ -40,4 +47,9 @@ try {
 
 console.log(`\nselftest do ARTEFATO INSTALADO: ${pass}/${files.length} OK${fail.length ? `\nFALHAS: ${fail.join(", ")}` : ""}${prov}`);
 console.log("(subconjunto de CONTRATO — a suíte completa vive no repositório de origem; estes provam que ESTES bytes se comportam como prometido)");
+if (!STRICT) {
+  // Dizer que o verde é PARCIAL faz parte do verde. Sem esta linha, quem publica lê "12/12 OK" e conclui que o
+  // isolamento entre projetos foi provado — quando ele pode nem ter sido exercitado.
+  console.log("⚠️ modo PERMISSIVO: testes que dependem do daemon/SDK dão SKIP e contam como ok. Para o gate COMPLETO (exigido antes de publicar), rode com MODO_AUTO_STRICT=1 — ali skip vira FALHA e o isolamento entre projetos é de fato exercitado.");
+}
 process.exit(fail.length ? 1 : 0);

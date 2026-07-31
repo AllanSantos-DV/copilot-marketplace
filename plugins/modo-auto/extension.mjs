@@ -173,7 +173,7 @@ const memoryScopeParaMesa = () => {
   // diante ficar muda. Quem avisa agora é `statusMesa`, uma vez por DELIBERAÇÃO, no resultado da tool.
   try { return memory.projectId() || null; } catch { return null; }
 };
-const liveMesa = createLiveMesa((a) => createLiveWorker({ ...a, cwd: process.cwd(), memoryScope: memoryScopeParaMesa(), log: logHost }), { order: ["tecnico", "pesquisador", "negocio", "advogado-diabo", "revisor", "facilitador"], log: logHost });
+const liveMesa = createLiveMesa((a) => createLiveWorker({ ...a, cwd: process.cwd(), log: logHost }), { order: ["tecnico", "pesquisador", "negocio", "advogado-diabo", "revisor", "facilitador"], log: logHost });
 const gate = createGatePort({ factory, log: logHost });                              // GatePort → skills reais (F4)
 const adr = createModoAdr({ log: logHost });                                         // perfil modo-adr (planejamento; usa a mesa VIVA via caps)
 const dev = createModoDev({ log: logHost });                                         // perfil modo-dev (build + gates de código)

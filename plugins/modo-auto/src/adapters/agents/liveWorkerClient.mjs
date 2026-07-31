@@ -10,6 +10,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { resolveNode } from "../util/resolveNode.mjs";
 import { workers } from "../util/workerRegistry.mjs";
+import { resolveProjectId } from "../memory/projectId.mjs";
+import { validarEscopoInjetado } from "../memory/memoryTools.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const LIVE_WORKER = join(HERE, "liveWorker.mjs");
@@ -17,7 +19,7 @@ const LIVE_WORKER = join(HERE, "liveWorker.mjs");
 /**
  * @param {{ role:string, system:string, model?:string, cwd?:string, configDir?:string, skillDirectories?:string[], reasoningEffort?:string, log?:(m:string)=>void }} opts
  */
-export function createLiveWorker({ role, system, model, cwd, configDir, skillDirectories, reasoningEffort, resume, memoryScope = null, log = () => {} } = {}) {
+export function createLiveWorker({ role, system, model, cwd, configDir, skillDirectories, reasoningEffort, resume, semMemoria = false, log = () => {} } = {}) {
   if (!role) throw new Error("createLiveWorker: role vazio");
   const env = { ...process.env };
   delete env.NODE_OPTIONS; delete env.COPILOT_SDK_PATH;
@@ -30,9 +32,24 @@ export function createLiveWorker({ role, system, model, cwd, configDir, skillDir
   if (Array.isArray(skillDirectories) && skillDirectories.length) env.MODO_AUTO_WORKER_SKILLDIRS = JSON.stringify(skillDirectories);
   if (reasoningEffort) env.MODO_AUTO_WORKER_EFFORT = reasoningEffort;
   if (resume) env.MODO_AUTO_WORKER_RESUME = String(resume); // RELIGAR: resume a sessão (histórico preservado)
-  // ESCOPO DE MEMÓRIA CRAVADO PELO PAI: o worker da mesa viva ganha `memory_search` já amarrado a este projeto.
-  // Sem escopo, a variável nem existe e o worker sobe sem tool de memória (adaptador, não dependência).
-  if (memoryScope) env.MODO_AUTO_WORKER_MEMORY_SCOPE = String(memoryScope);
+  // ESCOPO DE MEMÓRIA — a MESMA porta única do worker one-shot, pelas mesmas razões.
+  //
+  // (1) A variável é APAGADA antes de qualquer coisa. O worker herda o `process.env` do pai, e o pai pode estar
+  //     rodando com um `MODO_AUTO_WORKER_MEMORY_SCOPE` velho no ambiente (de um teste, de um shell, de outra
+  //     sessão). Sem o delete, esse valor STALE viraria memória real no filho — medido: o manifesto aceitava um
+  //     escopo vindo do env e montava `memory_search` com ele.
+  // (2) O escopo NÃO vem por parâmetro. Ele é RESOLVIDO aqui, do cwd da sessão, pelo mesmo resolver fail-loud
+  //     do resto do produto. Um caller não pode apontar o agente para outro projeto porque não existe onde
+  //     escrever isso — validar forma não bastaria: "outro/projeto" tem forma perfeita.
+  // (3) Passa por `validarEscopoInjetado` mesmo assim: se o resolver um dia devolver algo estranho, quebra alto
+  //     em vez de virar busca no lugar errado.
+  delete env.MODO_AUTO_WORKER_MEMORY_SCOPE;
+  if (!semMemoria) {
+    try {
+      const escopo = resolveProjectId(cwd || process.cwd());
+      if (escopo) env.MODO_AUTO_WORKER_MEMORY_SCOPE = validarEscopoInjetado(escopo);
+    } catch { /* sem escopo estável → worker sobe sem memória (adaptador, não dependência) */ }
+  }
 
   let child = null, buf = "", err = "", sessionId = null, closed = false, nextId = 0;
   const waiters = new Map();       // id → resolve(result)

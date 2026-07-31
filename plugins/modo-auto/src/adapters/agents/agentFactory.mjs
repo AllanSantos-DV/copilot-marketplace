@@ -130,6 +130,10 @@ export function createAgentFactory({ cwdProvider = () => process.cwd(), model, g
       const env = { ...process.env };
       delete env.NODE_OPTIONS;      // não herdar o resolver hook do fork
       delete env.COPILOT_SDK_PATH;  // o worker resolve o SDK global via PATH
+      // O escopo do one-shot viaja pelo JOB (stdin), nunca pelo env. Apagar aqui evita que um valor velho no
+      // ambiente do pai — de um teste, de um shell, de outra sessão — seja lido por engano se algum caminho do
+      // filho um dia consultar o env. Higiene de ambiente é barata; escopo errado em silêncio, não.
+      delete env.MODO_AUTO_WORKER_MEMORY_SCOPE;
       env.NODE_NO_WARNINGS = "1";   // silencia ExperimentalWarning do Node (ex.: node:sqlite do CLI) que poluía o stderr e MASCARAVA o erro real no diagnóstico. Propaga ao subprocesso do CLI (env herdado).
       env.MODO_AUTO_WORKER_CWD = cwd || cwdProvider();
       if (chosenModel) env.MODO_AUTO_WORKER_MODEL = chosenModel;
