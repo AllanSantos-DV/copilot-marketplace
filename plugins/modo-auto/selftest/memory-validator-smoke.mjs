@@ -417,21 +417,44 @@ await runA("detectarEscopoSuspeito: origin+upstream diferentes = fork; marcador 
 });
 
 console.log("status curto: o canal que o HUMANO de fato recebe (o log não serve em voz/daemon)");
-run("sem memória, o status DIZ que a deliberação rodou cega", () => {
+run("sem memória, o status DIZ que rodou cega E traz o conserto (é o único caso acionável)", () => {
   // O aviso completo ia por logHost → log da sessão do host, que NÃO aparece numa sessão por voz/daemon.
   // Medido antes nesta sessão e registrado na memória do projeto. Log é pra depurar; o RESULTADO é o que chega.
   const s = statusMemoriaCurto({ escopo: null });
   assert.match(s, /MEMÓRIA: indisponível/);
   assert.match(s, /SEM o acervo/, "e tem que ser inequívoco: " + s);
+  assert.match(s, /copilot-memory/, "o conserto tem que vir JUNTO — o log com a instrução é invisível em voz");
+  assert.match(s, /\.memory\/project\.json/);
   assert.ok(!/\n/.test(s), "uma linha só — vai junto do resultado e pode ser lida em voz alta");
 });
 run("com memória, o status diz escopo e origem", () => {
   const s = statusMemoriaCurto({ escopo: "acme/proj", origem: "git-remote" });
   assert.match(s, /acme\/proj/); assert.match(s, /git remote/); assert.match(s, /somente leitura/);
 });
-run("fork e espelho aparecem NO STATUS, não só no log", () => {
+run("fork, submodule e espelho aparecem NO STATUS, não só no log", () => {
   assert.match(statusMemoriaCurto({ escopo: "eu/p", suspeita: { risco: "fork", alternativa: "orig/p" } }), /FORK.*orig\/p/);
   assert.match(statusMemoriaCurto({ escopo: "x/y", suspeita: { risco: "espelho" } }), /ANINHADO/);
+  assert.match(statusMemoriaCurto({ escopo: "lib/x", suspeita: { risco: "submodule", alternativa: "app/y" } }), /SUBMODULE.*app\/y/);
+});
+await runA("SUBMODULE é rotulado (repo-em-repo legítimo passa por 'projeto normal' em toda outra checagem)", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const g = (a, c) => execFileSync("git", a, { cwd: c, stdio: ["ignore", "pipe", "ignore"], timeout: 15000, windowsHide: true, env: { ...process.env, GIT_CONFIG_PARAMETERS: "" } });
+  try { execFileSync("git", ["--version"], { stdio: "ignore", timeout: 5000 }); } catch { return; }
+  const base = mkdtempSync(join(tmpdir(), "sub-"));
+  const lib = join(base, "lib"), app = join(base, "app");
+  for (const [d, url] of [[lib, "https://github.com/org/lib.git"], [app, "https://github.com/org/app.git"]]) {
+    mkdirSync(d, { recursive: true }); g(["init", "-q"], d); g(["remote", "add", "origin", url], d);
+    writeFileSync(join(d, "f.txt"), "x"); g(["add", "f.txt"], d); g(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "c"], d);
+  }
+  try { g(["-c", "protocol.file.allow=always", "submodule", "add", "-q", lib, "vendor/lib"], app); }
+  catch { return; } // git recusa submodule local em algumas configs — não é falha do produto
+  const s = detectarEscopoSuspeito(join(app, "vendor", "lib"));
+  assert.strictEqual(s.risco, "submodule", "submodule tem que ser ROTULADO, não passar como projeto normal: " + JSON.stringify(s));
+  assert.strictEqual(s.alternativa, "github.com/org/app", "e o SUPERPROJETO tem que aparecer — é o que o dono talvez achasse que estava usando: " + JSON.stringify(s));
+  // O `escopo` aqui é o origin do próprio submodule. Não asserto o valor: `git submodule add` de um caminho
+  // LOCAL reescreve o origin para o caminho do disco, o que é artefato do teste e não do produto. O que importa
+  // é o rótulo e o superprojeto — que é o que muda a decisão do dono.
+  assert.ok(s.superprojeto && s.superprojeto.length > 0, "o caminho do superprojeto tem que vir: " + JSON.stringify(s));
 });
 
 console.log("procedência EMITIDA pelo resolver (não reconstruída depois)");

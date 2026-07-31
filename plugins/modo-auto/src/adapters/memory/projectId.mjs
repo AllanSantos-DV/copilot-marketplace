@@ -191,6 +191,18 @@ export function detectarEscopoSuspeito(workspacePath) {
     }
   }
 
+  // SUBMODULE — repo-em-repo LEGÍTIMO, e por isso perigoso de outro jeito: ele tem `.git` próprio, arquivos
+  // rastreados próprios e remote próprio, então passa por "projeto normal" em toda checagem acima. O escopo
+  // resolvido é o do submodule, não o do projeto que o contém — e isso pode ser o que o dono quer (o submodule
+  // É um projeto) ou não (ele acha que está no projeto de cima). A marca é `--show-superproject-working-tree`,
+  // que o git só responde quando existe um superprojeto.
+  const superprojeto = git(["rev-parse", "--show-superproject-working-tree"], dir);
+  if (superprojeto && superprojeto.trim()) {
+    const origemSub = normalizeGitRemote(git(["remote", "get-url", "origin"], dir));
+    const origemSuper = normalizeGitRemote(git(["remote", "get-url", "origin"], superprojeto.trim()));
+    return { risco: "submodule", escopo: origemSub, alternativa: origemSuper || null, superprojeto: superprojeto.trim() };
+  }
+
   const origem = normalizeGitRemote(git(["remote", "get-url", "origin"], dir));
   const upstream = normalizeGitRemote(git(["remote", "get-url", "upstream"], dir));
   if (origem && upstream && origem !== upstream) return { risco: "fork", escopo: origem, alternativa: upstream };
