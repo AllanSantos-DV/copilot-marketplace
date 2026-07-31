@@ -105,12 +105,21 @@ export function assertSafeProjectId(projectId) {
  * o que o resolver de fato usou. Entre as duas chamadas o disco pode mudar, e a dedução pode simplesmente
  * discordar do valor exibido. Quem resolve é quem sabe.
  *
- * `risco` vem junto (fork/espelho) porque origem e suspeita respondem à MESMA pergunta do humano — "esse é o
- * meu projeto?" — e obrigá-lo a cruzar duas chamadas para descobrir é exatamente o tipo de dedução que este
- * conserto veio eliminar.
- * @returns {{ projectId:string, source:"declared"|"git-remote", markerPath:string|null, remoteUrl:string|null,
- *             root:string|null, cwd:string, branch:string|null, sha:string|null, worktree:boolean,
- *             risco:null|"fork"|"espelho", alternativa:string|null }}
+ * `risco` vem junto (fork/espelho/submodule) porque origem e suspeita respondem à MESMA pergunta do humano —
+ * "esse é o meu projeto?" — e obrigá-lo a cruzar duas chamadas para descobrir é exatamente o tipo de dedução
+ * que este conserto veio eliminar.
+ *
+ * DECISÃO (contestada 2×, e mantida com motivo): `source` NÃO recebe rótulo de fork/mirror/submodule. Os dois
+ * campos respondem perguntas diferentes — `source` é "de ONDE veio o id" (declared | git-remote) e `risco` é
+ * "esse é o projeto CERTO?". Fundi-los perderia informação: um fork resolve por `git-remote`, e se `source`
+ * virasse "fork" ninguém mais saberia se o id veio do remote ou de um marcador declarado — que é justamente o
+ * que decide o conserto (declarar um marcador RESOLVE o caso do fork).
+ * O risco real da separação é um consumidor ler só `source` e achar que está tudo normal. Por isso existe
+ * `label`: um rótulo único, para exibição, em que a origem e o alerta vêm colados. Quem mostra origem mostra o
+ * alerta por construção.
+ * @returns {{ projectId:string, source:"declared"|"git-remote", label:string, markerPath:string|null,
+ *             remoteUrl:string|null, root:string|null, cwd:string, branch:string|null, sha:string|null,
+ *             worktree:boolean, risco:null|"fork"|"espelho"|"submodule", alternativa:string|null }}
  * @throws quando não há identificador estável (mesmo contrato fail-loud de `resolveProjectId`)
  */
 export function resolveProjectIdWithProvenance(workspacePath) {
@@ -129,12 +138,17 @@ export function resolveProjectIdWithProvenance(workspacePath) {
   const root = findProjectRoot(dir);
   if (root) {
     const declared = declaredIdAt(root);
-    if (declared) return { projectId: assertSafeProjectId(declared), source: "declared", markerPath: projectConfigPath(root), remoteUrl: null, root, ...extra };
+    if (declared) return { projectId: assertSafeProjectId(declared), source: "declared", label: rotulo("declared", extra.risco), markerPath: projectConfigPath(root), remoteUrl: null, root, ...extra };
   }
   const remoteUrl = git(["remote", "get-url", "origin"], dir);
   const norm = normalizeGitRemote(remoteUrl);
-  if (norm) return { projectId: assertSafeProjectId(norm), source: "git-remote", markerPath: null, remoteUrl: String(remoteUrl).trim(), root: root || null, ...extra };
+  if (norm) return { projectId: assertSafeProjectId(norm), source: "git-remote", label: rotulo("git-remote", extra.risco), markerPath: null, remoteUrl: String(remoteUrl).trim(), root: root || null, ...extra };
   throw new Error("Não foi possível resolver project_id para: " + workspacePath + ". " + SCOPE_HELP);
+}
+
+/** Rótulo de exibição: origem e alerta COLADOS, para nenhum consumidor ler a origem sem ver o risco. */
+function rotulo(source, risco) {
+  return risco ? `${source} · ${String(risco).toUpperCase()}` : source;
 }
 
 /** Resolve o project_id lógico. LANÇA quando não há identificador estável (fail-loud, por desenho). */

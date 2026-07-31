@@ -17,7 +17,7 @@ import { ROLES } from "../src/adapters/agents/roles.mjs";
 import { resolveProjectId, tryResolveProjectId, projectIdStrength, assertSafeProjectId, normalizeGitRemote, detectarEscopoSuspeito, resolveProjectIdWithProvenance } from "../src/adapters/memory/projectId.mjs";
 import { createMemoryPort } from "../src/adapters/memory/memoryPort.mjs";
 import { createMemoryTools, MEMORY_TOOL_NAMES } from "../src/adapters/memory/memoryTools.mjs";
-import { avisoMemoria, statusMemoriaCurto } from "../src/adapters/memory/memoryNotice.mjs";
+import { avisoMemoria, statusMemoriaCurto, eventoMemoria, rotuloEscopo } from "../src/adapters/memory/memoryNotice.mjs";
 import { conciliarVereditos, auditarMemoria, renderAuditado, promptAuditoria, MEMORY_VERDICT_SCHEMA, VEREDITOS } from "../src/adapters/memory/memoryValidator.mjs";
 
 let pass = 0, total = 0;
@@ -509,6 +509,46 @@ run("TODA tool deliberativa carimba o status (gate que quebra o build se a próx
   for (const marca of DELIBERATIVAS) {
     assert.ok(ext.includes("return okMesa(`" + marca), `a tool "${marca.trim()}" precisa carimbar o status — senão a mesa cega parece igual à informada`);
   }
+});
+
+console.log("evento estruturado + rótulo: por RODADA, e origem que não se lê sem o alerta");
+run("eventoMemoria é um OBJETO com campos fixos (dá pra logar, contar e conferir)", () => {
+  const e = eventoMemoria({ escopo: "acme/p", origem: "git-remote", suspeita: { risco: "fork", alternativa: "orig/p" } });
+  assert.strictEqual(e.evento, "memoria.estado");
+  assert.strictEqual(e.ativa, true);
+  assert.strictEqual(e.escopo, "acme/p");
+  assert.strictEqual(e.risco, "fork");
+  assert.strictEqual(e.alternativa, "orig/p");
+  assert.ok(e.mensagem && e.em, "mensagem e timestamp têm que vir: " + JSON.stringify(e));
+  assert.doesNotThrow(() => JSON.parse(JSON.stringify(e)), "tem que ser serializável — evento que não loga não serve");
+});
+run("sem memória o evento diz ativa:false e origem 'none' (não finge origem)", () => {
+  const e = eventoMemoria({ escopo: null, motivo: "sem git remote" });
+  assert.strictEqual(e.ativa, false);
+  assert.strictEqual(e.origem, "none");
+  assert.strictEqual(e.escopo, null);
+  assert.match(e.mensagem, /copilot-memory/, "o conserto viaja no evento também");
+});
+run("o rótulo cola origem e alerta — consumidor não lê um sem o outro", () => {
+  // DECISÃO: `source` fica semântico (de onde veio o id) e `risco` fica separado (é o projeto certo?), porque
+  // fundir perderia informação — um fork resolve por git-remote, e saber isso é o que aponta o conserto
+  // (declarar um marcador). O rótulo é a ponte para quem só exibe uma coisa.
+  assert.strictEqual(rotuloEscopo({ origem: "git-remote" }), "git remote");
+  assert.strictEqual(rotuloEscopo({ origem: "git-remote", risco: "fork" }), "git remote · FORK");
+  assert.strictEqual(rotuloEscopo({ origem: "declared", risco: "submodule" }), "declarado · SUBMODULE");
+});
+await runA("o resolver devolve `label` pronto, com o risco embutido", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const g = (a, c) => execFileSync("git", a, { cwd: c, stdio: ["ignore", "pipe", "ignore"], timeout: 8000, windowsHide: true });
+  try { execFileSync("git", ["--version"], { stdio: "ignore", timeout: 5000 }); } catch { return; }
+  const d = mkdtempSync(join(tmpdir(), "rotulo-"));
+  g(["init", "-q"], d); g(["remote", "add", "origin", "https://github.com/eu/p.git"], d);
+  writeFileSync(join(d, "f.txt"), "x"); g(["add", "f.txt"], d); g(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "c"], d);
+  assert.strictEqual(resolveProjectIdWithProvenance(d).label, "git-remote", "sem risco, o rótulo é só a origem");
+  g(["remote", "add", "upstream", "https://github.com/orig/p.git"], d);
+  const p = resolveProjectIdWithProvenance(d);
+  assert.strictEqual(p.source, "git-remote", "source continua semântico — é o que aponta o conserto");
+  assert.strictEqual(p.label, "git-remote · FORK", "e o label carrega o alerta: " + JSON.stringify(p));
 });
 
 console.log(`\nmemory-validator-smoke: ${pass}/${total} OK`);

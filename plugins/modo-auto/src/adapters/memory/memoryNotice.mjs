@@ -19,6 +19,44 @@
  * Log é para quem depura; o RESULTADO é o que o humano recebe. Esta linha viaja no resultado.
  * @returns {string} uma linha, sem markdown, segura para ser lida em voz alta
  */
+/**
+ * EVENTO ESTRUTURADO do estado da memória, para ser emitido A CADA deliberação (não uma vez por processo).
+ *
+ * Por que estruturado e por que por-rodada: o aviso saía por log, UMA vez por processo, sob um guard. Isso
+ * falha em três frentes ao mesmo tempo — (a) o log da sessão do host é invisível em voz/daemon, (b) uma vez por
+ * processo significa que a 2ª deliberação em diante não avisa nada, e (c) texto solto não é consultável nem
+ * agregável. Um objeto com campos fixos pode ser logado, contado e conferido; uma frase, não.
+ * @returns {{ evento:"memoria.estado", ativa:boolean, escopo:string|null, origem:string, risco:string|null,
+ *             alternativa:string|null, mensagem:string, em:string }}
+ */
+export function eventoMemoria({ escopo = null, origem = "?", motivo = "", suspeita = null } = {}) {
+  const a = avisoMemoria({ escopo, origem, motivo, suspeita });
+  return {
+    evento: "memoria.estado",
+    ativa: a.ativa,
+    escopo: escopo || null,
+    origem: escopo ? String(origem) : "none",
+    risco: (suspeita && suspeita.risco) || null,
+    alternativa: (suspeita && suspeita.alternativa) || null,
+    mensagem: a.texto,
+    em: new Date().toISOString(),
+  };
+}
+
+/**
+ * Rótulo ÚNICO para exibição, que junta origem e suspeita numa string que não dá para ler pela metade.
+ *
+ * Existe por uma razão concreta: `source` responde "de onde veio o id" e `risco` responde "é o projeto certo?".
+ * São perguntas DIFERENTES, e fundi-las perderia informação (um fork resolve por `git-remote` — se `source`
+ * virasse "fork", ninguém mais saberia se veio de remote ou de marcador). Mas um consumidor que lê só `source`
+ * veria "git-remote" e concluiria que está tudo normal. Este rótulo é a saída: quem exibe origem exibe o
+ * alerta junto, por construção.
+ */
+export function rotuloEscopo({ origem = "?", risco = null } = {}) {
+  const base = origem === "declared" ? "declarado" : origem === "git-remote" ? "git remote" : String(origem);
+  return risco ? `${base} · ${String(risco).toUpperCase()}` : base;
+}
+
 export function statusMemoriaCurto({ escopo = null, origem = "?", suspeita = null } = {}) {
   // Sem memória o dono precisa do CONSERTO junto, não só do diagnóstico: é o único caso em que ele tem algo a
   // fazer. O aviso longo (com o mesmo conserto) ia por log — invisível em voz/daemon, medido. Colocar aqui é o
