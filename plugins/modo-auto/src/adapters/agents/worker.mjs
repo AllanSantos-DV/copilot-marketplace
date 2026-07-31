@@ -53,8 +53,12 @@ async function readStdin() {
       catch (e) { process.stderr.write("worker aviso: research tools indisponíveis p/ pesquisador: " + (e?.message || e)); }
     }
     // MEMÓRIA READ-ONLY, só quando o PAI CRAVOU o escopo (`job.memoryScope`). O filho NUNCA resolve projeto:
-    // ele roda num diretório que não é o do projeto, e resolver ali daria escopo divergente em silêncio. Sem
-    // `memoryScope`, nenhuma tool de memória é montada — e o worker roda igual (adaptador, não dependência).
+    // ele roda num diretório que não é o do projeto, e resolver ali daria escopo divergente em silêncio.
+    //
+    // SEM escopo, a ausência é AUDITÁVEL, não silenciosa: o worker declara no ledger que rodou sem memória. A
+    // versão anterior fazia `if (memoryScope)` e seguia — quem lesse o log depois não conseguia distinguir
+    // "não tinha memória" de "tinha e não usou". Não é fail-closed de bloqueio (memória é opcional por decisão
+    // de produto: sem o plugin o modo-auto funciona igual), é fail-closed de CAPACIDADE + registro do fato.
     let memoryToolset = [], memoryState = null;
     if (job.memoryScope) {
       try {
@@ -68,6 +72,11 @@ async function readStdin() {
         });
         memoryToolset = mt.tools; memoryState = mt.state;
       } catch (e) { process.stderr.write("worker aviso: memória indisponível p/ este papel: " + (e?.message || e)); }
+    } else {
+      // AUSÊNCIA AUDITÁVEL. Antes o `else` não existia e a falta de escopo era indistinguível, no log, de um
+      // worker que tinha memória e não a usou. Registrar o fato custa uma linha e transforma silêncio em
+      // evidência — é a mesma regra que apliquei ao recall (offline ≠ "não achei nada"), agora na capacidade.
+      try { process.stderr.write(`\x1e#MEM papel ${job.role} SEM escopo cravado — rodou sem memória (nenhuma tool de busca foi oferecida)\n`); } catch { /* stderr fechado */ }
     }
     // TOOL TEMPLATE (Princípio 11) — quando o caller pede formato DETERMINÍSTICO (job.schema), a resposta vem de
     // uma TOOL cujo schema o SDK IMPÕE (submit_<x>), não de "responda SOMENTE JSON" + parse de prosa (frágil, varia

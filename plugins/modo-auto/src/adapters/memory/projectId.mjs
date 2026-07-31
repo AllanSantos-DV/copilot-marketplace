@@ -205,21 +205,29 @@ export function detectarEscopoSuspeito(workspacePath) {
     }
   }
 
-  // SUBMODULE — repo-em-repo LEGÍTIMO, e por isso perigoso de outro jeito: ele tem `.git` próprio, arquivos
-  // rastreados próprios e remote próprio, então passa por "projeto normal" em toda checagem acima. O escopo
-  // resolvido é o do submodule, não o do projeto que o contém — e isso pode ser o que o dono quer (o submodule
-  // É um projeto) ou não (ele acha que está no projeto de cima). A marca é `--show-superproject-working-tree`,
-  // que o git só responde quando existe um superprojeto.
+  // SUBMODULE — repo-em-repo LEGÍTIMO, e por isso perigoso de outro jeito: ele tem `.git` próprio (na verdade
+  // um *gitfile*, um arquivo apontando para `.git/modules/...` do superprojeto), arquivos rastreados próprios e
+  // remote próprio, então passa por "projeto normal" em toda checagem acima. O escopo resolvido é o do
+  // submodule, não o do projeto que o contém.
+  // SINAL NATIVO, não heurística: `--show-superproject-working-tree` só responde quando existe superprojeto —
+  // é o próprio git afirmando a relação, e não uma dedução por nome de pasta ou por convenção de remote.
   const superprojeto = git(["rev-parse", "--show-superproject-working-tree"], dir);
   if (superprojeto && superprojeto.trim()) {
     const origemSub = normalizeGitRemote(git(["remote", "get-url", "origin"], dir));
     const origemSuper = normalizeGitRemote(git(["remote", "get-url", "origin"], superprojeto.trim()));
-    return { risco: "submodule", escopo: origemSub, alternativa: origemSuper || null, superprojeto: superprojeto.trim() };
+    return { risco: "submodule", escopo: origemSub, alternativa: origemSuper || null, superprojeto: superprojeto.trim(), sinal: "show-superproject-working-tree" };
   }
 
   const origem = normalizeGitRemote(git(["remote", "get-url", "origin"], dir));
+  // FORK: `upstream` ≠ `origin` é a marca que `gh repo fork` deixa. É heurística de CONVENÇÃO, e assumo isso —
+  // git não tem um "sou um fork" nativo (fork é conceito de forja, não de git). O que dá para reforçar é a
+  // segunda fonte: `remote.upstream.gh-resolved`, que o gh grava quando ele mesmo criou o fork. Havendo, a
+  // suspeita deixa de depender só do nome do remote.
   const upstream = normalizeGitRemote(git(["remote", "get-url", "upstream"], dir));
-  if (origem && upstream && origem !== upstream) return { risco: "fork", escopo: origem, alternativa: upstream };
+  const ghResolved = git(["config", "--get", "remote.upstream.gh-resolved"], dir);
+  if (origem && upstream && origem !== upstream) {
+    return { risco: "fork", escopo: origem, alternativa: upstream, sinal: ghResolved ? "gh-resolved" : "remote-upstream" };
+  }
   return { risco: null, escopo: origem, alternativa: null };
 }
 export function tryResolveProjectId(workspacePath) {
