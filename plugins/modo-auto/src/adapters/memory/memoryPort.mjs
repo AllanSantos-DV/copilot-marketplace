@@ -26,12 +26,12 @@ export function createMemoryPort({ cwdProvider = () => process.cwd(), clientFact
   return {
     projectId() { return tryResolveProjectId(cwdProvider()); },
 
-    async recall(query, { topK = 5 } = {}) {
+    async recall(query, { topK = 5, minScore = null } = {}) {
       const c = cached || await connect();
       if (!c) return { ok: false, offline: true, results: [] }; // daemon offline = degradado legítimo (não erro)
       try {
         const metadata = c.projectId ? { project_id: c.projectId } : undefined;
-        const r = await c.client.search(query, { topK, metadata });
+        const r = await c.client.search(query, { topK, metadata, ...(minScore != null ? { minScore } : {}) });
         return { ok: true, results: (r && r.results) || [], projectId: c.projectId };
       } catch (e) {
         const error = e?.message || String(e);

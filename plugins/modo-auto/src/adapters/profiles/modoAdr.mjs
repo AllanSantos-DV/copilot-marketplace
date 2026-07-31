@@ -42,6 +42,9 @@ const PATH_CFG = {
   full: { skipDebate: false, roles: ADR_LIVE_ORDER, minRounds: 2, maxRounds: 4 },
 };
 
+// Piso de relevância do recall: abaixo disto o trecho não é `já existe`, é ruído semântico que sequestra o plano.
+const RECALL_MIN_SCORE = 0.55;
+
 export function createModoAdr({ log = () => {}, roles } = {}) {
   const ADR_ROLES = roles || ["pesquisador", "negocio", "tecnico", "revisor"];
 
@@ -63,7 +66,17 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
     });
     const subject =
       `BRIEFING:\n${bf}\n\n` +
-      `O QUE JÁ EXISTE NO PROJETO (memória — reúse, não reinvente):\n${existing || "(nada relevante)"}`;
+      `O QUE JÁ EXISTE NO PROJETO (memória — use SÓ o que casar com o briefing; o resto IGNORE):\n${existing || "(nada relevante)"}`;
+
+    // O recall da memória é CONTEXTO DE FUNDO, não pauta. Ele entrava colado na deliberação, que carrega a
+    // instrução "CONSOLIDE isto, não invente nem fuja" — então o documentador consolidava obedientemente
+    // material de OUTRO assunto. Aqui ele vem rotulado e com a regra de descarte explícita: se não casar com
+    // o briefing, IGNORE. O assunto da mesa é o BRIEFING, sempre.
+    const reuseBlock = (ex) => (ex
+      ? `\n\nCONTEXTO DE REÚSO (memória do projeto — NÃO é o assunto desta mesa e NÃO deve ser consolidado):\n` +
+        `Use SOMENTE o que casar com o BRIEFING acima, para não reinventar o que já existe. ` +
+        `O que não tiver relação com o briefing, IGNORE por completo — não traga esses temas para o plano.\n${ex}`
+      : "");
 
     let otfPhases = null, engine = "viva-otf"; // captura das fases + qual motor de escrita foi usado
 
@@ -71,11 +84,11 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
     // se a OTF falhar de verdade — e loga alto (não é o caminho feliz; a OTF é que garante a forma determinística).
     const freeFormWriteDoc = async ({ transcript, synthesis }) => {
       const r = await caps.factory.run("documentacao",
-        `BRIEFING:\n${bf}\n\n${existing ? "JÁ EXISTE (reúse):\n" + existing + "\n\n" : ""}` +
+        `BRIEFING:\n${bf}\n\n` +
         `SÍNTESE DO FACILITADOR:\n${synthesis || "(sem síntese)"}\n\n` +
-        `DELIBERAÇÃO COMPLETA DA MESA:\n${transcript}\n\n` +
+        `DELIBERAÇÃO COMPLETA DA MESA:\n${transcript}\n${reuseBlock(existing)}\n\n` +
         `Escreva o PLANO em FASES "## Fase N: <título>", cada fase autossuficiente (objetivo + requisito testável + entrega). Comece direto em "## Fase 1".`,
-        { timeoutMs: 180000, stage: "adr" });
+        { timeoutMs: 180000, stage: "adr", availableTools: [] });
       if (!r.ok || !r.text) throw new Error("modo-adr: fallback free-form do documentador falhou: " + (r.error || "sem texto"));
       return r.text;
     };
@@ -83,7 +96,7 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
     // OTF (Outline-Then-Fill) — a FORMA é determinística: seed → co-construção → lock → slot-fill → assemble →
     // validação mini-LRM (re-fill se divergir). O conteúdo é heurístico; a montagem é TOOL. Mata a variância de shape.
     const otfWriteDoc = async ({ transcript, synthesis }) => {
-      const deliberation = `SÍNTESE DO FACILITADOR:\n${synthesis || "(sem síntese)"}\n\nDELIBERAÇÃO COMPLETA DA MESA:\n${transcript}${existing ? "\n\nJÁ EXISTE (reúse):\n" + existing : ""}`;
+      const deliberation = `SÍNTESE DO FACILITADOR:\n${synthesis || "(sem síntese)"}\n\nDELIBERAÇÃO COMPLETA DA MESA:\n${transcript}${reuseBlock(existing)}`;
       const otfTrace = "adr-otf-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6); // correlaciona os spans desta build (telemetria)
       const seed = selectSeed(taskType, { log });
       const builder = createOutlineBuilder(seed, { log });
@@ -99,7 +112,13 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
       } catch (e) { log("[modo-adr OTF] refino de outline falhou (segue com o seed, sinalizado): " + (e?.message || e)); }
       const template = builder.lock();
 
-      const runAgent = (prompt) => caps.factory.run("documentacao", prompt, { timeoutMs: 180000, stage: "adr", group: otfTrace, traceId: otfTrace });
+      // FAIL-CLOSED (availableTools: []): o documentador COMPÕE prosa a partir da deliberação que já está no
+      // prompt — ele não tem por que ler disco, rodar comando ou pesquisar. Sem essa trava ele saía EXPLORANDO
+      // e escrevia um plano sobre o que encontrasse por aí, IGNORANDO o briefing: um briefing de uma linha
+      // produziu um ADR inteiro sobre locks/owner.json/respond_idle_session, assunto que não estava em lugar
+      // nenhum da entrada. É o mesmo fechamento que o refino de outline (acima) já usava — faltava aqui, que é
+      // justamente onde o CONTEÚDO do plano nasce.
+      const runAgent = (prompt) => caps.factory.run("documentacao", prompt, { timeoutMs: 180000, stage: "adr", group: otfTrace, traceId: otfTrace, availableTools: [] });
       let slots = await fillSlots(template, { deliberation, runAgent });
       let adr = assembleAdr(template, slots);
 
@@ -191,9 +210,18 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
       if (caps.onRoute) { try { caps.onRoute(triageInfo); } catch (e) { log(`[modo-adr] onRoute falhou (sinalizado): ${e?.message || e}`); } }
 
       // 1) o que JÁ EXISTE no projeto (memória). Offline = degradado explícito (não erro mascarado).
+      // PISO DE RELEVÂNCIA: sem ele, um briefing curto/vago casa fracamente com QUALQUER coisa e o recall
+      // devolve os planos que OUTRAS deliberações salvaram (a mesa grava cada plano na memória, então ela
+      // envenena a si mesma). Foi assim que um briefing de uma linha virou um ADR sobre locks/owner.json:
+      // 4 trechos de outro assunto entraram como "reúse" e dominaram o conteúdo. Abaixo do piso, é ruído.
       let existing = "";
-      const mem = caps.memory?.recall ? await caps.memory.recall(bf, { topK: 4 }) : null;
-      if (mem && mem.ok) existing = (mem.results || []).map((r) => "- " + String(r.text || "").slice(0, 220)).join("\n");
+      const mem = caps.memory?.recall ? await caps.memory.recall(bf, { topK: 4, minScore: RECALL_MIN_SCORE }) : null;
+      if (mem && mem.ok) {
+        const rel = (mem.results || []).filter((r) => r && (r.score == null || Number(r.score) >= RECALL_MIN_SCORE));
+        const cortados = (mem.results || []).length - rel.length;
+        if (cortados > 0) log(`[modo-adr] recall: ${cortados} trecho(s) abaixo do piso de relevância (${RECALL_MIN_SCORE}) DESCARTADO(s) — não entram como "já existe"`);
+        existing = rel.map((r) => "- " + String(r.text || "").slice(0, 220)).join("\n");
+      }
       else if (mem && mem.ok === false && mem.error) log(`[modo-adr] memória indisponível (${mem.error}) — segue sem contexto`);
 
       // MESA VIVA (debate real turno a turno) quando o motor está disponível OU no caminho express (que não usa a
