@@ -65,14 +65,17 @@ export function detectGaps(spans, opts = {}) {
   const qr = detectQualityRegression(list, { qualityDropPct, minBaseline, compareN, baselineWindowMs, now });
   if (qr) gaps.push(qr);
 
-  // TRIGGER AUTOMÁTICO DE REAVALIAÇÃO DO F5 (circuit-breaker): a fase foi ADIADA por ROI (2 escalações em 2871
-  // spans = 0,07%). O adiamento só é honesto se houver um GATILHO que avise quando a premissa MUDAR — senão a
-  // decisão "condicional" vira esquecimento. Aqui: se a taxa de escalação cruzar o limiar com amostra mínima,
-  // emite o gap que o modo_melhoria consome ("reavaliar o circuit-breaker AGORA").
+  // F5 — o disjuntor do revisor está CONSTRUÍDO e ATIVO por default (modoDev L106: `createCircuitBreaker({ log })`).
+  // Este gatilho nasceu na época em que o F5 estava ADIADO por ROI (escalações em 0,07% dos spans) e servia para
+  // avisar "a premissa mudou, hora de CONSTRUIR". Isso já aconteceu — manter o texto antigo criava divergência
+  // entre plano e código e fazia a auditoria pedir, em loop, uma decisão já tomada.
+  // O gatilho continua ÚTIL, com outro significado: com o disjuntor ligado, escalação alta não é mais "falta o
+  // disjuntor" e sim "o disjuntor está abrindo demais (limiar sensível) OU há um problema real de qualidade que
+  // ele está apenas revelando". Os dois exigem olhar humano — por isso o sinal fica.
   const escalations = gaps.filter((g) => g.type === "escalation").length;
   if (list.length >= f5MinSample) {
     const pct = (escalations / list.length) * 100;
-    if (pct >= f5EscalationPct) gaps.push({ type: "revisit-circuit-breaker", traceId: null, role: "mesa", stage: "dev", detail: `escalações em ${pct.toFixed(2)}% (${escalations}/${list.length}) >= ${f5EscalationPct}% — a premissa do adiamento do F5 (ROI negativo a 0,07%) MUDOU: reavaliar o circuit-breaker` });
+    if (pct >= f5EscalationPct) gaps.push({ type: "tune-circuit-breaker", traceId: null, role: "mesa", stage: "dev", detail: `escalações em ${pct.toFixed(2)}% (${escalations}/${list.length}) >= ${f5EscalationPct}% — o disjuntor do revisor (F5, ATIVO por default) está escalando muito: revisar o limiar (failThreshold/halfOpenAfterMs) ou investigar a causa real das falhas do revisor` });
   }
 
   const byTrace = {};
