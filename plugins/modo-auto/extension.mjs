@@ -21,7 +21,7 @@ import { pruneWorkerSessions, formatPrune } from "./src/adapters/agents/workerCo
 import { readProvenance, formatProvenance } from "./src/adapters/health/buildProvenance.mjs";
 import { createToggleState } from "./src/toggle/state.mjs";
 import { createMemoryPort } from "./src/adapters/memory/memoryPort.mjs";
-import { projectIdStrength } from "./src/adapters/memory/projectId.mjs";
+import { projectIdStrength, detectarEscopoSuspeito } from "./src/adapters/memory/projectId.mjs";
 import { avisoMemoria } from "./src/adapters/memory/memoryNotice.mjs";
 import { createPlanPort } from "./src/adapters/plan/planPort.mjs";
 import { createAgentFactory } from "./src/adapters/agents/agentFactory.mjs";
@@ -154,7 +154,8 @@ const memoryScopeParaMesa = () => {
   if (!avisouEscopo) {
     avisouEscopo = true;
     const origem = escopo ? (() => { try { return projectIdStrength(process.cwd()); } catch { return "?"; } })() : "?";
-    logHost(avisoMemoria({ escopo, origem, motivo }).texto);
+    const suspeita = escopo ? (() => { try { return detectarEscopoSuspeito(process.cwd()); } catch { return null; } })() : null;
+    logHost(avisoMemoria({ escopo, origem, motivo, suspeita }).texto);
   }
   return escopo;
 };

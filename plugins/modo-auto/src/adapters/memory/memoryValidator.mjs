@@ -14,6 +14,8 @@
 // que inventa um id (ou devolve o id de outro item) tem o veredito DESCARTADO e sinalizado. Sem isso, "citar a
 // fonte" seria teatro: o id existiria no texto sem existir no corpus.
 
+import { MEMORY_TOOL_NAMES } from "./memoryTools.mjs";
+
 /** Tool template (Princípio 11): o veredito vem de uma TOOL com schema imposto pelo SDK, não de prosa parseada. */
 export const MEMORY_VERDICT_SCHEMA = {
   name: "submit_memory_audit",
@@ -78,7 +80,7 @@ export function conciliarVereditos(injetados, vereditos) {
 }
 
 /** Monta o prompt do auditor. Separado para o teste poder afirmar o que o modelo REALMENTE recebe. */
-export function promptAuditoria(assunto, itens) {
+export function promptAuditoria(assunto, itens, { podeBuscar = false } = {}) {
   return (
     `ASSUNTO EM PAUTA:\n${assunto}\n\n` +
     `ITENS DE MEMÓRIA RECUPERADOS (${itens.length}) — julgue CADA UM:\n` +
@@ -88,6 +90,12 @@ export function promptAuditoria(assunto, itens) {
     `• "aplica" — continua válido e é útil aqui.\n` +
     `• "desatualizado" — já foi verdade, mas foi superado/revertido por algo mais novo (diga por quê).\n` +
     `• "nao_se_aplica" — é de outro assunto/contexto e só polui esta deliberação.\n\n` +
+    (podeBuscar
+      ? `Você TEM a ferramenta memory_search (somente leitura, no acervo deste projeto). Use-a quando suspeitar ` +
+        `que um item foi SUPERADO: ache o registro mais novo e cite-o na razão. Sem isso, "desatualizado" é ` +
+        `palpite; com isso, é verificação. Use com parcimônia (poucas buscas).\n\n`
+      : "")
+    +
     `Copie o doc_id EXATAMENTE como recebido. NÃO invente id. NÃO julgue item que não está na lista.\n` +
     `CHAME a ferramenta submit_memory_audit. NÃO responda em texto.`
   );
@@ -98,20 +106,28 @@ export function promptAuditoria(assunto, itens) {
  * memória segue INTEIRA e SINALIZADA — auditor quebrado não pode apagar o contexto do projeto, seria trocar
  * "memória velha" por "nenhuma memória", que é o defeito pior. FAIL LOUD só para erro de programação (factory
  * ausente).
- * @param {{ factory:object, assunto:string, itens:{doc_id:string,text:string}[], log?:(m:string)=>void, timeoutMs?:number }} a
+ *
+ * `memoryScope` dá ao auditor a busca — e isso é uma correção de rota, não um extra. A versão anterior o
+ * proibia de buscar "porque ele só consolida material dado". Três auditorias apontaram o furo: para dizer
+ * "desatualizado" ele precisa achar o que superou o item. Sem busca, aquele veredito era um JULGAMENTO
+ * apresentado como verificação. Com busca (teto baixo: 2), ele pode citar o documento mais novo.
+ * @param {{ factory:object, assunto:string, itens:{doc_id:string,text:string}[], log?:(m:string)=>void,
+ *           timeoutMs?:number, memoryScope?:string|null }} a
  */
-export async function auditarMemoria({ factory, assunto, itens, log = () => {}, timeoutMs = 90000 } = {}) {
+export async function auditarMemoria({ factory, assunto, itens, log = () => {}, timeoutMs = 90000, memoryScope = null } = {}) {
   if (!factory || !factory.run) throw new Error("auditarMemoria: factory ausente (config inválida)");
   const alvo = (itens || []).filter((i) => i && i.doc_id && i.text);
   if (!alvo.length) return { ok: true, auditado: false, ...conciliarVereditos(alvo, []), motivo: "nenhum item citável para auditar" };
 
-  const r = await factory.run("revisor", promptAuditoria(assunto, alvo), {
+  const r = await factory.run("revisor", promptAuditoria(assunto, alvo, { podeBuscar: !!memoryScope }), {
     subject: "auditor-memoria",
     timeoutMs,
     schema: MEMORY_VERDICT_SCHEMA,
-    // READ-ONLY ESTRUTURAL: lista vazia = fail-closed no SDK. O auditor só pode chamar submit_memory_audit.
-    // Nenhuma tool de memória, de arquivo ou de shell chega até ele.
-    availableTools: [],
+    memoryScope,
+    // FAIL-CLOSED COM EXCEÇÃO DECLARADA: a allowlist é a declaração de intenção do chamador. Aqui ela nomeia
+    // `memory_search` de propósito — o auditor pode CONFERIR, e nada mais. Sem escopo cravado, volta a ser
+    // text-only puro (lista vazia + submit), que é o comportamento correto quando não há memória.
+    availableTools: memoryScope ? [...MEMORY_TOOL_NAMES] : [],
   });
   if (!r.ok || !r.text) {
     log(`[memoria] auditor indisponível (${r.error || "sem texto"}) — memória segue SEM auditoria (sinalizado, não é "tudo válido")`);

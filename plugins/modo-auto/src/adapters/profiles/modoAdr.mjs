@@ -297,7 +297,7 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
         // resto. Aqui um auditor READ-ONLY (availableTools:[] — ele não TEM tool de memória) julga item a item e
         // cita o doc_id; o contestado não some, entra rotulado para a mesa poder discordar do próprio auditor.
         if (caps.factory?.run && rend.ids.length) {
-          const aud = await auditarMemoria({ factory: caps.factory, assunto: bf, itens: rel.filter((r) => r.doc_id), log });
+          const aud = await auditarMemoria({ factory: caps.factory, assunto: bf, itens: rel.filter((r) => r.doc_id), log, memoryScope: escopoParaWorker(caps) });
           if (aud.auditado) existing = renderAuditado(aud);
           else log(`[modo-adr] memória NÃO auditada (${aud.error || aud.motivo}) — segue inteira, sinalizada (auditor quebrado não pode apagar o contexto do projeto)`);
         }

@@ -1,19 +1,24 @@
 {
   "kind": "operational-audit",
   "commit": {
-    "sha": "111b0bf75774501518d596d9d999790b50c7e9c8",
-    "shortSha": "111b0bf"
+    "sha": "a2fcb213e7da6baa8f23f9d6030eedc64cc13dd3",
+    "shortSha": "a2fcb21"
   },
   "branch": "develop",
-  "tag": "v0.5.4",
+  "tag": "v0.5.5",
   "remote": "https://github.com/AllanSantos-DV/modo-auto.git",
   "clean": true,
-  "version": "0.5.4",
+  "version": "0.5.5",
   "pushed": true,
   "remoteBranches": [
     "origin/develop",
     "origin/main"
   ],
-  "generatedAt": "2026-07-31T17:30:43.844Z",
+  "sourceAccess": {
+    "note": "o repositório de ORIGEM é privado — `git ls-remote` nele responde 'Repository not found' para terceiros (404 do GitHub para repo privado). Isso NÃO é falha da proveniência.",
+    "reproducible": "o ARTEFATO é público e verificável: clone https://github.com/AllanSantos-DV/copilot-marketplace e rode `node plugins/modo-auto/selftest/run.mjs` — ele imprime este mesmo commit/tag.",
+    "verifyCommand": "git clone --depth 1 https://github.com/AllanSantos-DV/copilot-marketplace && node copilot-marketplace/plugins/modo-auto/selftest/run.mjs"
+  },
+  "generatedAt": "2026-07-31T17:45:20.844Z",
   "indeterminate": []
 }

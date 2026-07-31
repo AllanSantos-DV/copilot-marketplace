@@ -120,7 +120,28 @@ export function projectIdStrength(workspacePath) {
   return "none";
 }
 
-/** Tenta resolver; devolve null em vez de lançar (para caminhos best-effort que JÁ sinalizam a ausência). */
+/**
+ * Detecta o risco de ESCOPO ERRADO — o furo que o fail-loud não cobre. `resolveProjectId` garante que o id
+ * EXISTE e é estável; não garante que é o projeto CERTO. Quem trabalha num fork tem `origin` apontando para o
+ * fork, e a memória do upstream (que é onde está o acervo real) fica invisível — em silêncio, porque tudo
+ * "funciona".
+ *
+ * O sinal MEDÍVEL é a presença de um remote `upstream` diferente de `origin`: é exatamente a marca que o
+ * `gh repo fork` deixa. O código NÃO decide qual é o certo (só o dono sabe se quer o acervo do fork ou do
+ * upstream) — ele AVISA, com os dois ids na mão, para a escolha ser consciente.
+ * @returns {{ risco: null|"fork", escopo: string|null, alternativa: string|null }}
+ */
+export function detectarEscopoSuspeito(workspacePath) {
+  const dir = workspacePath && String(workspacePath).trim() ? String(workspacePath).trim() : null;
+  if (!dir) return { risco: null, escopo: null, alternativa: null };
+  // Marcador declarado VENCE e encerra a dúvida: o dono já disse qual é o projeto. Nada a avisar.
+  const root = findProjectRoot(dir);
+  if (root && declaredIdAt(root)) return { risco: null, escopo: declaredIdAt(root), alternativa: null };
+  const origem = normalizeGitRemote(git(["remote", "get-url", "origin"], dir));
+  const upstream = normalizeGitRemote(git(["remote", "get-url", "upstream"], dir));
+  if (origem && upstream && origem !== upstream) return { risco: "fork", escopo: origem, alternativa: upstream };
+  return { risco: null, escopo: origem, alternativa: null };
+}
 export function tryResolveProjectId(workspacePath) {
   try { return resolveProjectId(workspacePath); } catch { return null; }
 }
