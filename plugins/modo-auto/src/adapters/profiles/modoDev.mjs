@@ -89,7 +89,19 @@ export function createModoDev({ log = () => {}, gates, maxRounds = 4, perReviewe
       const mem = caps.memory?.recall ? await caps.memory.recall(ph, { topK: 3 }) : null;
       if (mem && mem.ok) existing = (mem.results || []).map((r) => "- " + String(r.text || "").slice(0, 180)).join("\n");
       else { const iss = recallIssue(mem, "modo-dev"); if (iss) log(iss); }
-      const ctx = `FASE A CONSTRUIR:\n${ph}\n\nJÁ EXISTE (reúse, não reinvente):\n${existing || "(nada relevante)"}\n\nMETODOLOGIA: TDD estrito (RED → GREEN → REFACTOR) + QA.`;
+      // DECISÕES ANTERIORES (namespace #adr). Quem CONSTRÓI uma fase precisa saber o que a mesa já DECIDIU — senão
+      // o dev contradiz o ADR e o revisor reprova por um motivo que estava escrito e ninguém leu. Este é o
+      // consumidor real do arquivo de ADRs: sem ele, a separação de escopo teria criado um artefato órfão
+      // (write-only), que é o defeito oposto — e igualmente inútil — ao do auto-envenenamento.
+      let decisions = "";
+      if (caps.memory?.recall) {
+        const adr = await caps.memory.recall(ph, { topK: 2, namespace: "adr" });
+        if (adr && adr.ok) decisions = (adr.results || []).map((r) => "- " + String(r.text || "").slice(0, 240)).join("\n");
+        else { const iss = recallIssue(adr, "modo-dev/adr"); if (iss) log(iss); }
+      }
+      const ctx = `FASE A CONSTRUIR:\n${ph}\n\nJÁ EXISTE (reúse, não reinvente):\n${existing || "(nada relevante)"}` +
+        (decisions ? `\n\nDECISÕES JÁ TOMADAS PELA MESA (NÃO contradiga; se precisar divergir, diga explicitamente):\n${decisions}` : "") +
+        `\n\nMETODOLOGIA: TDD estrito (RED → GREEN → REFACTOR) + QA.`;
 
       // 1) TESTER (RED) — o teste define o alvo (roda 1×). 2) DEVELOPER (GREEN) — 1ª implementação.
       const test = await run("tester", `${ctx}\n\nEscreva o TESTE que FALHA (RED) pra esta fase, com casos-limite. Só o teste.`, skillsFor("tester"));

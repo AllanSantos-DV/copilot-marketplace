@@ -119,10 +119,18 @@ export function createMemoryPort({ cwdProvider = () => process.cwd(), clientFact
      * pelo daemon — não depende de tamanho de documento nem de como ele fragmenta.
      */
     async save(content, { type = "note", tags = [], namespace = null } = {}) {
+      // VALIDAÇÃO FORA DO try: `buildSaveMetadata` LANÇA quando uma saída de agente vem sem namespace, e isso é
+      // ERRO DE PROGRAMAÇÃO, não falha de infraestrutura. Dentro do try, o catch abaixo o converteria em
+      // `{ok:false, error}` — o MESMO canal do daemon fora do ar — e o chamador trataria como degradação
+      // aceitável, exatamente o fail-silent que o guard existe para impedir. O teste AO VIVO pegou isto; os
+      // fakes não pegariam, porque o problema não é a regra, é ONDE ela roda.
+      const metadata = buildSaveMetadata({ projectId: tryResolveProjectId(cwdProvider()), type, tags, namespace });
       const c = cached || await connect();
       if (!c) return { ok: false, offline: true };
       try {
-        const metadata = buildSaveMetadata({ projectId: c.projectId, type, tags, namespace });
+        // o projectId real vem da conexão (pode diferir do resolvido acima se o cwd mudou) — reconstrói o escopo
+        const scope = buildScope(c.projectId, namespace);
+        if (scope) metadata.project_id = scope; else delete metadata.project_id;
         const r = await c.client.save(content, metadata);
         return { ok: true, id: r && r.id, scope: metadata.project_id || null };
       } catch (e) {
