@@ -21,8 +21,8 @@ import { pruneWorkerSessions, formatPrune } from "./src/adapters/agents/workerCo
 import { readProvenance, formatProvenance } from "./src/adapters/health/buildProvenance.mjs";
 import { createToggleState } from "./src/toggle/state.mjs";
 import { createMemoryPort } from "./src/adapters/memory/memoryPort.mjs";
-import { projectIdStrength, detectarEscopoSuspeito, resolveProjectIdWithProvenance } from "./src/adapters/memory/projectId.mjs";
-import { avisoMemoria, statusMemoriaCurto } from "./src/adapters/memory/memoryNotice.mjs";
+import { resolveProjectIdWithProvenance } from "./src/adapters/memory/projectId.mjs";
+import { eventoMemoria, statusMemoriaCurto } from "./src/adapters/memory/memoryNotice.mjs";
 import { createPlanPort } from "./src/adapters/plan/planPort.mjs";
 import { createAgentFactory } from "./src/adapters/agents/agentFactory.mjs";
 import { createMesa } from "./src/adapters/agents/mesa.mjs";
@@ -144,36 +144,34 @@ const factory = createAgentFactory({ cwdProvider: () => process.cwd(), getRouter
 // E O HUMANO PRECISA SABER DISSO. Antes, a mesa rodando SEM memória era indistinguível da mesa rodando COM: o
 // modelo recebia um JSON que dizia "indisponível", mas o dono via só o resultado e não tinha como saber que a
 // deliberação foi feita às cegas. Degradação silenciosa para o usuário é o mesmo defeito que passei a sessão
-// caçando no código — só que na camada de cima. O aviso sai UMA vez por processo (não a cada worker, senão vira
-// ruído) e diz o motivo E o conserto.
-let avisouEscopo = false;
+// caçando no código — só que na camada de cima.
 /**
- * Status da memória em UMA linha, para viajar no RESULTADO das tools da mesa. O aviso longo continua no log
- * (útil pra depurar), mas o log da sessão do host é INVISÍVEL numa sessão por voz/daemon — que é justamente
- * como este produto é usado. Se o dono não vê, a mesa cega continua parecendo igual à informada, e o aviso não
- * cumpriu a função. O resultado da tool é o canal que ele de fato recebe.
+ * Status da memória: UMA linha no RESULTADO da tool + um EVENTO ESTRUTURADO no log, por DELIBERAÇÃO.
+ *
+ * Duas correções de rota moram aqui. (1) O aviso ia só por `logHost`, e o log da sessão do host é INVISÍVEL numa
+ * sessão por voz/daemon — que é justamente como este produto é usado; se o dono não vê, a mesa cega continua
+ * parecendo igual à informada. (2) Ele saía UMA vez por processo, sob guard: da 2ª deliberação em diante,
+ * silêncio — e é aí que o dono já esqueceu do aviso da primeira. Agora: por rodada, nos dois canais.
  */
 const statusMesa = () => {
-  let escopo = null, origem = "?", suspeita = null;
+  let escopo = null, origem = "?", suspeita = null, motivo = "";
   try {
     const p = resolveProjectIdWithProvenance(process.cwd());
     escopo = p.projectId; origem = p.source;
     // A suspeita vem da MESMA chamada — nada de deduzir depois, que era o defeito que este conserto matou.
     suspeita = { risco: p.risco, alternativa: p.alternativa };
-  } catch { /* sem escopo → statusMemoriaCurto já diz "indisponível" */ }
+  } catch (e) { motivo = e?.message || String(e); }
+  // EVENTO ESTRUTURADO por DELIBERAÇÃO (não once-per-process). O guard anterior fazia a 2ª deliberação em
+  // diante não avisar nada — e é aí que o dono já esqueceu do aviso da primeira. Objeto, não frase: dá para
+  // logar, contar e conferir depois.
+  try { logHost(JSON.stringify(eventoMemoria({ escopo, origem, motivo, suspeita }))); } catch { /* log é best-effort */ }
   return statusMemoriaCurto({ escopo, origem, suspeita });
 };
 const memoryScopeParaMesa = () => {
-  let escopo = null, motivo = "";
-  try { escopo = memory.projectId() || null; }
-  catch (e) { motivo = e?.message || String(e); }
-  if (!avisouEscopo) {
-    avisouEscopo = true;
-    const origem = escopo ? (() => { try { return projectIdStrength(process.cwd()); } catch { return "?"; } })() : "?";
-    const suspeita = escopo ? (() => { try { return detectarEscopoSuspeito(process.cwd()); } catch { return null; } })() : null;
-    logHost(avisoMemoria({ escopo, origem, motivo, suspeita }).texto);
-  }
-  return escopo;
+  // Só resolve o escopo. O AVISO saiu daqui de propósito: esta função roda a cada worker spawnado (6+ por
+  // deliberação), então avisar aqui exigia um guard once-per-process — e o guard é que fazia a 2ª deliberação em
+  // diante ficar muda. Quem avisa agora é `statusMesa`, uma vez por DELIBERAÇÃO, no resultado da tool.
+  try { return memory.projectId() || null; } catch { return null; }
 };
 const liveMesa = createLiveMesa((a) => createLiveWorker({ ...a, cwd: process.cwd(), memoryScope: memoryScopeParaMesa(), log: logHost }), { order: ["tecnico", "pesquisador", "negocio", "advogado-diabo", "revisor", "facilitador"], log: logHost });
 const gate = createGatePort({ factory, log: logHost });                              // GatePort → skills reais (F4)
