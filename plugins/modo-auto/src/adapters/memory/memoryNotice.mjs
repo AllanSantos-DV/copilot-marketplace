@@ -14,7 +14,7 @@
  * @param {{ escopo?: string|null, origem?: string, motivo?: string }} a
  * @returns {{ ativa: boolean, texto: string }}
  */
-export function avisoMemoria({ escopo = null, origem = "?", motivo = "" } = {}) {
+export function avisoMemoria({ escopo = null, origem = "?", motivo = "", suspeita = null } = {}) {
   if (!escopo) {
     const porque = motivo ? ` (${String(motivo).split(".")[0]})` : " (plugin copilot-memory ausente ou escopo não resolvível)";
     return {
@@ -28,6 +28,19 @@ export function avisoMemoria({ escopo = null, origem = "?", motivo = "" } = {}) 
   const comoVeio = origem === "declared" ? "declarado em .memory/project.json"
     : origem === "git-remote" ? "derivado do git remote origin"
     : String(origem);
+  // FORK detectado: em vez do convite genérico "confira se é o projeto certo", o aviso vira ESPECÍFICO, com os
+  // dois ids na mão. O código não escolhe (só o dono sabe se quer o acervo do fork ou o do upstream) — mas
+  // "existe um upstream diferente" é um fato medível, e escondê-lo seria a mesma degradação silenciosa de novo.
+  if (suspeita && suspeita.risco === "fork" && suspeita.alternativa) {
+    return {
+      ativa: true,
+      texto:
+        `⚠️ memória ATIVA no escopo "${escopo}" (${comoVeio}) — mas este repositório parece um FORK: existe um ` +
+        `remote 'upstream' diferente ("${suspeita.alternativa}"). Os agentes vão ler o acervo do FORK, não o do ` +
+        `projeto original. Se você quer o acervo de "${suspeita.alternativa}", crie .memory/project.json com ` +
+        `metadata.defaults.project_id = "${suspeita.alternativa}" — o marcador declarado vence o remote.`,
+    };
+  }
   return {
     ativa: true,
     texto:

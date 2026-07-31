@@ -14,7 +14,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { computeToolExposure } from "../src/adapters/agents/workerLib.mjs";
 import { ROLES } from "../src/adapters/agents/roles.mjs";
-import { resolveProjectId, tryResolveProjectId, projectIdStrength, assertSafeProjectId, normalizeGitRemote } from "../src/adapters/memory/projectId.mjs";
+import { resolveProjectId, tryResolveProjectId, projectIdStrength, assertSafeProjectId, normalizeGitRemote, detectarEscopoSuspeito } from "../src/adapters/memory/projectId.mjs";
 import { createMemoryPort } from "../src/adapters/memory/memoryPort.mjs";
 import { createMemoryTools, MEMORY_TOOL_NAMES } from "../src/adapters/memory/memoryTools.mjs";
 import { avisoMemoria } from "../src/adapters/memory/memoryNotice.mjs";
@@ -147,10 +147,17 @@ run("todo papel do catálogo: manifesto SEM tool de memória, em toda combinaç�
     }
   }
 });
-run("papel FAIL-CLOSED não ganha memória nem com escopo cravado (foi pedido text-only de propósito)", () => {
-  const e = computeToolExposure({ role: "revisor", schemaName: "submit_x", availableTools: [], memoryToolNames: ["memory_search"] });
-  assert.ok(!e.temMemoria, "allowlist explícita = o chamador quer text-only; dar busca contraria o pedido dele");
-  assert.deepStrictEqual(e.availableTools, ["submit_x"]);
+run("papel com allowlist só ganha memória se o chamador a NOMEAR (a allowlist é a intenção dele)", () => {
+  // Regra corrigida em v0.5.5: antes eu proibia memória em QUALQUER papel fail-closed, de forma cega. Três
+  // auditorias apontaram que um juiz às vezes precisa de MAIS contexto, e estavam certas. Agora a allowlist
+  // decide: quem não nomeia, não recebe; quem nomeia, recebe — explicitamente, e isso fica visível na revisão.
+  const semNomear = computeToolExposure({ role: "revisor", schemaName: "submit_x", availableTools: [], memoryToolNames: ["memory_search"] });
+  assert.ok(!semNomear.temMemoria, "allowlist que não nomeia memória continua text-only");
+  assert.deepStrictEqual(semNomear.availableTools, ["submit_x"]);
+  const nomeando = computeToolExposure({ role: "revisor", schemaName: "submit_x", availableTools: ["memory_search"], memoryToolNames: ["memory_search"] });
+  assert.ok(nomeando.temMemoria, "quando o chamador NOMEIA, a memória entra: " + JSON.stringify(nomeando));
+  assert.deepStrictEqual(nomeando.availableTools, ["memory_search", "submit_x"], "e a submit continua anexada");
+  assert.ok(!nomeando.toolNames.some((n) => /save|write|delete/i.test(n)), "e nunca escrita, em nenhum caminho");
 });
 run("com escopo cravado, papel aberto ganha SÓ LEITURA (não existe tool de escrita no toolset)", () => {
   const e = computeToolExposure({ role: "documentacao", memoryToolNames: MEMORY_TOOL_NAMES });
@@ -341,6 +348,23 @@ run("id cravado com cara de CAMINHO é recusado (o piso vale também para o crav
   assert.throws(() => assertSafeProjectId("C:\\Users\\x\\.copilot"), /caminho de sistema de arquivos/);
 });
 
+await runA("o auditor SEM escopo é text-only puro; COM escopo, pede memory_search explicitamente", async () => {
+  let sem = null, com = null;
+  const fac = (guarda) => ({ run: async (_r, _p, opts) => { guarda(opts); return { ok: true, text: JSON.stringify({ itens: [] }) }; } });
+  await auditarMemoria({ factory: fac((o) => { sem = o; }), assunto: "x", itens: ITENS });
+  assert.deepStrictEqual(sem.availableTools, [], "sem memória disponível, o auditor não pode pedir tool nenhuma");
+  await auditarMemoria({ factory: fac((o) => { com = o; }), assunto: "x", itens: ITENS, memoryScope: "dono/proj" });
+  assert.deepStrictEqual(com.availableTools, ["memory_search"], "com escopo, ele NOMEIA a busca — fail-closed com exceção declarada: " + JSON.stringify(com.availableTools));
+  assert.strictEqual(com.memoryScope, "dono/proj", "e o escopo vai cravado");
+  assert.strictEqual(com.schema.name, "submit_memory_audit", "o veredito continua vindo por tool template");
+});
+run("o prompt só oferece a busca quando ela existe (não promete ferramenta ausente)", () => {
+  assert.ok(!/memory_search/.test(promptAuditoria("a", ITENS)), "sem busca, o prompt não pode mencioná-la");
+  const comBusca = promptAuditoria("a", ITENS, { podeBuscar: true });
+  assert.match(comBusca, /memory_search/);
+  assert.match(comBusca, /"desatualizado" é palpite; com isso, é verificação|palpite/, "e explica POR QUE usar: sem conferir, o veredito é julgamento");
+});
+
 console.log("aviso ao HUMANO: a mesa cega não pode parecer igual à mesa informada");
 run("sem escopo → aviso EXPLÍCITO com o motivo e o conserto", () => {
   const a = avisoMemoria({ escopo: null });
@@ -362,6 +386,34 @@ run("marcador declarado aparece como declarado (as duas origens são distinguív
 });
 run("o motivo do erro entra no aviso quando existe (não some no caminho)", () => {
   assert.match(avisoMemoria({ escopo: null, motivo: "Não foi possível resolver project_id. Crie um..." }).texto, /Não foi possível resolver project_id/);
+});
+
+run("FORK detectado vira aviso ESPECÍFICO com os dois ids (o furo que o fail-loud não pega)", () => {
+  const a = avisoMemoria({ escopo: "github.com/eu/proj", origem: "git-remote", suspeita: { risco: "fork", escopo: "github.com/eu/proj", alternativa: "github.com/original/proj" } });
+  assert.strictEqual(a.ativa, true, "fork não impede a memória — só avisa");
+  assert.match(a.texto, /FORK/);
+  assert.match(a.texto, /github\.com\/original\/proj/, "o upstream tem que aparecer, senão o dono não sabe a alternativa");
+  assert.match(a.texto, /metadata\.defaults\.project_id/, "e o conserto tem que vir junto");
+});
+run("sem upstream diferente, nenhum alarme de fork (não pode gritar à toa)", () => {
+  assert.ok(!/FORK/.test(avisoMemoria({ escopo: "x/y", origem: "git-remote", suspeita: { risco: null } }).texto));
+});
+await runA("detectarEscopoSuspeito: origin+upstream diferentes = fork; marcador declarado ENCERRA a dúvida", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const g = (args, cwd) => execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "ignore"], timeout: 8000, windowsHide: true });
+  try { execFileSync("git", ["--version"], { stdio: "ignore", timeout: 5000 }); } catch { return; }
+  const d = mkdtempSync(join(tmpdir(), "fork-"));
+  g(["init", "-q"], d);
+  g(["remote", "add", "origin", "https://github.com/eu/proj.git"], d);
+  assert.strictEqual(detectarEscopoSuspeito(d).risco, null, "só origin = sem suspeita");
+  g(["remote", "add", "upstream", "https://github.com/original/proj.git"], d);
+  const s = detectarEscopoSuspeito(d);
+  assert.strictEqual(s.risco, "fork", "origin + upstream diferentes = fork: " + JSON.stringify(s));
+  assert.strictEqual(s.alternativa, "github.com/original/proj");
+  // O marcador é a DECLARAÇÃO do dono — havendo um, não há dúvida a levantar.
+  mkdirSync(join(d, ".memory"), { recursive: true });
+  writeFileSync(join(d, ".memory", "project.json"), JSON.stringify({ metadata: { defaults: { project_id: "original/proj" } } }));
+  assert.strictEqual(detectarEscopoSuspeito(d).risco, null, "com marcador declarado, o alarme SOME (o dono já decidiu)");
 });
 
 console.log(`\nmemory-validator-smoke: ${pass}/${total} OK`);

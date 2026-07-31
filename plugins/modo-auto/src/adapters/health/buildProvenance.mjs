@@ -139,6 +139,22 @@ export function writeProvenance({ root, out, git, exists = fsExists, read = fsRe
     version,
     pushed,
     remoteBranches,
+    // ACESSO PÚBLICO — o campo que faltava, e a falta dele fazia o carimbo PARECER mentira.
+    //
+    // O que acontecia: `remote` aponta para um repositório PRIVADO e `pushed:true` diz que o commit está lá.
+    // Ambos são verdade. Mas um terceiro que tenta `git ls-remote` nesse remote recebe "Repository not found"
+    // (o GitHub responde 404 para repo privado, não 403) e conclui, corretamente do ponto de vista dele, que a
+    // proveniência está mentindo. Auditorias bateram nisto seis vezes — e refutar de novo não conserta nada,
+    // porque o artefato continua sem dizer a verdade inteira.
+    // A verdade inteira é: o CÓDIGO-FONTE não é clonável por terceiro (repo privado, por escolha do dono), mas
+    // o ARTEFATO DISTRIBUÍDO é — pela vitrine pública, que embarca `selftest/` e se auto-verifica.
+    // Ou seja: o carimbo passa a dizer ONDE a reprodução é possível, em vez de deixar o leitor concluir que é
+    // impossível. Não é campo cosmético: é a diferença entre "não confere" e "confere aqui".
+    sourceAccess: {
+      note: "o repositório de ORIGEM é privado — `git ls-remote` nele responde 'Repository not found' para terceiros (404 do GitHub para repo privado). Isso NÃO é falha da proveniência.",
+      reproducible: "o ARTEFATO é público e verificável: clone https://github.com/AllanSantos-DV/copilot-marketplace e rode `node plugins/modo-auto/selftest/run.mjs` — ele imprime este mesmo commit/tag.",
+      verifyCommand: "git clone --depth 1 https://github.com/AllanSantos-DV/copilot-marketplace && node copilot-marketplace/plugins/modo-auto/selftest/run.mjs",
+    },
     generatedAt: now(),
     indeterminate,
   };

@@ -129,16 +129,22 @@ export function authHint(errorType, { env = process.env } = {}) {
  * A regra em si: só o `pesquisador` ganha o toolset de pesquisa; a tool de submissão entra quando o chamador
  * pede formato determinístico; `availableTools` é allowlist fail-closed quando vem lista (e a submit é sempre
  * anexada, senão o papel não teria como responder).
- * MEMÓRIA: só entra quando o PAI CRAVOU o escopo (`memoryToolNames` só vem preenchido nesse caso), e mesmo
- * assim NUNCA para um papel fail-closed (allowlist explícita = papel de veredito text-only; dar busca a ele
- * seria contrariar o próprio pedido do chamador). A tool é de LEITURA — não existe escrita no toolset.
+ * MEMÓRIA: entra quando o PAI CRAVOU o escopo (`memoryToolNames` só vem preenchido nesse caso). Quando o
+ * chamador passa uma allowlist explícita, ELA decide: memória entra apenas se o chamador a nomeou. Isso é
+ * deliberado e substitui uma regra anterior que a proibia de forma cega em qualquer papel fail-closed — três
+ * auditorias apontaram que "um juiz precisa de MAIS contexto, não menos", e estavam certas: quem emite veredito
+ * às vezes precisa conferir se aquilo já foi decidido. A allowlist É a declaração de intenção do chamador; ele
+ * é quem sabe se aquele papel deve investigar ou apenas concluir. A tool continua sendo de LEITURA — não existe
+ * escrita no toolset, em nenhum caminho.
  * @returns {{ toolNames:string[], availableTools:string[]|null, temPesquisa:boolean, temSubmit:boolean, temMemoria:boolean }}
  */
 export function computeToolExposure({ role, schemaName = null, availableTools = null, researchToolNames = [], memoryToolNames = [] } = {}) {
   const pesquisa = role === "pesquisador" ? [...researchToolNames] : [];
   const submitName = schemaName ? String(schemaName) : null;
-  // Papel fail-closed (o chamador passou allowlist) NÃO recebe memória: ele foi pedido text-only de propósito.
-  const memoria = Array.isArray(availableTools) ? [] : [...memoryToolNames];
+  // Sem allowlist → papel aberto, recebe memória. Com allowlist → só o que o chamador nomeou.
+  const memoria = Array.isArray(availableTools)
+    ? memoryToolNames.filter((n) => availableTools.includes(n))
+    : [...memoryToolNames];
   const toolNames = [...pesquisa, ...memoria, ...(submitName ? [submitName] : [])];
   let avail = Array.isArray(availableTools) ? [...availableTools] : null;
   if (submitName && avail) avail.push(submitName);
