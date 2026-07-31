@@ -42,25 +42,18 @@ const PATH_CFG = {
   full: { skipDebate: false, roles: ADR_LIVE_ORDER, minRounds: 2, maxRounds: 4 },
 };
 
-// PISO DE RELEVÂNCIA do recall — knob EXPLÍCITO, não constante mágica. Leia antes de mexer:
-//
-// O QUE FOI MEDIDO (nesta base, 2026-07-31): rodando uma busca real com o briefing curto que disparou o bug
-// ("descrever em uma frase o que o modo-auto faz"), os trechos RETORNADOS eram todos FORA DO ASSUNTO e ainda
-// assim pontuaram 0.65–0.71. Conclusão honesta: **este piso, em 0.55, NÃO teria barrado aquele ruído**. Ele é
-// DEFESA EM PROFUNDIDADE, não a parede que segura o problema.
-// O QUE DE FATO SEGURA (nesta ordem): (1) o corte no WRITE — a mesa não grava mais o plano inteiro como
-// conhecimento de reúso, então o corpus para de ser envenenado; (2) o REENQUADRAMENTO do bloco ("não é o
-// assunto desta mesa … IGNORE o que não casar"), que foi o que mudou o comportamento observável — no run de
-// prova o próprio ADR passou a declarar o ruído como "problemas paralelos, não relacionados".
-// POR QUE NÃO SUBIR O PISO NO ESCURO: acima de ~0.7 ele começaria a cortar recall LEGÍTIMO (o mesmo briefing
-// curto casa fracamente com QUALQUER coisa, inclusive com o que é relevante) — trocaria falso-positivo por
-// falso-negativo silencioso, que é pior porque o reúso some sem aviso. Calibrar exige distribuição de scores
-// de consultas boas × ruins; enquanto essa amostra não existe, o valor fica conservador, DOCUMENTADO e
-// sobrescrevível por ambiente, e todo descarte é LOGADO (nunca some calado).
-const RECALL_MIN_SCORE = (() => {
-  const raw = Number(process.env.MODO_AUTO_RECALL_MIN_SCORE);
-  return Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : 0.55;
-})();
+// PISO DE RELEVÂNCIA: REMOVIDO (v0.3.0), e o motivo é medição, não gosto.
+// Ele existiu como filtro de cosine (0.55) contra o ruído que sequestrava o plano. Só que a medição real, com o
+// mesmo briefing curto que disparou o bug, mostrou o ruído pontuando 0.65-0.71 — ACIMA do piso. Ou seja: no caso
+// que ele deveria cobrir, ele NUNCA disparava. Um guarda que não dispara não é defesa fraca, é FALSA SEGURANÇA:
+// aparece no código, aparece no teste (com números fabricados), e faz todo mundo — inclusive eu — acreditar que
+// há proteção ali. Calibrar de verdade exigiria a distribuição de scores de consultas boas x ruins, amostra que
+// não existe; inventar um número novo repetiria o erro.
+// O QUE PROTEGE DE FATO, por construção e não por limiar: (1) a mesa não grava mais o plano inteiro como
+// conhecimento de reúso; (2) a saída dela vive num NAMESPACE separado, então não volta na busca que ela faz;
+// (3) o que vem da memória entra ROTULADO como contexto descartável, nunca dentro do "CONSOLIDE isto".
+// Barrar por relevância de verdade pede top-k amplo + reranker cross-encoder — anotado como dívida, não fingido
+// com um piso de cosine.
 
 // REGISTRO DE ADR na memória — deliberadamente COMPACTO, e esta é a correção da FONTE do envenenamento.
 // Antes, o plano INTEIRO (~5 KB: fases, riscos, referências) era gravado como conhecimento de reúso. Como a
@@ -93,13 +86,13 @@ export function createModoAdr({ log = () => {}, roles } = {}) {
 
   // MESA VIVA: monta os agentes vivos (papéis base + facilitador), roda o debate turno a turno, e o
   // documentador escreve o plano COM a deliberação inteira. Persiste o snapshot (sessionIds) p/ reabrir.
-  async function buildPlanVivo(bf, existing, caps, { deep, taskType = null, path = "full", triageInfo = null }) {
+  async function buildPlanVivo(bf, existing, caps, { deep, taskType = null, path = "full", triageInfo = null, priorAdrs = "" }) {
   // Mesma razão do modo_dev: a deliberação do ADR produzia ~258 spans SEM `taskType`, inutilizando qualquer
   // comparação por tipo de tarefa. Com o contexto por cadeia assíncrona, todo papel disparado aqui herda.
-  return withRunContext({ taskType, stage: "adr" }, () => buildPlanVivoInner(bf, existing, caps, { deep, taskType, path, triageInfo }));
+  return withRunContext({ taskType, stage: "adr" }, () => buildPlanVivoInner(bf, existing, caps, { deep, taskType, path, triageInfo, priorAdrs }));
 }
 
-async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, path = "full", triageInfo = null }) {
+async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, path = "full", triageInfo = null, priorAdrs = "" }) {
     const cfg = PATH_CFG[path] || PATH_CFG.full;
     const agents = cfg.roles.map((id) => {
       const r = getRole(id);
@@ -119,6 +112,9 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
       ? `\n\nCONTEXTO DE REÚSO (memória do projeto — NÃO é o assunto desta mesa e NÃO deve ser consolidado):\n` +
         `Use SOMENTE o que casar com o BRIEFING acima, para não reinventar o que já existe. ` +
         `O que não tiver relação com o briefing, IGNORE por completo — não traga esses temas para o plano.\n${ex}`
+      : "") + (priorAdrs
+      ? `\n\nDECISÕES ANTERIORES DESTA MESA (arquivo de ADRs — leia para NÃO CONTRADIZER nem refazer o que já foi\n` +
+        `decidido; NÃO é o assunto desta mesa e NÃO deve ser consolidado no plano):\n${priorAdrs}`
       : "");
 
     let otfPhases = null, engine = "viva-otf"; // captura das fases + qual motor de escrita foi usado
@@ -257,24 +253,37 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
       // devolve os planos que OUTRAS deliberações salvaram (a mesa grava cada plano na memória, então ela
       // envenena a si mesma). Foi assim que um briefing de uma linha virou um ADR sobre locks/owner.json:
       // 4 trechos de outro assunto entraram como "reúse" e dominaram o conteúdo. Abaixo do piso, é ruído.
+      // 1) o que JÁ EXISTE no projeto. DUAS consultas de propósito, em escopos separados:
+      //    (a) o escopo do PROJETO — conhecimento geral (memórias, lições, notas);
+      //    (b) o ARQUIVO DE ADRs (`#adr`) — as DECISÕES anteriores da mesa.
+      // Elas ficam separadas porque o problema original era a mesa consumir os PLANOS que ela mesma escrevia como
+      // se fossem "o que já existe". Mas ignorar as decisões anteriores por completo trocaria envenenamento por
+      // AMNÉSIA — e reusar decisão é justamente a dor que a memória existe para resolver. Então o arquivo é lido
+      // no escopo próprio e entra ROTULADO como decisão anterior, nunca como matéria a consolidar.
       let existing = "";
-      const mem = caps.memory?.recall ? await caps.memory.recall(bf, { topK: 4, minScore: RECALL_MIN_SCORE }) : null;
+      let priorAdrs = "";
+      const mem = caps.memory?.recall ? await caps.memory.recall(bf, { topK: 4 }) : null;
       if (mem && mem.ok) {
         const rel = (mem.results || [])
           // Rede de segurança para o LEGADO: registros gravados ANTES da separação por namespace ainda vivem no
           // escopo principal e voltariam na busca. Este filtro por marcador cobre esses — e só esses. Ele NÃO é
           // mais a garantia (a garantia é o namespace, que não depende de chunker); é limpeza do que já ficou.
-          .filter((r) => r && !String(r.text || "").includes(ADR_RECORD_MARK))
-          .filter((r) => r.score == null || Number(r.score) >= RECALL_MIN_SCORE);
+          .filter((r) => r && !String(r.text || "").includes(ADR_RECORD_MARK));
         const cortados = (mem.results || []).length - rel.length;
-        if (cortados > 0) log(`[modo-adr] recall: ${cortados} trecho(s) descartado(s) (abaixo do piso ${RECALL_MIN_SCORE} ou registro de ADR anterior) — não entram como "já existe"`);
+        if (cortados > 0) log(`[modo-adr] recall: ${cortados} registro(s) de ADR legado descartado(s) — a mesa não reconsome a própria saída`);
         existing = rel.map((r) => "- " + String(r.text || "").slice(0, 220)).join("\n");
       }
       else if (mem && mem.ok === false && mem.error) log(`[modo-adr] memória indisponível (${mem.error}) — segue sem contexto`);
+      if (caps.memory?.recall) {
+        try {
+          const adrs = await caps.memory.recall(bf, { topK: 3, namespace: ADR_NAMESPACE });
+          if (adrs && adrs.ok) priorAdrs = (adrs.results || []).map((r) => "- " + String(r.text || "").slice(0, 300)).join("\n");
+        } catch (e) { log(`[modo-adr] arquivo de ADRs indisponível (sinalizado): ${e?.message || e}`); }
+      }
 
       // MESA VIVA (debate real turno a turno) quando o motor está disponível OU no caminho express (que não usa a
       // mesa — só o documentador OTF). Senão, fan-out/fan-in LEGADO (sempre full — é fallback de teste).
-      if (caps.liveMesa?.run || path === "express") return await buildPlanVivo(bf, existing, caps, { deep, taskType, path, triageInfo });
+      if (caps.liveMesa?.run || path === "express") return await buildPlanVivo(bf, existing, caps, { deep, taskType, path, triageInfo, priorAdrs });
       if (!caps.factory?.runMany) throw new Error("modo-adr.buildPlan (legado): caps.factory.runMany ausente");
 
       // 2) mesa de ADR: os papéis analisam o briefing grounded no que existe.

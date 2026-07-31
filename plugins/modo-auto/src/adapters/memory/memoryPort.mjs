@@ -7,6 +7,18 @@ import { tryResolveProjectId } from "./projectId.mjs";
 import { MemoryClient } from "./client.mjs";
 
 /**
+ * Escopo de consulta/gravação. Fonte ÚNICA da regra: se write e read montarem o escopo por caminhos diferentes,
+ * eles divergem e o que foi gravado vira inalcançável — foi exatamente o que aconteceu quando o namespace entrou
+ * só no write: os registros iam para `<project>#adr` e o recall seguia consultando `<project>` puro, então NADA
+ * daquele arquivo voltava. Trocar envenenamento por amnésia não é conserto. Uma função, dois usos.
+ */
+export function buildScope(projectId, namespace = null) {
+  if (!projectId) return null;
+  const ns = namespace ? String(namespace).trim() : "";
+  return ns ? `${projectId}#${ns}` : projectId;
+}
+
+/**
  * Monta o metadata de gravação. PURO de propósito: é aqui que mora a separação de escopo, e sem daemon vivo não
  * daria para testá-la através do port (o connect() exige o serviço no ar). Regra: `namespace` SUFIXA o project_id
  * — e como o recall é escopado ao project_id puro, o que vai para um namespace nunca volta na busca principal.
@@ -14,8 +26,8 @@ import { MemoryClient } from "./client.mjs";
  */
 export function buildSaveMetadata({ projectId = null, type = "note", tags = [], namespace = null } = {}) {
   const metadata = { type };
-  const ns = namespace ? String(namespace).trim() : "";
-  if (projectId) metadata.project_id = ns ? `${projectId}#${ns}` : projectId;
+  const scope = buildScope(projectId, namespace);
+  if (scope) metadata.project_id = scope;
   if (Array.isArray(tags) && tags.length) metadata.tags = tags;
   return metadata;
 }
@@ -40,13 +52,19 @@ export function createMemoryPort({ cwdProvider = () => process.cwd(), clientFact
   return {
     projectId() { return tryResolveProjectId(cwdProvider()); },
 
-    async recall(query, { topK = 5, minScore = null } = {}) {
+    /**
+     * Busca semântica no escopo do projeto. `namespace` consulta um escopo IRMÃO (ex.: o arquivo de ADRs em
+     * `<project>#adr`), que é onde a mesa guarda a própria saída para não se reconsumir. Sem `namespace`, busca o
+     * escopo principal — e por construção NÃO enxerga os namespaces, que é o ponto.
+     */
+    async recall(query, { topK = 5, minScore = null, namespace = null } = {}) {
       const c = cached || await connect();
       if (!c) return { ok: false, offline: true, results: [] }; // daemon offline = degradado legítimo (não erro)
       try {
-        const metadata = c.projectId ? { project_id: c.projectId } : undefined;
+        const scope = buildScope(c.projectId, namespace);
+        const metadata = scope ? { project_id: scope } : undefined;
         const r = await c.client.search(query, { topK, metadata, ...(minScore != null ? { minScore } : {}) });
-        return { ok: true, results: (r && r.results) || [], projectId: c.projectId };
+        return { ok: true, results: (r && r.results) || [], projectId: scope };
       } catch (e) {
         const error = e?.message || String(e);
         log("recall ERRO (surfaced, não mascarado): " + error);
