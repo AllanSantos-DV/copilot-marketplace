@@ -151,6 +151,50 @@ export function computeToolExposure({ role, schemaName = null, availableTools = 
   return { toolNames, availableTools: avail, temPesquisa: pesquisa.length > 0, temSubmit: !!submitName, temMemoria: memoria.length > 0 };
 }
 
+/**
+ * CHOKE POINT ÚNICO da preparação do subprocesso. Existe porque a duplicação entre os dois spawners
+ * (`agentFactory` e `liveWorkerClient`) já produziu o mesmo bug DUAS vezes nesta sessão: fechei o escopo num
+ * caminho e esqueci o outro; depois assinei num e não no outro. Isso não é descuido — é sintoma arquitetural, e
+ * a recorrência era garantida enquanto houvesse duas cópias da mesma decisão.
+ *
+ * ALLOWLIST, não blocklist. Antes cada spawner fazia `{...process.env}` e apagava nomes conhecidos — o que
+ * significa que qualquer variável NOVA (um segredo, um config, um escopo de outro produto) é herdada por
+ * padrão, e a proteção depende de alguém lembrar de adicioná-la à lista de exclusão. Aqui o padrão é o
+ * contrário: só passa o que está declarado. Uma variável nova nasce BLOQUEADA.
+ * @returns {NodeJS.ProcessEnv} env mínimo para um worker, sem herança acidental
+ */
+export function envDoWorker({ base = process.env, extras = {} } = {}) {
+  const env = {};
+  for (const nome of ENV_PERMITIDO) if (base[nome] !== undefined) env[nome] = base[nome];
+  // Prefixos herdados de propósito: o SDK/CLI precisa deles para autenticar e achar o runtime. Ficam
+  // explícitos aqui em vez de virem de graça por `{...process.env}`.
+  for (const [k, v] of Object.entries(base)) {
+    if (v === undefined) continue;
+    if (ENV_PREFIXOS_PERMITIDOS.some((p) => k.startsWith(p))) env[k] = v;
+  }
+  // Higiene do fork: nunca herdar o resolver hook nem o caminho de SDK do processo pai.
+  delete env.NODE_OPTIONS;
+  delete env.COPILOT_SDK_PATH;
+  // Escopo de memória JAMAIS vem por herança — só pelos `extras`, que o spawner monta e assina.
+  delete env.MODO_AUTO_WORKER_MEMORY_SCOPE;
+  delete env.MODO_AUTO_WORKER_MEMORY_SIG;
+  delete env.MODO_AUTO_SCOPE_SECRET;
+  env.NODE_NO_WARNINGS = "1";
+  return { ...env, ...extras };
+}
+
+/** Nomes exatos que o worker precisa. Qualquer coisa fora daqui (ou dos prefixos) NÃO chega ao filho. */
+const ENV_PERMITIDO = Object.freeze([
+  "PATH", "Path", "PATHEXT", "SystemRoot", "SystemDrive", "windir", "ComSpec", "TEMP", "TMP", "TMPDIR",
+  "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "ProgramFiles",
+  "ProgramData", "NUMBER_OF_PROCESSORS", "OS", "LANG", "LC_ALL", "SHELL", "USER", "USERNAME", "LOGNAME",
+  "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "http_proxy", "https_proxy", "no_proxy",
+  "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+]);
+
+/** Prefixos herdados por necessidade (auth do SDK, config do CLI, e o próprio modo-auto). */
+const ENV_PREFIXOS_PERMITIDOS = Object.freeze(["GH_", "GITHUB_", "COPILOT_", "XDG_", "MODO_AUTO_WORKER_", "MODO_AUTO_SMOKE"]);
+
 export function textOf(res) {
   const c = res?.data?.content ?? res?.content;
   if (c == null) return "";

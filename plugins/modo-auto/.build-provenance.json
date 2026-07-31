@@ -1,14 +1,14 @@
 {
   "kind": "operational-audit",
   "commit": {
-    "sha": "bcfe94fd80c14cfce794aea7f9b3b20e54dd1e59",
-    "shortSha": "bcfe94f"
+    "sha": "a1bca5ea3d301cbbd208bdfce1665101da5e15b6",
+    "shortSha": "a1bca5e"
   },
   "branch": "develop",
-  "tag": "v0.6.4",
+  "tag": "v0.6.5",
   "remote": "https://github.com/AllanSantos-DV/modo-auto.git",
   "clean": true,
-  "version": "0.6.4",
+  "version": "0.6.5",
   "pushed": true,
   "remoteBranches": [
     "origin/develop",
@@ -22,8 +22,8 @@
   "strictGate": {
     "passou": true,
     "testes": "12/12",
-    "em": "2026-07-31T20:23:01.686Z"
+    "em": "2026-07-31T20:43:55.971Z"
   },
-  "generatedAt": "2026-07-31T20:23:02.067Z",
+  "generatedAt": "2026-07-31T20:44:06.828Z",
   "indeterminate": []
 }

@@ -118,8 +118,33 @@ o teto cai para 1 ou a busca sai. A decisão é reversível de propósito — el
 **Positivas:** escrita impossível por construção; escopo nunca derivado de caminho; memória auditável (id
 citável + veredito justificado); o produto continua funcionando sem o plugin.
 
-**Isolamento PROVADO, não afirmado** — `selftest/memory-cross-project-leak-smoke.mjs`, contra o daemon real:
-dois projetos distintos no MESMO store, textos quase idênticos e uma query que casa com ambos.
+## MODELO DE AMEAÇA (declarado, porque sem ele metade deste ADR resolve risco de laboratório)
+
+Quem sofre a dor, hoje: **o próprio dono, numa máquina só, com múltiplos projetos**. A falha real e medida é
+**contaminação por engano** — a mesa de um projeto lendo/citando o acervo de outro, o que produz plano errado com
+cara de plano informado. Foi isso que aconteceu de verdade nesta sessão, duas vezes.
+
+**O que este ADR NÃO resolve, e é preciso dizer alto:**
+
+**NÃO HÁ AUTORIZAÇÃO SERVER-SIDE.** O daemon confia no `project_id` que o cliente manda. **Medido** (não
+suposto): um cliente qualquer, apontando para o daemon local, que peça explicitamente o `project_id` de outro
+projeto **recebe o dado** — e também **consegue apagá-lo**. Não existe token→projetos-permitidos.
+
+Portanto, corrigindo uma afirmação minha anterior que estava **ERRADA**: o que os testes provam é **filtro por
+igualdade** (o daemon corta por `project_id`, não é sorte do ranqueador) e **higiene interna** (o agente não
+escolhe escopo, não resolve pelo próprio cwd, não aceita escopo não-assinado). Isso é **prevenção de engano**,
+não **fronteira de segurança**. Chamei isso de "isolamento cross-project provado" e a palavra estava grande
+demais.
+
+Consequência prática do modelo de ameaça: as camadas de assinatura/env deste ADR só importam contra um chamador
+**interno** confuso — se um atacante já controla o processo pai, ele já controla tudo, inclusive o segredo. Elas
+NÃO viram defesa multi-tenant, e o produto **não deve ser usado como se fossem**. Um cenário multi-tenant real
+exige authz no daemon (outro produto, `copilot-memory`), e está fora do alcance do modo-auto.
+
+
+**Isolamento MEDIDO (leia junto com o modelo de ameaça acima — isto é filtro, não autorização)** —
+`selftest/memory-cross-project-leak-smoke.mjs`, contra o daemon real: dois projetos distintos no MESMO store,
+textos quase idênticos e uma query que casa com ambos.
 
 | asserção | resultado |
 |---|---|
@@ -130,9 +155,12 @@ dois projetos distintos no MESMO store, textos quase idênticos e uma query que 
 | sem filtro o daemon devolve **os dois**; com filtro, só o do escopo | ok — o corte é **server-side** |
 | escopo inexistente devolve **vazio** (não "o mais parecido") | ok |
 | o documento certo vem **à frente** do distrator (relevância) | ok |
+| cliente que PEDE explicitamente outro `project_id` | **RECEBE O DADO** — não há authz (medido) |
 
 A quinta linha responde "o filtro é do servidor ou é sorte do ranqueador?": se fosse só ranqueamento, o
 documento do vizinho — semanticamente ótimo para a query — apareceria. Não aparece.
+A **última** linha é a que corrige o exagero: o corte existe e funciona **para quem pede o próprio escopo**.
+Quem pede o alheio recebe. Filtro ≠ fronteira.
 
 **Negativas / limites conhecidos, registrados sem maquiar:**
 
