@@ -98,15 +98,11 @@ function adrRecord(briefing, plan) {
 }
 
 /**
- * Escopo de memória para CRAVAR no worker. O pai resolve UMA vez (com o cwd da SESSÃO); o filho recebe pronto e
- * nunca olha o próprio `cwd` — se olhasse, resolveria pelo diretório onde ele roda, que não é o projeto.
- * Sem port, sem plugin ou sem escopo resolvível → `null`, e o worker roda sem tool de memória (adaptador, não
- * dependência). NUNCA lança: ausência de memória não pode derrubar a mesa.
+ * Escopo de memória para CRAVAR no worker. Reusa a fonte única em `memory/memoryTools.mjs` — a pergunta "qual
+ * projeto este agente pode ler?" é a mesma em todos os perfis, e duplicá-la aqui criaria a segunda verdade que
+ * já me custou dois bugs nesta sessão. Re-exportado para não quebrar quem já importava daqui.
  */
-export function escopoParaWorker(caps) {
-  try { return (caps && caps.memory && caps.memory.projectId && caps.memory.projectId()) || null; }
-  catch { return null; }
-}
+export { escopoParaWorker } from "../memory/memoryTools.mjs";
 
 export function createModoAdr({ log = () => {}, roles } = {}) {
   const ADR_ROLES = roles || ["pesquisador", "negocio", "tecnico", "revisor"];

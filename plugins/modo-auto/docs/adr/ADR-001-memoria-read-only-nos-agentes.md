@@ -89,20 +89,27 @@ definição da tool já vai com o `project_id` cravado. O agente não resolve es
 
 ## Quem recebe busca, e quem não recebe (é desenho, e aqui está o porquê)
 
-Papéis que rodam **fail-closed** (`availableTools: []`) NÃO recebem `memory_search`. Não é herança nem descuido:
-esses papéis **consolidam material que já está no prompt** — o documentador escreve a prosa da deliberação que a
-mesa já fez; o consolidador do painel funde pareceres já escritos; o auditor de memória julga itens que já lhe
-foram entregues. Dar busca a eles convida a explorar em vez de concluir, e o custo aparece em token e em turno.
+A regra é **por forma de trabalho**, não por nome de papel:
 
-Papéis da **mesa viva** (que discutem: técnico, negócio, advogado-do-diabo, revisor, pesquisador) **recebem**,
-porque o trabalho deles é justamente trazer o que não está no prompt.
+| quem | recebe busca? | por quê |
+|---|---|---|
+| mesa viva (técnico, negócio, advogado-do-diabo, revisor, pesquisador) | **sim** | o trabalho deles é trazer o que NÃO está no prompt |
+| dev e revisor do `modo_dev` | **sim** | quem revisa pode reprovar algo já decidido no acervo sem saber |
+| papéis com `schema` / `availableTools: []` (documentador, consolidador, auditor) | **não** | eles CONSOLIDAM material já entregue; busca ali convida a explorar em vez de concluir |
 
-**Trade-off honesto, registrado porque uma auditoria o levantou e ele é legítimo:** o auditor de memória diz
-"desatualizado" sem poder *verificar* que algo mais novo o superou — isso é um **julgamento**, não uma
-verificação. Dar busca a ele permitiria provar a supersessão citando o documento mais novo. Não foi feito, e o
-motivo é custo/loop (ele já roda uma vez por deliberação, sobre N itens). **Fica nomeado como questão de
-produto**, não como fato resolvido: se na prática os vereditos "desatualizado" começarem a errar, a saída é dar
-busca ao auditor com teto baixo.
+A terceira linha é aplicada pela policy única (`computeToolExposure`): allowlist explícita ⇒ sem memória,
+automaticamente. Não depende de ninguém lembrar.
+
+**Correção registrada:** o dev/revisor do `modo_dev` estava sem busca por descuido, não por desenho — uma
+auditoria apontou que o revisor "pode reprovar algo já decidido e documentado sem nunca saber", e procedia. As
+decisões do ADR já chegavam no prompt, mas prompt é o que o pai adiantou; a busca é o que ele consulta quando
+desconfia. Corrigido em v0.5.4.
+
+**Trade-off que continua em aberto, nomeado:** o auditor de memória diz "desatualizado" sem poder *verificar*
+que algo mais novo o superou — é um **julgamento**, não uma verificação. Dar busca a ele permitiria provar a
+supersessão citando o documento mais novo; o custo é token e risco de loop (ele já roda sobre N itens por
+deliberação). **Gatilho para reverter:** se os vereditos "desatualizado" começarem a errar na prática, dar busca
+ao auditor com teto baixo.
 
 **Positivas:** escrita impossível por construção; escopo nunca derivado de caminho; memória auditável (id
 citável + veredito justificado); o produto continua funcionando sem o plugin.
