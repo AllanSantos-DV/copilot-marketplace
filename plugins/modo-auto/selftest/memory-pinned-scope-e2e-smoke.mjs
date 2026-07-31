@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { discover } from "../src/adapters/memory/daemon.mjs";
 import { MemoryClient } from "../src/adapters/memory/client.mjs";
+import { assinarEscopo, segredoDoProcesso } from "../src/adapters/memory/memoryTools.mjs";
 
 const STRICT = process.env.MODO_AUTO_STRICT === "1";
 let pass = 0, total = 0;
@@ -60,17 +61,20 @@ const cwdDoPai = tmpDir("pai-");
 mkdirSync(join(cwdDoPai, ".memory"), { recursive: true });
 writeFileSync(join(cwdDoPai, ".memory", "project.json"), JSON.stringify({ metadata: { defaults: { project_id: PROJ_PAI } } }));
 
-function rodarWorker({ memoryScope, cwd, prompt, timeoutMs = 150000 }) {
+function rodarWorker({ memoryScope, cwd, prompt, timeoutMs = 150000, assinatura = null, segredo = null }) {
   return new Promise((resolve) => {
     const env = { ...process.env, NODE_NO_WARNINGS: "1", MODO_AUTO_DUMP_TOOLS: "1" };
     delete env.NODE_OPTIONS; delete env.COPILOT_SDK_PATH;
+    // O segredo do processo pai é o que permite ao filho VERIFICAR a assinatura. Um spawn que não o tenha (ou
+    // que traga uma assinatura forjada) verá o escopo RECUSADO — é exatamente o que o caso negativo abaixo prova.
+    if (segredo) env.MODO_AUTO_SCOPE_SECRET = segredo; else delete env.MODO_AUTO_SCOPE_SECRET;
     const child = spawn(process.execPath, [WORKER], { env, cwd, stdio: ["pipe", "pipe", "pipe"] });
     let out = "", err = "";
     const t = setTimeout(() => { try { child.kill(); } catch { /* já morreu */ } resolve({ out, err, timeout: true }); }, timeoutMs);
     child.stdout.on("data", (d) => { out += d.toString(); });
     child.stderr.on("data", (d) => { err += d.toString(); });
     child.on("close", () => { clearTimeout(t); resolve({ out, err }); });
-    const job = { role: "documentacao", system: "Você responde de forma curta e literal.", prompt, idleGraceMs: 60000, ...(memoryScope ? { memoryScope } : {}) };
+    const job = { role: "documentacao", system: "Você responde de forma curta e literal.", prompt, idleGraceMs: 60000, ...(memoryScope ? { memoryScope, memoryScopeSig: assinatura } : {}) };
     child.stdin.write(JSON.stringify(job)); child.stdin.end();
   });
 }
@@ -87,9 +91,11 @@ try {
     await new Promise((r2) => setTimeout(r2, 750));
   }
 
-  await run("[E2E] worker em CWD HOSTIL, com escopo CRAVADO, lê SÓ o projeto do pai", async () => {
+  await run("[E2E] worker em CWD HOSTIL, com escopo CRAVADO E ASSINADO, lê SÓ o projeto do pai", async () => {
     const { out, err, timeout } = await rodarWorker({
       memoryScope: PROJ_PAI,
+      assinatura: assinarEscopo(PROJ_PAI),
+      segredo: segredoDoProcesso(),
       cwd: cwdHostil,
       prompt: `Use a ferramenta memory_search com a query "${QUERY}". Responda APENAS com o texto EXATO do primeiro trecho encontrado, sem comentar. Se a ferramenta não existir, responda SEM-FERRAMENTA.`,
     });
@@ -99,6 +105,24 @@ try {
     assert.ok(!texto.includes(MARCA_HOSTIL), "VAZOU: o worker leu o projeto do CWD dele em vez do escopo cravado — a cravação não está valendo");
     // Prova complementar pelo ledger: o escopo que o worker de fato consultou.
     assert.ok(new RegExp("#MEM[^\\n]*" + PROJ_PAI.replace(/[/\\]/g, "\\$&")).test(err), "o ledger tem que registrar o escopo REAL consultado: " + (err.match(/#MEM[^\n]*/g) || []).join(" | ").slice(0, 200));
+  });
+
+  await run("[E2E] escopo SEM assinatura válida é RECUSADO (a porta dos fundos do transporte)", async () => {
+    // Este é o caso que a assinatura existe para cobrir, e ele é REAL: eu mesmo, ao escrever a primeira versão
+    // deste teste, spawnei o worker direto e injetei um escopo pelo stdin — e funcionou. Remover o parâmetro da
+    // API fechou a API; o TRANSPORTE continuava aberto para qualquer código que spawne o binário.
+    const { out, err, timeout } = await rodarWorker({
+      memoryScope: PROJ_HOSTIL,
+      assinatura: "assinatura-forjada-que-nao-vem-da-factory",
+      segredo: segredoDoProcesso(),
+      cwd: cwdHostil,
+      prompt: "Você tem a ferramenta memory_search? Responda apenas SIM ou NAO.",
+    });
+    if (timeout) { console.log("    (worker não respondeu a tempo)"); return; }
+    assert.match(err, /ESCOPO RECUSADO/, "o worker tinha que RECUSAR o escopo não-assinado e dizer isso: " + (err.match(/#MEM[^\n]*/g) || []).join(" | ").slice(0, 200));
+    const manifesto = (err.match(/#TOOLS (\{.*?\})\n/) || [])[1];
+    if (manifesto) assert.deepStrictEqual((JSON.parse(manifesto).custom || []).filter((n) => /memory/i.test(n)), [], "e NENHUMA tool de memória pode existir: " + manifesto);
+    assert.ok(!(out + err).includes(MARCA_HOSTIL), "não pode ter lido nada do escopo forjado");
   });
 
   await run("[E2E] o mesmo worker, no mesmo CWD hostil, SEM escopo cravado NÃO ganha a tool (fail-closed)", async () => {

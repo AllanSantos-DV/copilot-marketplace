@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { resolveNode } from "../util/resolveNode.mjs";
 import { workers } from "../util/workerRegistry.mjs";
 import { resolveProjectId } from "../memory/projectId.mjs";
-import { validarEscopoInjetado } from "../memory/memoryTools.mjs";
+import { validarEscopoInjetado, assinarEscopo, segredoDoProcesso } from "../memory/memoryTools.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const LIVE_WORKER = join(HERE, "liveWorker.mjs");
@@ -43,11 +43,15 @@ export function createLiveWorker({ role, system, model, cwd, configDir, skillDir
   //     escrever isso — validar forma não bastaria: "outro/projeto" tem forma perfeita.
   // (3) Passa por `validarEscopoInjetado` mesmo assim: se o resolver um dia devolver algo estranho, quebra alto
   //     em vez de virar busca no lugar errado.
-  delete env.MODO_AUTO_WORKER_MEMORY_SCOPE;
+  delete env.MODO_AUTO_WORKER_MEMORY_SCOPE; delete env.MODO_AUTO_WORKER_MEMORY_SIG;
   if (!semMemoria) {
     try {
       const escopo = resolveProjectId(cwd || process.cwd());
-      if (escopo) env.MODO_AUTO_WORKER_MEMORY_SCOPE = validarEscopoInjetado(escopo);
+      if (escopo) {
+        env.MODO_AUTO_WORKER_MEMORY_SCOPE = validarEscopoInjetado(escopo);
+        env.MODO_AUTO_WORKER_MEMORY_SIG = assinarEscopo(env.MODO_AUTO_WORKER_MEMORY_SCOPE);
+        env.MODO_AUTO_SCOPE_SECRET = segredoDoProcesso();
+      }
     } catch { /* sem escopo estável → worker sobe sem memória (adaptador, não dependência) */ }
   }
 

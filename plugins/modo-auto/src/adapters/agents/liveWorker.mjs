@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { mkdirSync } from "node:fs";
 import { sdkIndexUrl, textOf, CLEAN_DIRECTIVE, runTurnWithHeartbeat, computeToolExposure } from "./workerLib.mjs";
+import { verificarEscopo } from "../memory/memoryTools.mjs";
 import { makeSubmitTool, runUntilSubmitted } from "./structuredResult.mjs";
 
 function emit(obj) { process.stdout.write(JSON.stringify(obj) + "\n"); }
@@ -48,7 +49,17 @@ function emit(obj) { process.stdout.write(JSON.stringify(obj) + "\n"); }
     // `caps.liveMesa` existe. Ou seja, "Fase 2 funcionando" estava certo no mecanismo e ERRADO no caminho — o
     // agente que discute é este, e ele continuava cego. Uma auditoria externa apontou, e procedia.
     // O escopo vem CRAVADO pelo pai (env, montado a partir do port da SESSÃO); o worker nunca resolve projeto.
-    const memoryScope = String(process.env.MODO_AUTO_WORKER_MEMORY_SCOPE || "").trim();
+    const memoryScopeBruto = String(process.env.MODO_AUTO_WORKER_MEMORY_SCOPE || "").trim();
+    // MESMA VERIFICAÇÃO DE PROVENIÊNCIA do one-shot: o env é escrivível por quem spawna (e pode vir herdado,
+    // velho, de outra sessão); a assinatura não. Sem assinatura válida o escopo é RECUSADO e o worker roda sem
+    // memória — com o fato registrado, nunca buscando num escopo não-verificado.
+    const verif = memoryScopeBruto
+      ? verificarEscopo(memoryScopeBruto, process.env.MODO_AUTO_WORKER_MEMORY_SIG, process.env.MODO_AUTO_SCOPE_SECRET)
+      : { ok: false, motivo: "sem escopo cravado" };
+    const memoryScope = verif.ok ? memoryScopeBruto : "";
+    if (memoryScopeBruto && !verif.ok) {
+      try { process.stderr.write(`\x1e#MEM ESCOPO RECUSADO para o papel ${role}: ${verif.motivo} — rodando SEM memória\n`); } catch { /* stderr fechado */ }
+    }
     let memoryToolset = [];
     if (memoryScope) {
       try {

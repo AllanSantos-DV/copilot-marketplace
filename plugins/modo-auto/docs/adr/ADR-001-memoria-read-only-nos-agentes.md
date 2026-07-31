@@ -148,10 +148,18 @@ documento do vizinho — semanticamente ótimo para a query — apareceria. Não
   argumento que não existe — validar FORMA nunca resolveria, porque `outro/projeto` tem forma perfeita.
 
   **O que continua SEM cobertura, dito sem maquiar:**
-  - **FORK é heurística, não detecção.** Depende de existir um remote chamado `upstream` diferente do `origin`
-    (convenção do `gh repo fork`), reforçada por `remote.upstream.gh-resolved` quando presente. Git **não tem**
-    sinal nativo de fork — fork é conceito de forja, não de git. Quem clona um fork direto, sem adicionar
-    `upstream`, **passa batido**. Isto é LIMITAÇÃO CONHECIDA, não item resolvido.
+  - **FORK: LIMITAÇÃO CONHECIDA, decidida — não é item aberto.** A detecção depende de existir um remote
+    `upstream` diferente do `origin` (convenção do `gh repo fork`), reforçada por `remote.upstream.gh-resolved`
+    quando presente. **Git não tem sinal nativo de fork** — fork é conceito de forja, não de git; não existe
+    `--show-fork-of`. Quem clona um fork direto, sem adicionar `upstream`, **passa batido**.
+    **Decisão: won't-fix por ora**, e o motivo é que a alternativa seria consultar a API do GitHub — o que
+    (a) tornaria o resolver dependente de rede e de credencial, num caminho que hoje é local e determinístico,
+    e (b) só cobriria GitHub, quebrando para GitLab/Bitbucket/self-hosted.
+    **O que existe no lugar:** o dono vê o escopo e a origem no status de toda deliberação, e um marcador
+    `.memory/project.json` declarado RESOLVE o caso — o marcador vence o remote. É conserto de uma linha para
+    quem sabe que está num fork.
+    **Gatilho para reabrir:** se aparecer um sinal local e agnóstico de forja, ou se alguém for mordido na
+    prática (memória do fork poluindo o projeto original).
   - **Mirror remoto e marcador desatualizado**: sem sinal. Não há fato medível que os distinga de uso legítimo.
   - **Escopo válido-porém-errado vindo do próprio ambiente** (o dono abriu a sessão na pasta errada): o produto
     avisa qual escopo resolveu e de onde, mas não pode saber que é o errado. Só o humano sabe.
@@ -175,4 +183,27 @@ documento do vizinho — semanticamente ótimo para a query — apareceria. Não
 | resolver `project_id` fail-loud fiel ao plugin          | v0.4.6      | tabela de cenários acima                     |
 | inspeção viva do manifesto (8 papéis reais)             | v0.4.8      | `tool-manifest-live-smoke`                   |
 | contrato validado fora dos repos do dono                | v0.4.9      | `memory-validator-smoke`                     |
-| tool de leitura no worker com `project_id` cravado      | **pendente**| Fase 2                                       |
+| **tool de leitura no worker com `project_id` cravado**  | **v0.5.1**  | `memory-pinned-scope-e2e-smoke` (one-shot)   |
+| **cravação também na mesa viva (o caminho que roda)**   | **v0.5.2**  | `tool-manifest-live-smoke` (liveWorker real) |
+| **escopo deixa de ser parâmetro do caller**             | **v0.6.2**  | gate que varre `src/` e quebra o build       |
+| **assinatura do escopo (fecha o TRANSPORTE, não só a API)** | **v0.6.4** | `memory-pinned-scope-e2e-smoke` 4/4          |
+
+**Fase 2 ENTREGUE.** O que restava dela (a tool no worker com escopo cravado) está em produção e provado ponta a
+ponta nos DOIS binários de worker, em cwd hostil, com o caso negativo de escopo forjado.
+
+### Como a porta foi fechada, em três camadas (cada uma cobrindo o furo da anterior)
+
+1. **API** (v0.6.2): `memoryScope` deixou de ser parâmetro de `factory.run()`. Um caller não pode mais *pedir*
+   outro projeto — o argumento não existe. **Furo que sobrou:** o transporte.
+2. **TRANSPORTE** (v0.6.4): o job viaja por stdin (one-shot) e por env (mesa viva), e ambos são escrivíveis por
+   quem spawna o binário. Agora o escopo vai **assinado** (HMAC com segredo do processo pai, gerado no boot,
+   só em memória) e o filho **verifica**. Sem assinatura válida: recusa registrada e worker sem memória.
+   Descoberto porque a assinatura derrubou o meu próprio teste E2E — que injetava escopo direto pelo stdin e
+   funcionava.
+3. **AMBIENTE**: `MODO_AUTO_WORKER_MEMORY_SCOPE` é apagado do env antes de cada spawn, nos dois caminhos — um
+   valor velho herdado (de um teste, de um shell, de outra sessão) não vira memória real.
+
+**Limite honesto da camada 2:** um processo que controle o ambiente inteiro pode gerar o próprio par
+segredo+assinatura. Essa não é a fronteira de confiança aqui — quem controla o processo já controla tudo. O que
+a assinatura fecha é o caso REAL: um chamador interno (outro perfil, outro agente, um teste) injetando escopo
+por engano ou por confusão. Aconteceu duas vezes nesta sessão.
