@@ -87,7 +87,7 @@ export function createModoAutonomo({ log = () => {} } = {}) {
       // 1) ENTENDIMENTO DE VALIDADE — a pergunta já está coberta pelo PLANO/ADR ou pela MEMÓRIA?
       const planText = caps.plan?.read ? String((await caps.plan.read())?.text || "").slice(0, 4000) : "";
       let memText = "";
-      const m = caps.memory?.recall ? await caps.memory.recall(q, { topK: 3 }) : null;
+      const m = caps.memory?.recall ? await caps.memory.recall(q, { topK: 3, tag: "modo-autonomo" }) : null;
       if (m && m.ok) memText = (m.results || []).map((r) => "- " + String(r.text || "").slice(0, 200)).join("\n");
       else { const iss = recallIssue(m, "modo-autonomo"); if (iss) log(iss); }
       const u = await caps.factory.run("validador",

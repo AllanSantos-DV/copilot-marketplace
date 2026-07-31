@@ -33,7 +33,7 @@ export function createMesa({ factory, memory = null, plan = null, gate = null, m
     let planText = "", memText = "";
     const p = plan?.read ? await plan.read() : null;
     if (p?.text) planText = String(p.text).slice(0, 4000);
-    const m = memory?.recall ? await memory.recall(question, { topK: 3 }) : null;
+    const m = memory?.recall ? await memory.recall(question, { topK: 3, tag: "mesa" }) : null;
     if (m && m.ok) memText = (m.results || []).map((r) => "- " + String(r.text || "").slice(0, 300)).join("\n");
     else { const iss = recallIssue(m, "mesa"); if (iss) log(iss); }
     return { planText, memText };

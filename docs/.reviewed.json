@@ -30,9 +30,9 @@
     "at": "2026-07-30T16:02:42.927Z"
   },
   "modo-auto": {
-    "version": "0.3.9",
-    "hash": "fcf4ae7c62a539df",
-    "at": "2026-07-31T13:35:19.577Z"
+    "version": "0.4.0",
+    "hash": "e77dca0a1149aaaa",
+    "at": "2026-07-31T14:18:00.971Z"
   },
   "session-unloader": {
     "version": "0.6.0",

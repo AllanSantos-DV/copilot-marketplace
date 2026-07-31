@@ -269,7 +269,7 @@ async function buildPlanVivoInner(bf, existing, caps, { deep, taskType = null, p
       // no escopo próprio e entra ROTULADO como decisão anterior, nunca como matéria a consolidar.
       let existing = "";
       let priorAdrs = "";
-      const mem = caps.memory?.recall ? await caps.memory.recall(bf, { topK: 4, excludeAgentOutput: true }) : null;
+      const mem = caps.memory?.recall ? await caps.memory.recall(bf, { topK: 4, tag: "modo-adr" }) : null;
       if (mem && mem.ok) {
         const rel = (mem.results || [])
           // Rede de segurança para o LEGADO: registros gravados ANTES da separação por namespace ainda vivem no

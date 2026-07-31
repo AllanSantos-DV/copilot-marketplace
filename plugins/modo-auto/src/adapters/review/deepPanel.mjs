@@ -8,6 +8,13 @@
 
 import { extractJson } from "../util/extractJson.mjs";
 
+// Orçamento GLOBAL do painel, em ms. NÃO é número mágico — sai da telemetria real deste produto
+// (`~/.modo-auto/telemetry/traces.jsonl`, 1824 spans com `stage:"deep"`): P50 200s · P95 544s · P99 848s ·
+// MÁX 1971s, com 39 spans terminando em `hung`. 900s fica acima do P99, então corta a cauda patológica (o
+// worker pendurado, que era o dano real) sem derrubar painel legítimo. Se a distribuição mudar, este número
+// muda COM ELA — a medição é o dono do valor, não a intuição.
+const DEFAULT_TOTAL_MS = 900000;
+
 function parseJson(t) { return extractJson(t); }
 
 // TOOL TEMPLATE do consolidador do painel profundo (Princípio 11).
@@ -67,21 +74,35 @@ export function createDeepPanel({ factory, log = () => {} } = {}) {
 
     /**
      * Roda o MESMO material em N famílias e consolida num veredito único.
-     * @returns {{ ok:true, verdict:{pass,findings,escalate}, watch:string[], families:string[], panel:object[] }
-     *          | { ok:false, reason:"insufficient-families", families:string[] }}
+     *
+     * ORÇAMENTO: `timeoutMs` é o watchdog de OCIOSIDADE do worker (mata quem parou de produzir) — ele NUNCA foi
+     * um teto de duração, e tratá-lo como teto foi o erro que deixou o painel sem relógio. A TELEMETRIA REAL
+     * (1824 spans de família, `stage:"deep"`) mostra o tamanho do buraco: P50 200s, P95 544s, P99 848s,
+     * MÁX 1971s — **1376 de 1824 famílias (75%) passaram dos supostos 120s**, e 39 terminaram como `hung`.
+     * O teto de parede de verdade é `maxWallMs` do factory (default `Infinity` = sem limite), que este painel
+     * não passava. `totalMs` agora é o orçamento GLOBAL, e o consolidador recebe o que SOBROU — não um teto novo.
+     * O default de 900s vem da medição, não de palpite: corta a cauda patológica (P99=848s e os `hung`) sem
+     * matar o painel legítimo. Estourar o orçamento devolve `ok:false` — o MESMO contrato de degradação que os
+     * chamadores já tratam (caem no revisor único), então o parcial é SINALIZADO sem inventar contrato novo.
+     * @returns {{ ok:true, verdict:{pass,findings,escalate}, watch:string[], families:string[], panel:object[], elapsedMs:number }
+     *          | { ok:false, reason:"insufficient-families"|"panel-degraded"|"deadline", families:string[] }}
      */
-    async review({ material, critiquePrompt, router, taskType = null, panelRole = "revisor", minFamilies = 2, maxFamilies = 3, timeoutMs = 120000 } = {}) {
+    async review({ material, critiquePrompt, router, taskType = null, panelRole = "revisor", minFamilies = 2, maxFamilies = 3, timeoutMs = 120000, totalMs = DEFAULT_TOTAL_MS } = {}) {
       if (!material || !critiquePrompt) throw new Error("deepPanel.review: material/critiquePrompt ausente");
+      const t0 = Date.now();
+      const restante = () => (Number.isFinite(totalMs) ? Math.max(0, totalMs - (Date.now() - t0)) : Infinity);
       const fams = familiesFor(router, { role: panelRole, taskType, maxFamilies });
       if (fams.length < minFamilies) {
         log(`[deep] famílias insuficientes (${fams.length}<${minFamilies}) — degrada p/ revisor único`);
         return { ok: false, reason: "insufficient-families", families: fams.map((f) => f.family) };
       }
-      log(`[deep] painel de ${fams.length} famílias: ${fams.map((f) => f.family + "@" + f.model).join(", ")}`);
+      log(`[deep] painel de ${fams.length} famílias: ${fams.map((f) => f.family + "@" + f.model).join(", ")}` +
+          (Number.isFinite(totalMs) ? ` · orçamento global ${Math.round(totalMs / 1000)}s` : " · SEM orçamento global"));
 
-      // 1) crítica em PARALELO, cada família com seu modelo (override).
+      // 1) crítica em PARALELO, cada família com seu modelo (override). `maxWallMs` é o relógio de PAREDE — é
+      // ele que mata a família pendurada; o `timeoutMs` só cobre ociosidade.
       const outs = await Promise.all(fams.map(async (f) => {
-        const r = await factory.run(panelRole, critiquePrompt, { subject: panelRole, timeoutMs, model: f.model, stage: "deep" });
+        const r = await factory.run(panelRole, critiquePrompt, { subject: panelRole, timeoutMs, maxWallMs: restante(), model: f.model, stage: "deep" });
         return { family: f.family, model: f.model, ok: r.ok, text: r.ok ? r.text : "", error: r.error || null };
       }));
       const okOuts = outs.filter((o) => o.ok && o.text);
@@ -97,6 +118,13 @@ export function createDeepPanel({ factory, log = () => {} } = {}) {
       }
 
       // 2) CONSOLIDAÇÃO (meta-revisor no melhor modelo de reasoning): distingue corroborado × isolado.
+      // O consolidador recebe o que SOBROU do orçamento — dar-lhe um teto novo era o que fazia o pior caso ser
+      // "famílias + consolidador" em vez de "orçamento". Se não sobrou tempo, DEGRADA sinalizado: um veredito
+      // consolidado às pressas seria pior que dizer "não deu" e cair no revisor único.
+      if (restante() <= 0) {
+        log(`[deep] orçamento global de ${Math.round(totalMs / 1000)}s ESTOUROU antes de consolidar (${okOuts.length} famílias responderam) — degrada p/ revisor único (parcial SINALIZADO)`);
+        return { ok: false, reason: "deadline", families: okOuts.map((o) => o.family), elapsedMs: Date.now() - t0 };
+      }
       const consModel = router?.route ? router.route({ role: "facilitador", taskType }).model : null;
       const pareceres = okOuts.map((o) => `### FAMÍLIA ${o.family} (${o.model})\n${o.text}`).join("\n\n");
       const consPrompt =
@@ -104,7 +132,7 @@ export function createDeepPanel({ factory, log = () => {} } = {}) {
         `veredito único, distinguindo o CORROBORADO (≥2 famílias apontaram — alta confiança) do ISOLADO (1 só — a verificar).\n\n` +
         `MATERIAL:\n${material}\n\nPARECERES DO PAINEL (${okOuts.length} famílias):\n${pareceres}\n\n` +
         `CHAME a ferramenta submit_panel_verdict com o veredito consolidado. NÃO responda em texto.`;
-      const cr = await factory.run("facilitador", consPrompt, { subject: "facilitador", timeoutMs, model: consModel || undefined, schema: PANEL_VERDICT_SCHEMA, availableTools: [] });
+      const cr = await factory.run("facilitador", consPrompt, { subject: "facilitador", timeoutMs, maxWallMs: restante(), model: consModel || undefined, schema: PANEL_VERDICT_SCHEMA, availableTools: [] });
       if (!cr.ok || !cr.text) throw new Error("deepPanel.consolidate: meta-revisor falhou: " + (cr.error || "sem texto"));
       const j = parseJson(cr.text);
       if (!j || j.__nosubmit__ || typeof j.pass !== "boolean") throw new Error("deepPanel.consolidate: meta-revisor nao submeteu {pass}: " + String(cr.text).slice(0, 200));
@@ -115,6 +143,7 @@ export function createDeepPanel({ factory, log = () => {} } = {}) {
         watch: Array.isArray(j.watch) ? j.watch.map(String) : [],
         families: okOuts.map((o) => o.family),
         panel: outs,
+        elapsedMs: Date.now() - t0,
       };
     },
   };
