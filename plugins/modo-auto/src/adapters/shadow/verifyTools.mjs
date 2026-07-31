@@ -14,9 +14,27 @@ const full = (repo, rel) => (isAbsolute(rel) ? rel : join(repo, rel));
 // Resolve a RAIZ do repo git a partir de um cwd. null se cwd NÃO está num repo (ex.: a extensão rodando de um dir
 // que não é o projeto) → o caller SINALIZA e degrada, em vez de rodar git contra um path errado e gerar falso "sem
 // história / não-versionado". É a defesa contra o bug de cwd que produzia contestações falsas em loop.
+//
+// TAMBÉM devolve null para o caso VIZINHO e mais traiçoeiro: cwd é um artefato ALHEIO ANINHADO dentro de um repo
+// que não é o seu. O git SOBE na árvore, então `--show-toplevel` responde com sucesso o repo DE CIMA — e aí a
+// verificação roda contra ele e conclui, corretamente para o repo errado, que tudo é "untracked / sem história".
+// MEDIDO nesta máquina: `~/.copilot` É um repo git (36 commits) e a instalação do modo-auto vive dentro dele como
+// arquivo não-versionado; auditar de lá produzia exatamente o falso "git traceability inexistente" que reaparecia
+// em loop. O sinal que separa os dois casos é determinístico: uma pasta LEGÍTIMA do repo tem arquivos rastreados
+// (medido: 289 na raiz, 108 numa subpasta), um artefato alheio tem ZERO. Repo real mas errado é pior que repo
+// nenhum — o primeiro responde com confiança uma pergunta que não é a sua.
 export function resolveRepoRoot(cwd) {
-  try { return execFileSync("git", ["-C", String(cwd || "."), "rev-parse", "--show-toplevel"], { encoding: "utf8", env: GIT_ENV(), timeout: 10000, stdio: ["ignore", "pipe", "ignore"] }).trim() || null; }
+  const dir = String(cwd || ".");
+  let top;
+  try { top = execFileSync("git", ["-C", dir, "rev-parse", "--show-toplevel"], { encoding: "utf8", env: GIT_ENV(), timeout: 10000, stdio: ["ignore", "pipe", "ignore"] }).trim() || null; }
   catch { return null; }
+  if (!top) return null;
+  const norm = (p) => String(p).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  if (norm(top) === norm(dir)) return top; // cwd É a raiz: nada a suspeitar
+  try {
+    const tracked = execFileSync("git", ["-C", dir, "ls-files"], { encoding: "utf8", env: GIT_ENV(), timeout: 10000, stdio: ["ignore", "pipe", "ignore"] });
+    return tracked.trim() ? top : null; // zero rastreados aqui = artefato alheio aninhado, não subpasta do repo
+  } catch { return null; }
 }
 
 // Cada tool: read-only, args fixos. O modelo escolhe qual chamar p/ checar a alegação.
