@@ -10,7 +10,7 @@
 // as asserções nunca rodavam. Verde por caminho não-executado é pior que vermelho.
 
 import assert from "node:assert";
-import { buildSaveMetadata, createMemoryPort, AGENT_OUTPUT_TYPES, recallIssue } from "../src/adapters/memory/memoryPort.mjs";
+import { buildSaveMetadata, createMemoryPort, AGENT_OUTPUT_TYPES, recallIssue, RECALL_ALLOWED_TYPES } from "../src/adapters/memory/memoryPort.mjs";
 
 let pass = 0, total = 0;
 const runA = async (m, fn) => { total++; try { await fn(); pass++; console.log("  ok - " + m); } catch (e) { console.log("  FAIL - " + m + " :: " + (e?.message || e)); } };
@@ -187,6 +187,33 @@ await runA("as decisões anteriores chegam ao prompt do dev, rotuladas como 'nã
   assert.ok(txt.includes("ports e adapters"), "a decisão anterior precisa chegar a quem implementa");
   assert.ok(/DECISÕES JÁ TOMADAS PELA MESA/.test(txt), "e rotulada, para o dev saber que é decisão, não sugestão");
   assert.ok(/NÃO contradiga/.test(txt), "com a instrução explícita de não contradizer");
+});
+
+console.log("2ª camada de leitura: allowlist positiva (o servidor não sabe negar)");
+run("com excludeAgentOutput, o filtro vai por LISTA de tipos legítimos", () => {
+  assert.ok(Array.isArray(RECALL_ALLOWED_TYPES) && RECALL_ALLOWED_TYPES.length >= 3, "precisa de allowlist");
+  for (const t of AGENT_OUTPUT_TYPES) {
+    assert.ok(!RECALL_ALLOWED_TYPES.includes(t), `tipo de saída de agente "${t}" NÃO pode estar na allowlist de leitura`);
+  }
+});
+await runA("o recall filtrado manda type=allowlist ao client (é assim que exclui o legado)", async () => {
+  const calls = [];
+  const port = createMemoryPort({
+    discoverFn: async () => ({ url: "http://fake" }),
+    clientFactory: () => ({ search: async (q, o) => { calls.push(o); return { results: [] }; }, save: async () => ({ id: "1" }) }),
+  });
+  const r = await port.recall("q", { excludeAgentOutput: true });
+  assert.strictEqual(r.ok, true);
+  assert.deepStrictEqual(calls[0].metadata.type, RECALL_ALLOWED_TYPES, "o filtro tem que ir como LISTA: " + JSON.stringify(calls[0].metadata));
+});
+await runA("sem a flag, NÃO filtra por tipo (opt-in, nunca ligado por baixo do pano)", async () => {
+  const calls = [];
+  const port = createMemoryPort({
+    discoverFn: async () => ({ url: "http://fake" }),
+    clientFactory: () => ({ search: async (q, o) => { calls.push(o); return { results: [] }; }, save: async () => ({ id: "1" }) }),
+  });
+  await port.recall("q");
+  assert.ok(!("type" in (calls[0].metadata || {})), "sem opt-in não pode aparecer filtro de tipo");
 });
 
 console.log(`\nmemory-namespace-smoke: ${pass}/${total} OK`);
