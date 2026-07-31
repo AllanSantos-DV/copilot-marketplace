@@ -70,6 +70,59 @@ export function buildSaveMetadata({ projectId = null, type = "note", tags = [], 
 }
 
 /**
+ * Normaliza o resultado CRU do daemon num shape citável. Existe por três motivos MEDIDOS:
+ *
+ * 1) O id JÁ VINHA e era JOGADO FORA. O daemon devolve `{text, score, documentId, chunkIndex}` (medido contra a
+ *    API viva), mas os 5 chamadores faziam `.map((r) => "- " + r.text.slice(n))` — a memória chegava ao modelo
+ *    ANÔNIMA. Sem id não dá para citar, nem para um gate conferir se a citação é real: vira opinião.
+ * 2) O campo é `documentId`, NÃO `id`. Eu mesmo escrevi um plano dizendo "pare de descartar `.id`" — e `.id`
+ *    não existe. Se tivesse implementado assim, 100% dos itens degradariam. A medição do contrato veio antes.
+ * 3) Normalizar aqui e não nos chamadores é a lição que este produto já pagou duas vezes: regra espalhada em 5
+ *    lugares diverge. Um lugar, um shape.
+ *
+ * O `doc_id` viaja como CAMPO SEPARADO, nunca concatenado antes do `slice` — id é longo (UUID) e cairia na zona
+ * de corte do truncamento, virando id mutilado (pior que id ausente: parece válido).
+ * Item sem id NÃO é descartado em silêncio nem carimbado `undefined`: ele é MARCADO (`doc_id: null`) para o
+ * chamador decidir e sinalizar. Descartar calado esconderia perda de conhecimento; carimbar `undefined` daria
+ * ao modelo uma citação falsa.
+ */
+export function normalizeResults(results) {
+  return (Array.isArray(results) ? results : []).map((r) => {
+    const id = r && (r.documentId || r.document_id || r.doc_id || r.id);
+    const chunk = r && (r.chunkIndex != null ? r.chunkIndex : r.chunk_index);
+    return {
+      doc_id: id ? String(id) : null,
+      chunk: chunk != null ? Number(chunk) : null,
+      text: String((r && r.text) || ""),
+      score: r && typeof r.score === "number" ? r.score : null,
+    };
+  });
+}
+
+/**
+ * Renderiza os itens de memória para dentro de um prompt, CITÁVEIS. Fonte única: os 5 chamadores montavam a
+ * mesma linha `- texto` de 5 formas ligeiramente diferentes; agora a citação tem um formato só, e mudá-lo é
+ * mudar um lugar.
+ *
+ * ITEM SEM `doc_id` ENTRA MARCADO, NÃO É DESCARTADO — e isso foi uma correção de rota medida. A primeira versão
+ * descartava o não-citável, e a suíte quebrou na hora mostrando o modo de falha real: se o daemon um dia
+ * renomear o campo do id, "descartar o que não tem id" apaga **toda** a memória do prompt em SILÊNCIO, com cara
+ * de "não achei nada". É exatamente a classe de falha que este produto passou a sessão inteira caçando. Marcar
+ * com `[sem-id]` degrada de forma VISÍVEL: o conhecimento continua chegando, o gate consegue distinguir o que é
+ * citável do que não é, e `semId` conta a perda de auditabilidade para o chamador sinalizar.
+ * @returns {{ text:string, ids:string[], semId:number }}
+ */
+export function renderRecall(results, { max = 220 } = {}) {
+  const itens = Array.isArray(results) ? results : [];
+  const semId = itens.filter((r) => !(r && r.doc_id)).length;
+  return {
+    text: itens.map((r) => `- [${(r && r.doc_id) || "sem-id"}] ${String((r && r.text) || "").slice(0, max)}`).join("\n"),
+    ids: itens.filter((r) => r && r.doc_id).map((r) => r.doc_id),
+    semId,
+  };
+}
+
+/**
  * @param {{ cwdProvider?: ()=>string, clientFactory?: (url:string)=>object, log?: (m:string)=>void,
  *           discoverFn?: ()=>Promise<{url:string}|null> }} [opts]
  *   `discoverFn` existe para TESTE DE CONTRATO: sem ele, nada abaixo de `connect()` é exercitável sem um daemon
@@ -142,7 +195,7 @@ export function createMemoryPort({ cwdProvider = () => process.cwd(), clientFact
           log(`[${tag}] recall com includeAgentOutput=true no ESCOPO PRINCIPAL — a 2ª camada está DESLIGADA nesta chamada (saída de agente pode voltar)`);
         }
         const r = await c.client.search(query, { topK, metadata: Object.keys(metadata).length ? metadata : undefined, ...(minScore != null ? { minScore } : {}) });
-        return { ok: true, results: (r && r.results) || [], projectId: scope, filtered: escopoPrincipal && includeAgentOutput !== true };
+        return { ok: true, results: normalizeResults((r && r.results) || []), projectId: scope, filtered: escopoPrincipal && includeAgentOutput !== true };
       } catch (e) {
         const error = e?.message || String(e);
         log("recall ERRO (surfaced, não mascarado): " + error);

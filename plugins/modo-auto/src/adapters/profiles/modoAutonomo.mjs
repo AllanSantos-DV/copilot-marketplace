@@ -7,7 +7,7 @@
 // Contrato: ProfilePort (ver src/core/ports.mjs).
 
 import { getRole } from "../agents/roles.mjs";
-import { recallIssue } from "../memory/memoryPort.mjs";
+import { recallIssue, renderRecall } from "../memory/memoryPort.mjs";
 import { extractJson } from "../util/extractJson.mjs";
 
 function parseJson(t) { return extractJson(t); }
@@ -88,7 +88,7 @@ export function createModoAutonomo({ log = () => {} } = {}) {
       const planText = caps.plan?.read ? String((await caps.plan.read())?.text || "").slice(0, 4000) : "";
       let memText = "";
       const m = caps.memory?.recall ? await caps.memory.recall(q, { topK: 3, tag: "modo-autonomo" }) : null;
-      if (m && m.ok) memText = (m.results || []).map((r) => "- " + String(r.text || "").slice(0, 200)).join("\n");
+      if (m && m.ok) memText = renderRecall(m.results, { max: 200 }).text;
       else { const iss = recallIssue(m, "modo-autonomo"); if (iss) log(iss); }
       const u = await caps.factory.run("validador",
         `PERGUNTA DA SESSÃO:\n${q}\n\nPLANO VIVO / ADR:\n${planText || "(sem plano)"}\n\nMEMÓRIA DO PROJETO:\n${memText || "(sem memória)"}\n\nChame a ferramenta submit_validation com o veredito. NÃO responda em texto.`,
