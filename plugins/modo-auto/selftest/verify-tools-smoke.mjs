@@ -48,7 +48,15 @@ if (!DEV_REPO) {
 }
 // git_grep (--untracked: vê o working tree). O padrão "ausente" é MONTADO em runtime p/ não existir em NENHUM
 // arquivo — inclusive este teste (senão o próprio git_grep --untracked acharia o literal aqui).
-{
+// Só vale no repo dev: no ARTEFATO INSTALADO o git_grep RECUSA por design (o alvo é artefato aninhado em repo
+// alheio), então exigir matches ali seria exigir justamente o comportamento que a v0.2.97 corrigiu. Foi o
+// selftest rodando de dentro da instalação que expôs esta suposição — nenhum teste no repo pegaria.
+if (!DEV_REPO) {
+  const t = J(tool("git_grep"), { repo: REPO, pattern: "createFindingsTracker" });
+  assert.strictEqual(t.count, null, "fora do repo dev, git_grep tem que RECUSAR (null+error), não devolver 0 calado");
+  assert.ok(t.error, "e dizer por quê");
+  skip("git_grep: no artefato instalado a recusa é o comportamento CORRETO (null+error, nunca '0 matches' falso)");
+} else {
   const absent = ["zzz", "sym", "nao", "existe", Date.now().toString(36)].join("_");
   const y = J(tool("git_grep"), { repo: REPO, pattern: "createFindingsTracker" });
   const n = J(tool("git_grep"), { repo: REPO, pattern: absent });
