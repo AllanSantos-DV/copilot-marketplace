@@ -32,19 +32,29 @@ await run("save no namespace responde ok e devolve o escopo sufixado", async () 
   assert.strictEqual(r.scope, buildScope(projeto, "adr"), "o escopo gravado tem que ser o do namespace: " + r.scope);
 });
 
-// o índice do daemon é assíncrono — espera curta antes de consultar
-await new Promise((r) => setTimeout(r, 2000));
+
+// O índice do daemon é ASSÍNCRONO. Um `sleep` fixo é aposta: curto demais dá falso vermelho, longo demais faz
+// todo mundo esperar à toa. Aqui a espera é por CONDIÇÃO, com teto — e se o teto estourar, é falha de verdade.
+async function until(cond, { tentativas = 12, intervaloMs = 750 } = {}) {
+  for (let i = 0; i < tentativas; i++) {
+    if (await cond()) return true;
+    await new Promise((r) => setTimeout(r, intervaloMs));
+  }
+  return false;
+}
+
+await run("o escopo #adr ENXERGA (não virou write-only — o arquivo é consultável)", async () => {
+  const achou = await until(async () => {
+    const r = await port.recall(MARCA, { topK: 5, namespace: "adr" });
+    return r.ok && (r.results || []).some((x) => String(x.text || "").includes(MARCA));
+  });
+  assert.ok(achou, "o registro não voltou do próprio namespace mesmo após ~9s — seria AMNÉSIA");
+});
 
 await run("o escopo PRINCIPAL NÃO enxerga a saída da mesa (o auto-envenenamento morre aqui)", async () => {
   const r = await port.recall(MARCA, { topK: 5 });
   assert.strictEqual(r.ok, true, "recall principal falhou: " + JSON.stringify(r));
   assert.ok(!(r.results || []).some((x) => String(x.text || "").includes(MARCA)), "a saída da mesa VAZOU para o escopo do projeto");
-});
-
-await run("o escopo #adr ENXERGA (não virou write-only — o arquivo é consultável)", async () => {
-  const r = await port.recall(MARCA, { topK: 5, namespace: "adr" });
-  assert.strictEqual(r.ok, true, "recall do namespace falhou: " + JSON.stringify(r));
-  assert.ok((r.results || []).some((x) => String(x.text || "").includes(MARCA)), "o registro não voltou do próprio namespace — seria AMNÉSIA");
 });
 
 await run("recall online é ok:true com 0 resultados quando não acha (≠ offline)", async () => {
