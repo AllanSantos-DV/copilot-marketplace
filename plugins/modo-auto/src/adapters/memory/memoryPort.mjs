@@ -13,6 +13,19 @@ import { MemoryClient } from "./client.mjs";
 export const AGENT_OUTPUT_TYPES = Object.freeze(["adr-registro", "adr-mesa-snapshot", "plan"]);
 
 /**
+ * Mensagem ÚNICA para o estado do recall. Existe porque o mesmo defeito se repetia em 5 chamadores: todos
+ * tratavam só `m.error`, então `{ok:false, offline:true}` (que NÃO tem `.error`) caía no mesmo ramo de "não achei
+ * nada" — memória fora do ar virava contexto vazio com cara de caminho feliz. Corrigir em 5 lugares convida o
+ * 6º a nascer errado; aqui a regra é uma só.
+ * @returns {string|null} texto a logar, ou null quando não há nada a sinalizar (busca ok)
+ */
+export function recallIssue(res, tag = "memória") {
+  if (!res || res.ok !== false) return null;
+  if (res.offline) return `[${tag}] memória OFFLINE — seguindo SEM contexto de reúso (degradação sinalizada; isto NÃO é "nada encontrado")`;
+  return `[${tag}] memória indisponível (${res.error || "motivo não informado"}) — seguindo sem contexto`;
+}
+
+/**
  * Escopo de consulta/gravação. Fonte ÚNICA da regra: se write e read montarem o escopo por caminhos diferentes,
  * eles divergem e o que foi gravado vira inalcançável — foi exatamente o que aconteceu quando o namespace entrou
  * só no write: os registros iam para `<project>#adr` e o recall seguia consultando `<project>` puro, então NADA

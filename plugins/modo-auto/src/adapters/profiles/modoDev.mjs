@@ -5,6 +5,7 @@
 // Cada papel é um sub-agente REAL da fábrica (não stub). Reusa GatePort + AgentFactoryPort. Nunca lança.
 
 import { resolveSkills, resolveGates } from "../skills/catalog.mjs";
+import { recallIssue } from "../memory/memoryPort.mjs";
 import { extractJson } from "../util/extractJson.mjs";
 import { reviewUntilClean } from "../review/remediation.mjs";
 import { createReviewerRotation } from "../review/reviewerRotation.mjs";
@@ -87,7 +88,7 @@ export function createModoDev({ log = () => {}, gates, maxRounds = 4, perReviewe
       let existing = "";
       const mem = caps.memory?.recall ? await caps.memory.recall(ph, { topK: 3 }) : null;
       if (mem && mem.ok) existing = (mem.results || []).map((r) => "- " + String(r.text || "").slice(0, 180)).join("\n");
-      else if (mem && mem.ok === false && mem.error) log(`[modo-dev] memória indisponível (${mem.error})`);
+      else { const iss = recallIssue(mem, "modo-dev"); if (iss) log(iss); }
       const ctx = `FASE A CONSTRUIR:\n${ph}\n\nJÁ EXISTE (reúse, não reinvente):\n${existing || "(nada relevante)"}\n\nMETODOLOGIA: TDD estrito (RED → GREEN → REFACTOR) + QA.`;
 
       // 1) TESTER (RED) — o teste define o alvo (roda 1×). 2) DEVELOPER (GREEN) — 1ª implementação.
