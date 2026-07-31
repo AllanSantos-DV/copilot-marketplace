@@ -4,7 +4,7 @@ import { runPwsh } from "./pwsh.mjs";
 
 export async function getProcMap({ timeout = 10000 } = {}) {
   const raw = await runPwsh(
-    "Get-CimInstance Win32_Process -EA SilentlyContinue | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress",
+    "Get-CimInstance Win32_Process -EA SilentlyContinue | Select-Object ProcessId,ParentProcessId,Name,CommandLine,KernelModeTime,UserModeTime | ConvertTo-Json -Compress",
     { timeout }
   );
   let parsed;
@@ -16,6 +16,7 @@ export async function getProcMap({ timeout = 10000 } = {}) {
       ppid: Number(p.ParentProcessId),
       name: p.Name || "",
       cmdline: p.CommandLine || "",
+      cpu: Number(p.KernelModeTime || 0) + Number(p.UserModeTime || 0),
     });
   }
   return map;

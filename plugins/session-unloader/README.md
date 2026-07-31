@@ -5,15 +5,18 @@ de você parar (o app não libera a RAM ao parar — as sessões se acumulam con
 Mata a **árvore do processo** sem apagar a sessão do disco: o **lazy-load** do app reabre com chat e
 histórico intactos (as extensões voltam com um `reload extension`).
 
-## Como decide o que é "ocioso" (sinal duplo — o coração da segurança)
-Uma sessão só é descarregada quando **AMBOS** confirmam ociosidade, validados empiricamente:
-1. **`events.jsonl` sem escrita há > 10 min** — nenhum turno/subagente recente; e
-2. **CPU zerada desde o último snapshot** — nada (agente, subagente **ou mesa de deliberação**) queimou CPU.
+## Como decide o que é "ocioso"
+Uma sessão só é candidata depois de **inatividade contínua da árvore inteira** pelo tempo configurado
+(padrão seguro: 60 min):
 
-Se **qualquer** sinal indica vida, a sessão é **preservada**. Assim ficam protegidos automaticamente: a
-sessão ativa, um **subagente** em execução (mantém o `events` quente) e uma **mesa de ADR** (queima CPU).
-**Cold-start:** sem snapshot anterior a sessão **nunca** é morta — a primeira passada só grava a linha de
-base (protege contra PID reciclado).
+1. soma o delta de CPU do servidor e de todos os descendentes por PID;
+2. normaliza a CPU por tempo de parede e núcleos lógicos;
+3. reinicia o relógio se houver CPU, evento novo, PID novo/reciclado ou processo allowlisted;
+4. mantém `liveWorker.mjs` e `voice_worker.py` como proteções obrigatórias;
+5. trata snapshot ausente/legado, árvore incompleta ou CPU indisponível como **preservar**.
+
+`events.jsonl` agora é apenas um sinal de atividade que reinicia a janela — nunca é usado sozinho para
+autorizar um kill. O snapshot guarda CPU por PID e `idleSince`; scans rápidos não apagam a janela real.
 
 ## Guardas antes de qualquer kill
 - **Auto-preservação:** nunca a própria sessão/scan nem seus ancestrais.
@@ -22,8 +25,8 @@ base (protege contra PID reciclado).
 - **Lock anti-race:** dois hooks simultâneos não colidem.
 
 ## Como usar
-- **Automático:** hooks `SessionStart` (ao abrir uma sessão) e `UserPromptSubmit` (throttle de 1 h, cobre
-  quem trabalha horas numa sessão só). Roda em processo separado, fire-and-forget, nunca bloqueia o chat.
+- **Automático:** desligado por padrão. Quando habilitado conscientemente no canvas, hooks `SessionStart`
+  e `UserPromptSubmit` avaliam a política; evento ausente/desconhecido falha fechado sem varrer.
 - **Sob demanda:** a tool **`unload_idle`** — `dryRun` por padrão (só lista as candidatas); passe
   `force: true` para descarregar. Opcional `sessionId` para uma sessão específica.
 - **Log:** `~/.copilot/logs/unloader.log` (JSON-line: `killed` / `skipped` / `dry-run` + motivo).
@@ -36,20 +39,22 @@ carregadas agora (🟢 esta sessão/ativa · 🔴 candidata · 🔒 protegida ·
 daemon **se auto-encerra após 10 min ocioso** (não vira o processo órfão que o plugin combate). Se o daemon
 não subir, o canvas cai para um servidor in-process (fallback, zero painel bloqueado).
 
-**Ações no painel (v0.4):** três botões dão controle sem depender do automático — **Descarregar ociosas agora**
+**Ações no painel:** três botões dão controle sem depender do automático — **Descarregar ociosas agora**
 (faz um *dry-run* que lista o que seria afetado, com o aviso "o estado pode mudar entre a prévia e a execução",
 e só descarrega após confirmação), **Reescanear** (re-varre na hora) e um interruptor **Automático ON/OFF** que
 liga/desliga o descarregamento pelos hooks de sessão. Com o automático **desligado** o painel exibe um **banner
-vermelho** persistente. As ações são `POST` autenticadas por header `X-Token` (o `GET` continua por query), com
+vermelho** persistente. A seção **Política de segurança** permite escolher o timeout (15 min–24 h), calibrar
+a razão de CPU/janela mínima e manter uma allowlist adicional literal. As proteções de voz e `liveWorker`
+não podem ser removidas. As ações são `POST` autenticadas por header `X-Token` (o `GET` continua por query), com
 mutex anti-duplo-clique no daemon e desabilite-no-clique no botão. A flag fica em
-`~/.copilot/session-state/.unloader-config.json` (global do daemon único); em qualquer erro de leitura ela é
-**fail-closed** (automático desligado — melhor não descarregar do que matar por acidente com config quebrada).
+`~/.copilot/session-state/.unloader-config.json` (global do daemon único); entrada inválida é rejeitada com
+erro visível e arquivo inválido desliga o automático com defaults seguros.
 
 
 ## Reversibilidade
 Descarregar **não apaga** a sessão. Reabra-a no app: o lazy-load restaura chat e histórico; rode
-`reload extension` para as extensões. Estado de runtime não persistido (shells, conexões MCP, contexto em
-memória) **não** volta — aceitável após 10 min de inatividade total.
+`reload extension` para as extensões. Estado de runtime não persistido (shells, conexões MCP, contexto em memória) não volta; por isso o automático
+só age depois da janela contínua configurada e das proteções de árvore.
 
 ## Backlog (fora da v1 — não implementado)
 - **Limpeza de locks órfãos** (`inuse.<pid>.lock` de PID morto): higiene de disco, zero impacto de memória.
@@ -63,6 +68,7 @@ memória) **não** volta — aceitável após 10 min de inatividade total.
 - `extension.mjs` — a tool `unload_idle` + o canvas (cliente fino → aponta pro daemon do painel).
 - `server-daemon.mjs` — o DAEMON ÚNICO do painel (singleton por porta): scan/telemetria + serve o painel; idle-timeout 10 min.
 - `ensure-daemon.mjs` + `lib/daemon-lock.mjs` — find-or-start do daemon e o lockfile de descoberta.
-- `lib/` — `scan` (CIM), `snapshot`+`isIdle` (sinal duplo), `guards`, `lock`, `throttle`, `unload` (orquestra), `procmap`, `deps`, `log`, `home`.
+- `lib/` — `scan`/`procmap` (CIM), `snapshot`+`idle-decision` (núcleo puro por árvore), `guards`,
+  `config`, `lock`, `throttle`, `unload` (orquestra), `telemetry`, `log`, `home`.
 - Reúso: `~/.copilot/pkg/universal/process-utils.mjs` (`treeKill` de modo-auto, `pidAlive` de voice-chat).
 - Testes (sem framework): `test.mjs`, `test-unload.mjs`, `test-integration.mjs`.

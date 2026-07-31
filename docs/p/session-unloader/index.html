@@ -4,12 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>session-unloader — copilot-marketplace</title>
-  <meta name="description" content="Você para uma sessão do Copilot, mas o servidor dela continua vivo comendo RAM. Descarrega da memória as sessões ociosas — sem apagar nada: o app reabre com chat e histórico." />
+  <meta name="description" content="Você para uma sessão do Copilot, mas o servidor dela continua vivo comendo RAM. Descarrega da memória as sessões realmente ociosas — sem apagar nada: o app reabre com chat e histórico." />
   <meta name="color-scheme" content="dark" />
   <meta name="theme-color" content="#14121C" />
   <meta property="og:type" content="article" />
   <meta property="og:title" content="session-unloader — copilot-marketplace" />
-  <meta property="og:description" content="Você para uma sessão do Copilot, mas o servidor dela continua vivo comendo RAM. Descarrega da memória as sessões ociosas — sem apagar nada: o app reabre com chat e histórico." />
+  <meta property="og:description" content="Você para uma sessão do Copilot, mas o servidor dela continua vivo comendo RAM. Descarrega da memória as sessões realmente ociosas — sem apagar nada: o app reabre com chat e histórico." />
   <meta property="og:url" content="https://allansantos-dv.github.io/copilot-marketplace/p/session-unloader/" />
   <link rel="canonical" href="https://allansantos-dv.github.io/copilot-marketplace/p/session-unloader/" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -39,9 +39,9 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">session-unloader</h1>
-        <span class="chip" title="versão publicada">v0.5.0</span>
+        <span class="chip" title="versão publicada">v0.6.0</span>
       </div>
-      <p class="doc-hero__lede">O app do Copilot <strong>não tem</strong> &quot;fechar sessão&quot;: quando você aperta stop, o processo-servidor daquela sessão fica <strong>carregado na memória</strong>, e as paradas se empilham — nesta máquina chegaram a <strong>~100 processos <code>copilot.exe</code></strong> somando <strong>~9 GB</strong>, com várias sessões &quot;paradas&quot; ainda vivas à toa. O <strong>session-unloader</strong> recolhe as ociosas da memória: mata a <strong>árvore do processo-servidor</strong> sem tocar no disco, e o <strong>lazy-load</strong> do app reabre a sessão depois, com chat e histórico intactos. E só descarrega o que está <strong>comprovadamente</strong> parado — <strong>sinal duplo</strong>: sem eventos há mais de 10 min <strong>e</strong> com CPU zerada.</p>
+      <p class="doc-hero__lede">O app do Copilot <strong>não tem</strong> &quot;fechar sessão&quot;: quando você aperta stop, o processo-servidor daquela sessão fica <strong>carregado na memória</strong>, e as paradas se empilham — nesta máquina chegaram a <strong>~100 processos <code>copilot.exe</code></strong> somando <strong>~9 GB</strong>, com várias sessões &quot;paradas&quot; ainda vivas à toa. O <strong>session-unloader</strong> recolhe as ociosas da memória: mata a <strong>árvore do processo-servidor</strong> sem tocar no disco, e o <strong>lazy-load</strong> do app reabre a sessão depois, com chat e histórico intactos. E só descarrega o que está <strong>comprovadamente</strong> parado — <strong>inatividade contínua de toda a árvore</strong> de processos (raiz e descendentes) pelo tempo configurado, sem CPU nem evento novo o período inteiro.</p>
       <div class="doc-hero__cta">
         <div class="prompt prompt--sm" data-cmd="copilot plugin install session-unloader@copilot-marketplace">
         <span class="prompt__glyph" aria-hidden="true">⌁</span>
@@ -58,8 +58,8 @@
           <p class="hl__body">Descarregar <strong>não apaga</strong> a sessão — mata só o processo na RAM. O lazy-load do app a reabre com chat e histórico intactos; as extensões voltam com um <code>reload extension</code>.</p>
         </li>
         <li class="hl__item">
-          <h3 class="hl__title">Sinal duplo que protege o que importa</h3>
-          <p class="hl__body">Só recolhe quem está <strong>sem eventos há +10 min</strong> e <strong>com CPU zerada</strong>. Assim a sessão ativa, um subagente rodando e uma mesa de ADR ficam de pé — sozinho, nenhum sinal basta.</p>
+          <h3 class="hl__title">Ociosidade da árvore inteira, no seu tempo</h3>
+          <p class="hl__body">Soma o delta de CPU do servidor <strong>e de todos os descendentes</strong>; qualquer atividade, PID novo/reciclado ou processo allowlisted reinicia o relógio. Tempo (15 min–24 h) e allowlist são <strong>configuráveis no canvas</strong> — o padrão seguro é 60 min.</p>
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Guardas antes de todo kill</h3>
@@ -67,7 +67,7 @@
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Sozinho ou sob comando</h3>
-          <p class="hl__body">Roda por hooks no início da sessão (e a cada ~1 h nas longas) e sob demanda pela tool <code>unload_idle</code> — <strong>dry-run por padrão</strong>: lista antes, descarrega só com <code>force</code>.</p>
+          <p class="hl__body">Automático <strong>desligado por padrão</strong> (fail-closed); quando ligado conscientemente no canvas, roda por hooks no início da sessão e a cada ~1 h nas longas. Sob demanda pela tool <code>unload_idle</code> — <strong>dry-run por padrão</strong>: lista antes, descarrega só com <code>force</code>.</p>
         </li>
       </ul>
     </header>
@@ -78,7 +78,7 @@
           <h2 class="doc-h2"><a class="doc-anchor" href="#o-que-e" aria-label="Link para O que é">#</a>O que é</h2>
           <p>O app do Copilot para uma sessão, mas <strong>não a descarrega</strong>: o processo-servidor dela segue vivo na memória. Sessão após sessão, isso se acumula — várias &quot;paradas&quot; continuam ocupando RAM sem você perceber.</p>
           <p>Este plugin faz o passo que falta: <strong>recolhe da memória</strong> as sessões ociosas. Ele mata a <strong>árvore do processo-servidor</strong> — e só isso; a sessão <strong>continua no disco</strong>. Quando você reabre, o <strong>lazy-load</strong> do app monta tudo de novo, com chat e histórico no lugar (as extensões voltam com um <code>reload extension</code>). É <strong>100% reversível</strong>.</p>
-          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Funciona de dois jeitos: <strong>sozinho</strong>, por hooks de sessão, e <strong>sob comando</strong>, pela tool <code>unload_idle</code> (com <code>dry-run</code> por padrão). Windows-only nesta versão — a varredura usa WMI/CIM.</p></aside>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Funciona de dois jeitos: <strong>sozinho</strong>, por hooks de sessão (desligado por padrão — você liga conscientemente no canvas), e <strong>sob comando</strong>, pela tool <code>unload_idle</code> (com <code>dry-run</code> por padrão). Windows-only nesta versão — a varredura usa WMI/CIM.</p></aside>
         </section>
 
         <section class="doc-section" id="como-usar">
@@ -86,12 +86,12 @@
           <ol class="doc-steps"><li><h4>Instale o plugin</h4><p>Pelo marketplace (comando na seção Instalar). Precisa de Windows e Node.</p></li><li><h4>Reinicie o app uma vez</h4><p>Para os hooks de sessão e a tool <code>unload_idle</code> entrarem.</p></li><li><h4>Deixe rodar sozinho</h4><p>Os hooks varrem no início de cada sessão e, para quem fica horas numa só, a cada ~1 h. É fire-and-forget: nunca trava o chat.</p></li><li><h4>Confira antes, sem risco</h4><p>Chame <code>unload_idle</code>: por padrão é <strong>dry-run</strong> e só lista as sessões ociosas candidatas.</p></li><li><h4>Descarregue quando quiser</h4><p>Rode <code>unload_idle</code> com <code>force: true</code> para recolher de verdade — ou passe <code>sessionId</code> para uma sessão específica.</p></li><li><h4>Acompanhe pelo log</h4><p>Cada passada grava em <code>~/.copilot/logs/unloader.log</code>: o que caiu, o que foi preservado e por quê.</p></li></ol>
         </section>
 
-        <section class="doc-section" id="sinal-duplo">
-          <h2 class="doc-h2"><a class="doc-anchor" href="#sinal-duplo" aria-label="Link para Ociosidade por sinal duplo">#</a>Ociosidade por sinal duplo</h2>
-          <p>Descarregar a sessão errada seria péssimo — por isso a régua é <strong>dupla</strong>. Uma sessão só é recolhida quando <strong>os dois</strong> sinais confirmam que ela está parada:</p>
-          <ul class="doc-list"><li><strong>Sem eventos há mais de 10 min</strong> — o <code>events.jsonl</code> da sessão não recebe escrita há mais de dez minutos (nenhum turno nem subagente recente).</li><li><strong>CPU zerada na janela</strong> — o processo não queimou CPU desde a última fotografia.</li></ul>
-          <p>Nenhum sinal sozinho basta — é a <strong>combinação</strong> que torna seguro. Assim ficam protegidos, sem você configurar nada: a <strong>sessão ativa</strong>, um <strong>subagente</strong> em execução (mantém o <code>events.jsonl</code> quente) e uma <strong>mesa de deliberação/ADR</strong> (queima CPU mesmo sem escrever eventos).</p>
-          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p><strong>Cold-start nunca mata:</strong> sem uma fotografia anterior para comparar, a primeira passada só grava a linha de base — o que também protege contra um PID reciclado.</p></aside>
+        <section class="doc-section" id="ociosidade-da-arvore">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#ociosidade-da-arvore" aria-label="Link para Ociosidade contínua da árvore inteira">#</a>Ociosidade contínua da árvore inteira</h2>
+          <p>Descarregar a sessão errada seria péssimo — por isso a régua olha a <strong>árvore inteira</strong> de processos (o servidor <strong>e</strong> todos os seus descendentes), não só a raiz, pelo <strong>tempo configurado</strong> (padrão seguro: 60 min):</p>
+          <ul class="doc-list"><li><strong>Soma o delta de CPU</strong> do servidor e de todos os descendentes por PID, normalizado por tempo de parede e núcleos lógicos.</li><li><strong>Reinicia o relógio</strong> se houver CPU, evento novo no <code>events.jsonl</code>, PID novo/reciclado ou processo allowlisted.</li><li><strong>Protege sempre</strong> <code>liveWorker.mjs</code> e <code>voice_worker.py</code>, mesmo sem configurar nada.</li><li><strong>Trata como preservar</strong> snapshot ausente/legado, árvore incompleta ou CPU indisponível — fail-closed.</li></ul>
+          <p>Assim ficam de pé, sem você configurar nada: a <strong>sessão ativa</strong>, um <strong>subagente</strong> em execução em qualquer nível da descendência e uma <strong>mesa de deliberação/ADR</strong> — qualquer um deles queima CPU ou grava eventos em algum ponto da árvore, o que já reinicia a janela.</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p><strong>Tempo e allowlist são configuráveis no canvas</strong> (15 min–24 h + lista adicional literal) — as proteções de voz e <code>liveWorker</code> não podem ser removidas. <strong>Cold-start nunca mata:</strong> sem uma fotografia anterior para comparar, a primeira passada só grava a linha de base.</p></aside>
         </section>
 
         <section class="doc-section" id="guardas">
@@ -103,12 +103,12 @@
         <section class="doc-section" id="como-funciona">
           <h2 class="doc-h2"><a class="doc-anchor" href="#como-funciona" aria-label="Link para Como funciona">#</a>Como funciona</h2>
           <p>Cada passada roda em <strong>processo separado</strong>, fire-and-forget, e segue sempre o mesmo caminho:</p>
-          <ol class="doc-steps"><li><h4>Trava</h4><p>Um lock garante que dois hooks simultâneos não rodem juntos.</p></li><li><h4>Fotografa</h4><p>Lista os servidores de sessão vivos (CIM) com PID, sessão, CPU e a hora do último evento.</p></li><li><h4>Decide</h4><p>Aplica o sinal duplo e, nas candidatas, o pente-fino das guardas.</p></li><li><h4>Descarrega</h4><p>Mata a árvore do processo-servidor e remove o snapshot — a sessão continua no disco.</p></li><li><h4>Registra</h4><p>Anota no log o que caiu, o que foi preservado e o motivo.</p></li></ol>
+          <ol class="doc-steps"><li><h4>Trava</h4><p>Um lock garante que dois hooks simultâneos não rodem juntos.</p></li><li><h4>Fotografa</h4><p>Lista os servidores de sessão vivos (CIM) com PID, sessão, CPU e a hora do último evento.</p></li><li><h4>Decide</h4><p>Aplica a janela de inatividade contínua da árvore inteira e, nas candidatas, o pente-fino das guardas.</p></li><li><h4>Descarrega</h4><p>Mata a árvore do processo-servidor e remove o snapshot — a sessão continua no disco.</p></li><li><h4>Registra</h4><p>Anota no log o que caiu, o que foi preservado e o motivo.</p></li></ol>
           <p>O log conta a história de cada passada — o que caiu, o que foi poupado e por quê:</p>
           <div class="codeblock"><button class="copy copy--code" type="button" data-copy="{&quot;ts&quot;:&quot;2026-07-23T14:02:10Z&quot;,&quot;evento&quot;:&quot;session-start&quot;,&quot;action&quot;:&quot;scan&quot;,&quot;killed&quot;:4,&quot;candidates&quot;:4,&quot;skipped&quot;:7}
-{&quot;ts&quot;:&quot;2026-07-23T14:02:10Z&quot;,&quot;action&quot;:&quot;killed&quot;,&quot;sessionId&quot;:&quot;a1c9b2…&quot;,&quot;pid&quot;:24680,&quot;reason&quot;:&quot;idle: sem eventos há 18min + cpuΔ≈0&quot;}
+{&quot;ts&quot;:&quot;2026-07-23T14:02:10Z&quot;,&quot;action&quot;:&quot;killed&quot;,&quot;sessionId&quot;:&quot;a1c9b2…&quot;,&quot;pid&quot;:24680,&quot;reason&quot;:&quot;idle: árvore inteira sem CPU/evento há 62min&quot;}
 {&quot;ts&quot;:&quot;2026-07-23T14:02:10Z&quot;,&quot;action&quot;:&quot;skipped&quot;,&quot;pid&quot;:13372,&quot;reason&quot;:&quot;self: ancestral do scan&quot;}" aria-label="Copiar bloco de código">copiar</button><pre><code>{&quot;ts&quot;:&quot;2026-07-23T14:02:10Z&quot;,&quot;evento&quot;:&quot;session-start&quot;,&quot;action&quot;:&quot;scan&quot;,&quot;killed&quot;:4,&quot;candidates&quot;:4,&quot;skipped&quot;:7}
-{&quot;ts&quot;:&quot;2026-07-23T14:02:10Z&quot;,&quot;action&quot;:&quot;killed&quot;,&quot;sessionId&quot;:&quot;a1c9b2…&quot;,&quot;pid&quot;:24680,&quot;reason&quot;:&quot;idle: sem eventos há 18min + cpuΔ≈0&quot;}
+{&quot;ts&quot;:&quot;2026-07-23T14:02:10Z&quot;,&quot;action&quot;:&quot;killed&quot;,&quot;sessionId&quot;:&quot;a1c9b2…&quot;,&quot;pid&quot;:24680,&quot;reason&quot;:&quot;idle: árvore inteira sem CPU/evento há 62min&quot;}
 {&quot;ts&quot;:&quot;2026-07-23T14:02:10Z&quot;,&quot;action&quot;:&quot;skipped&quot;,&quot;pid&quot;:13372,&quot;reason&quot;:&quot;self: ancestral do scan&quot;}</code></pre></div>
           <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Só a varredura é Windows-only (WMI/CIM). A interface interna <code>{ scan, procMap, treeKill }</code> já isola o SO, então outros backends entram sem mexer na lógica de decisão.</p></aside>
         </section>
@@ -165,12 +165,12 @@
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
               <span class="tree__role">Metadados do plugin + marcadores (extension + hooks).</span>
-              <span class="tree__size">1.1 KB</span>
+              <span class="tree__size">886 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">README.md</code>
               <span class="tree__role">Documentação vinda do repositório de origem.</span>
-              <span class="tree__size">5.3 KB</span>
+              <span class="tree__size">5.6 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">scan-hook-session-start.neural-link.json</code>
@@ -185,7 +185,7 @@
             <li class="tree__row">
               <code class="tree__name">scan-hook.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">2.3 KB</span>
+              <span class="tree__size">3.5 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">server-daemon.mjs</code>
@@ -194,8 +194,8 @@
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/config.mjs</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">1.9 KB</span>
+              <span class="tree__role">Lê/valida a configuração do canvas (timeout, allowlist, automático) — fail-closed em qualquer entrada inválida.</span>
+              <span class="tree__size">5.6 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/daemon-lock.mjs</code>
@@ -205,17 +205,22 @@
             <li class="tree__row">
               <code class="tree__name">lib/dashboard.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">18 KB</span>
+              <span class="tree__size">23 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/guards.mjs</code>
               <span class="tree__role">As travas antes do kill: auto-preservação, anti-TOCTOU e daemons intocáveis.</span>
-              <span class="tree__size">9.4 KB</span>
+              <span class="tree__size">9.5 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/home.mjs</code>
               <span class="tree__role">Resolve a raiz do Copilot (<code>~/.copilot</code>).</span>
               <span class="tree__size">556 B</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">lib/idle-decision.mjs</code>
+              <span class="tree__role">O núcleo da decisão: soma CPU do servidor e descendentes, reinicia o relógio e aplica o timeout/allowlist configurados.</span>
+              <span class="tree__size">1.4 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/lock.mjs</code>
@@ -235,7 +240,7 @@
             <li class="tree__row">
               <code class="tree__name">lib/procmap.mjs</code>
               <span class="tree__role">Fotografia de todos os processos (<code>pid → ppid</code>) que as guardas consultam.</span>
-              <span class="tree__size">898 B</span>
+              <span class="tree__size">999 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/pwsh.mjs</code>
@@ -249,8 +254,8 @@
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/snapshot.mjs</code>
-              <span class="tree__role">O sinal duplo: compara CPU e o <code>events.jsonl</code> para decidir o que está ocioso.</span>
-              <span class="tree__size">2.9 KB</span>
+              <span class="tree__role">Guarda o snapshot por PID (CPU acumulada + <code>idleSince</code>) que alimenta a decisão de ociosidade da árvore.</span>
+              <span class="tree__size">5.2 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/telemetry.mjs</code>
@@ -265,7 +270,7 @@
             <li class="tree__row">
               <code class="tree__name">lib/unload.mjs</code>
               <span class="tree__role">Orquestra a descarga: lock → scan → decide ocioso → guardas → mata a árvore → log.</span>
-              <span class="tree__size">3.6 KB</span>
+              <span class="tree__size">5.1 KB</span>
             </li>
             </ul>
           </div>
@@ -275,15 +280,19 @@
           <h2 class="doc-h2"><a class="doc-anchor" href="#faq" aria-label="Link para Perguntas frequentes">#</a>Perguntas frequentes</h2>
           <details class="faq">
             <summary>Perco a conversa quando descarrega?</summary>
-            <p>Não. Descarregar mata só o processo na memória; a sessão fica no disco. Ao reabri-la, o lazy-load restaura chat e histórico, e um <code>reload extension</code> traz as extensões de volta. O que não persiste em disco — shells abertos, conexões MCP, contexto só em memória — não volta, uma troca aceitável depois de 10 min de inatividade total.</p>
+            <p>Não. Descarregar mata só o processo na memória; a sessão fica no disco. Ao reabri-la, o lazy-load restaura chat e histórico, e um <code>reload extension</code> traz as extensões de volta. O que não persiste em disco — shells abertos, conexões MCP, contexto só em memória — não volta, uma troca aceitável depois da janela de inatividade configurada.</p>
           </details>
           <details class="faq">
             <summary>Ele pode matar a sessão em que estou trabalhando?</summary>
-            <p>Não. A guarda de auto-preservação nunca encerra a sessão atual nem seus processos ancestrais, e o sinal duplo mantém de pé qualquer sessão com eventos recentes ou CPU em uso.</p>
+            <p>Não. A guarda de auto-preservação nunca encerra a sessão atual nem seus processos ancestrais, e a janela de inatividade contínua mantém de pé qualquer árvore com eventos recentes ou CPU em uso em qualquer nível da descendência.</p>
           </details>
           <details class="faq">
             <summary>E um subagente ou uma mesa de ADR rodando?</summary>
-            <p>Ficam protegidos. O subagente mantém o <code>events.jsonl</code> quente (falha o sinal de tempo) e a mesa de deliberação queima CPU (falha o sinal de CPU) — como os dois sinais são exigidos juntos, nenhuma das duas é recolhida.</p>
+            <p>Ficam protegidos. Cada um deles vive em algum nível da árvore do processo-servidor e, ao queimar CPU ou gravar eventos, reinicia o relógio da árvore inteira — a sessão só é candidata se <strong>nenhum</strong> processo da descendência se mexer pelo tempo configurado.</p>
+          </details>
+          <details class="faq">
+            <summary>Dá pra ajustar o tempo e a allowlist?</summary>
+            <p>Sim. No canvas, a seção Política de segurança deixa escolher o timeout (15 min–24 h) e somar uma allowlist adicional literal. As proteções de voz e <code>liveWorker</code> são obrigatórias e não podem ser removidas; o automático continua desligado por padrão até você ligar conscientemente.</p>
           </details>
           <details class="faq">
             <summary>Como testo sem risco?</summary>
@@ -302,7 +311,7 @@
           <ul class="toc__list">
             <li><a href="#o-que-e">O que é</a></li>
             <li><a href="#como-usar">Como usar</a></li>
-            <li><a href="#sinal-duplo">Ociosidade por sinal duplo</a></li>
+            <li><a href="#ociosidade-da-arvore">Ociosidade contínua da árvore inteira</a></li>
             <li><a href="#guardas">Guardas antes de descarregar</a></li>
             <li><a href="#como-funciona">Como funciona</a></li>
             <li><a href="#instalar">Instalar</a></li>
@@ -311,7 +320,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.5.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.6.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>

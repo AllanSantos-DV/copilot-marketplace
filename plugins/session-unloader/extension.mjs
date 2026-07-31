@@ -6,7 +6,7 @@ import { Dashboard, CANVAS_ID, CANVAS_TITLE } from "./lib/dashboard.mjs";
 
 function fmtList(items) {
   if (!items || !items.length) return "  (nenhuma)";
-  return items.map((c) => `  • ${c.sessionId || "?"} (pid ${c.pid})`).join("\n");
+  return items.map((c) => `  • ${c.sessionId || "?"} (pid ${c.pid}; ${c.reason || "sem motivo"})`).join("\n");
 }
 
 export const tools = [
@@ -15,8 +15,8 @@ export const tools = [
     description:
       "Descarrega da memória as sessões ociosas do Copilot (mata a árvore do processo-servidor sem apagar a " +
       "sessão do disco; o lazy-load reabre depois com chat e histórico). Por padrão faz DRY-RUN: só lista as " +
-      "candidatas (sessão sem eventos há >10min E com CPU zerada). Passe force=true para descarregar de verdade. " +
-      "Nunca encerra a sessão atual, subagente ativo, mesa de deliberação, nem daemons compartilhados.",
+      "candidatas após inatividade contínua da árvore inteira pelo tempo configurado no canvas. Passe force=true " +
+      "para descarregar de verdade. Voz, workers/mesas allowlisted, a sessão atual e daemons compartilhados são preservados.",
     parameters: {
       type: "object",
       properties: {
@@ -33,7 +33,7 @@ export const tools = [
 
       if (dryRun) {
         if (!res.candidates?.length) {
-          return "✅ Nenhuma sessão ociosa agora (nada sem eventos há >10min E com CPU zerada).";
+          return "✅ Nenhuma sessão atingiu agora a política configurada de inatividade contínua da árvore.";
         }
         return `🔎 DRY-RUN — ${res.candidates.length} sessão(ões) ociosa(s) candidata(s):\n${fmtList(res.candidates)}\n\n` +
           "Rode com force=true para descarregar (reversível: o app reabre pelo lazy-load).";
@@ -77,7 +77,7 @@ if (!process.env.SESSION_UNLOADER_SMOKE) {
   });
   const session = await joinSession({ tools, canvases: [panel], hooks });
   sessionRef = session;
-  session.log?.("session-unloader ativo — tool unload_idle + painel (daemon único, cliente fino) + scan automático.");
+  session.log?.("session-unloader ativo — decisão por árvore inteira + allowlist configurável; automático fail-closed.");
   const closeDash = () => { try { fallback?.close(); } catch { /* ignore */ } }; // fecha só o fallback local; o daemon único se auto-encerra por idle
   session.on?.("dispose", closeDash);
   process.once?.("exit", closeDash);

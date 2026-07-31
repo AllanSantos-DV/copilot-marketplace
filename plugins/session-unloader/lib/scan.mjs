@@ -1,7 +1,7 @@
 // scan.mjs — enumera os servidores de sessão VIVOS do Copilot no Windows (CIM) e junta, por servidor:
 //   pid, commandLine, sessionId (via inuse.<pid>.lock na pasta da sessão), cpu (Kernel+User em 100ns) e
 //   eventsMtimeMs (mtime do events.jsonl = última atividade, inclusive de subagente). É a fotografia que
-//   as camadas de decisão (isIdle) e kill consomem. Windows-only por ora (abstrair para v3).
+//   as camadas de decisão e kill consomem. Windows-only por ora.
 import { join } from "node:path";
 import { runPwsh } from "./pwsh.mjs";
 import { resolveCopilotHome } from "./home.mjs";

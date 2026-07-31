@@ -161,7 +161,15 @@ export function descendantsOf(pid, procMap, { maxDepth = Infinity } = {}) {
  * @param {{selfPid:number, selfAncestors:Set<number>, procMap:Map, pidAlive:(n:number)=>boolean,
  *          perSessionTokens?:Set<string>}} ctx
  */
-export function guardKill(server, { selfPid, selfAncestors, procMap, pidAlive, perSessionTokens, maxDepth }) {
+export function guardKill(server, {
+  selfPid,
+  selfAncestors,
+  procMap,
+  pidAlive,
+  perSessionTokens,
+  maxDepth,
+  descendantsResult,
+}) {
   const pid = Number(server.pid);
   if (!pidAlive(pid)) return { ok: false, reason: "pid-morto" };
   if (pid === selfPid) return { ok: false, reason: "self-pid" };
@@ -169,7 +177,7 @@ export function guardKill(server, { selfPid, selfAncestors, procMap, pidAlive, p
   const cur = procMap.get(pid);
   if (!cur || !/--server --stdio/.test(cur.cmdline)) return { ok: false, reason: "cmdline-mudou-TOCTOU" };
 
-  const { descendentes, truncado } = descendantsOf(pid, procMap,
+  const { descendentes, truncado } = descendantsResult || descendantsOf(pid, procMap,
     maxDepth === undefined ? {} : { maxDepth });
   const porSessao = perSessionTokens || new Set();
   const candidatos = descendentes.filter((k) => {
