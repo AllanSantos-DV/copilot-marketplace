@@ -13,7 +13,8 @@ export const RECALL_DEFAULTS = {
     maxItems: 8,          // teto total de itens injetados
     maxPerBlock: 3,       // teto POR bloco — evita que skill_global engula o orçamento e zere o projeto
     maxCharsPerItem: 320,
-    minScore: 0.5,        // usado só no fallback escopado
+    minScore: 0.5,        // corte de relevância APLICADO NO CLIENTE sobre o cosine 0..1 (NUNCA enviado ao
+                          // servidor: minScore server-side ativa score BM25 não-normalizado ~0..N)
     timeoutMs: 3500,      // hook não pode travar a sessão
     // compose faz 5 buscas (5× embedding) → é o 1º a estourar sob carga (medido: 143ms hoje, mas já
     // observado 113s com DB inchada/embedder frio). Orçamento próprio, curto: se estourar, cai no
@@ -130,13 +131,18 @@ async function fallbackScoped(client, projectId, q, o) {
         }
     } catch { /* tenta search abaixo */ }
 
-    // 2ª opção: search escopado cru.
+    // 2ª opção: search escopado cru. Busca SEM minScore — passar minScore ao servidor o põe num modo de
+    // score NÃO-normalizado (BM25/híbrido, escala ~0..N em vez do cosine 0..1 — validado ao vivo, ver
+    // lição em extension.mjs). O corte de relevância é aplicado AQUI no cliente, sobre o cosine.
     let results = [];
     try {
-        const r = await client.search(q, { topK: o.maxItems, metadata: { project_id: projectId }, minScore: o.minScore, timeoutMs: o.timeoutMs });
+        const r = await client.search(q, { topK: o.maxItems, metadata: { project_id: projectId }, timeoutMs: o.timeoutMs });
         results = (r && r.results) || [];
     } catch {
         results = [];
+    }
+    if (o.minScore != null) {
+        results = results.filter((x) => Number(x.score) >= o.minScore);
     }
     if (!results.length) return { text: null, count: 0, projectId, source: "fallback", pointerIds: [] };
     const lines = results.slice(0, o.maxItems).map((r) => `- (${(Number(r.score) || 0).toFixed(2)}) ${clampText(r.text, o.maxCharsPerItem)}`);
@@ -149,7 +155,7 @@ async function fallbackScoped(client, projectId, q, o) {
 // Ponto de entrada usado pelos hooks. Retorna { text, count, projectId, source }.
 // text=null quando não há nada relevante (ex.: projeto novo sem memória).
 export async function composeRecall(client, workingDirectory, query, opts = {}) {
-    const o = { ...RECALL_DEFAULTS, ...opts };
+    const o = { ...recallOptsFromEnv(), ...opts };
     const projectId = tryResolveProjectId(workingDirectory);
     const q = String(query || "").trim();
     if (!q) return { text: null, count: 0, projectId, source: "none", pointerIds: [] };

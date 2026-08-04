@@ -28,7 +28,9 @@ import { ensureServer, autoProvisionEnabled, resolveJava } from "./lib/provision
 import { previewMigration, migrateScope } from "./lib/migrate.mjs";
 import { runCuration } from "./lib/curation.mjs";
 import { reconcileSkill } from "./lib/curator.mjs";
-import { createOrUpdateSkill } from "./lib/skillCreator.mjs";
+import { bumpTurn, turnsSince, resetTurns } from "./lib/curationTurns.mjs";
+import { INGESTION_GUIDE, ingestionCapabilityNote, serverIngestionOff, consumerIngestionEnabled, ingestEveryTurns } from "./lib/ingestionGuide.mjs";
+import { createOrUpdateSkill, decideSkill, applyDecisionsBatch } from "./lib/skillCreator.mjs";
 import { MemoryDashboard, DASHBOARD_CANVAS_ID, DASHBOARD_INSTANCE_ID, DASHBOARD_TITLE } from "./lib/dashboard.mjs";
 import { readPersistedCwd, persistCwd } from "./lib/sessionCwd.mjs";
 import { enableGate, disableGate, gateStatus } from "./lib/gates/gateAdmin.mjs";
@@ -70,11 +72,83 @@ function makePersistSkill(c, sessionId, workingDirectory) {
     };
 }
 
+// Batch persist: coleta skills e usa saveBatch no final. Retorna { results, succeeded, failed, skipped }.
+function makeBatchPersistSkill(c, sessionId, workingDirectory) {
+    const decisions = [];
+    const reconcile = (lesson, candidates) => reconcileSkill(lesson, candidates, { workingDirectory });
+    
+    return {
+        // Coleta uma skill (roda reconcile mas não aplica)
+        collect: async (skill) => {
+            try {
+                const result = await decideSkill(skill, {
+                    client: c.client,
+                    projectId: c.projectId,
+                    sessionId,
+                    reconcile,
+                });
+                decisions.push(result);
+                return result;
+            } catch (e) {
+                return { action: "skip", reason: e.message, name: skill?.name };
+            }
+        },
+        // Aplica todas as decisões coletadas em batch
+        flush: async () => {
+            if (decisions.length === 0) return { results: [], succeeded: 0, failed: 0, skipped: 0 };
+            const result = await applyDecisionsBatch(c.client, c.projectId, sessionId, decisions);
+            decisions.length = 0; // limpa após flush
+            return result;
+        },
+        // Conta quantas decisões estão pendentes
+        pending: () => decisions.length,
+    };
+}
+
 // Monta o leitor de histórico da session do host (getEvents no host; getMessages no smoke). null se nenhum.
 function hostHistoryReader() {
     if (hostSession && typeof hostSession.getEvents === "function") return () => hostSession.getEvents();
     if (hostSession && typeof hostSession.getMessages === "function") return () => hostSession.getMessages();
     return null;
+}
+
+// Curadoria por TURNOS (modo ingestão client-side): quando o usuário liga COPILOT_MEMORY_INGEST=1 E o
+// servidor anuncia features.ingestion=false, o plugin consolida os turnos vivos a cada X prompts
+// (COPILOT_MEMORY_INGEST_EVERY) — NÃO a cada stop. Entre user e assistant há muito resíduo de máquina
+// (tool calls/results); acumular turnos antes de curar dá contexto ao destilador. Fire-and-forget em
+// background (nunca bloqueia o hook); incremental via curationLedger (não recura). Não duplica a cura
+// do SessionStart: essa é 1× por processo; a de turnos é periódica e o ledger serializa.
+let turnsCurationKicked = false;
+function maybeCureByTurns(input, features) {
+    if (turnsCurationKicked) return;
+    if (!consumerIngestionEnabled()) return;
+    if (!serverIngestionOff(features)) return;
+    if (!curationEnabled()) return;
+    const every = ingestEveryTurns();
+    const n = bumpTurn(input.sessionId);
+    if (n < every || n % every !== 0) return;
+    turnsCurationKicked = true; // 1× por processo: o ledger/ledger de blocos segue no background
+    const sid = input.sessionId;
+    const wd = input.workingDirectory;
+    setTimeout(() => {
+        (async () => {
+            try {
+                const c = await connect(wd);
+                if (!c.ok || !c.projectId) return;
+                const getEvents = hostHistoryReader();
+                if (!getEvents) return;
+                await runCuration({
+                    sessionId: sid,
+                    workingDirectory: wd,
+                    getEvents,
+                    batchPersist: makeBatchPersistSkill(c, sid, wd),
+                    maxUnits: 2,
+                    log: (m) => { try { hostSession?.log?.("[curator-turns] " + m); } catch { /* ignore */ } },
+                });
+                resetTurns(sid, turnsSince(sid));
+            } catch { /* background, fail-open */ }
+        })();
+    }, 2500);
 }
 
 // Sessão do host (capturada no joinSession) — dá às tools acesso ao histórico via getEvents()
@@ -108,6 +182,8 @@ function toolCwd() {
 
 // Descobre o daemon vivo e monta o cliente + project_id do diretório de trabalho dado.
 // Cliente-puro: se o daemon estiver offline, retorna { ok:false } — nunca sobe nada, nunca lança.
+// features: superfície SOMENTE-LEITURA do servidor (ex.: { ingestion: bool }, native-java ≥2.33.0)
+// para o plugin/agente descobrirem se a curadoria local está ligada. null se o servidor é antigo.
 async function connect(workingDirectory) {
     const info = await discover();
     if (!info) return { ok: false, reason: "daemon offline (sem daemon.json vivo em ~/.mcp-memory/run)" };
@@ -115,6 +191,7 @@ async function connect(workingDirectory) {
         ok: true,
         url: info.url,
         version: info.version ?? null,
+        features: info.features ?? null,
         client: new MemoryClient(info.url),
         projectId: tryResolveProjectId(workingDirectory),
         workdir: workingDirectory,
@@ -151,15 +228,19 @@ const OPEN_QUERY =
 // completo ({text,count,projectId,source,pointerIds}) ou null (daemon offline) — o objeto deixa
 // os hooks LOGAR o consumo (quais ponteiros foram injetados). Um teto GLOBAL (overallDeadlineMs)
 // garante que o hook nunca bloqueie a sessão, mesmo se as pernas de fallback rodarem em série.
+// Também expõe `features` do daemon (features.ingestion) para o hook decidir nota de capacidade
+// e curadoria por turnos sem um segundo connect.
 async function recallBlock(workingDirectory, query, extraOpts = {}) {
     const c = await connect(workingDirectory);
-    if (!c.ok) return null;
+    const empty = { text: null, count: 0, projectId: null, source: "none", pointerIds: [], features: c.ok ? c.features : null };
+    if (!c.ok) return empty;
     const opts = { ...recallOptsFromEnv(), ...extraOpts };
     const deadlineMs = opts.overallDeadlineMs || 4500;
     let timer;
     const deadline = new Promise((res) => { timer = setTimeout(() => res(null), deadlineMs); });
     try {
-        return await Promise.race([composeRecall(c.client, workingDirectory, query, opts), deadline]);
+        const recall = await Promise.race([composeRecall(c.client, workingDirectory, query, opts), deadline]);
+        return { ...(recall || empty), features: c.features };
     } finally {
         clearTimeout(timer); // não deixa timer pendente segurando o event loop quando o recall vence
     }
@@ -481,6 +562,116 @@ export const tools = [
         },
 
         {
+            name: "memory_save_document",
+            description:
+                "Salva um ou vários documentos JÁ TRATADOS (curados/consolidados) na memória do projeto, com upsert " +
+                "IDEMPOTENTE via documentId (o servidor ≥2.33.0 re-escreve o MESMO doc em vez de duplicar). " +
+                "Use quando o servidor estiver com a curadoria local desligada (features.ingestion=false): " +
+                "você consolida vários turnos user/assistant (sem tool calls/results), destila o que é " +
+                "generalizável e salva por tipo (decision/knowledge/note). Para conhecimento cru do momento, " +
+                "use memory_save; para skills reusáveis, use memory_save_skill. Consulte memory_ingest_guide " +
+                "para o template de documento tratado e o ritmo de consolidação. " +
+                "Para batch: passe um array de documentos no campo 'documents'.",
+            parameters: {
+                type: "object",
+                properties: {
+                    content: { type: "string", description: "O documento já tratado (template: título + Contexto + Decisão/Fato + Porquê + Aplicar quando)" },
+                    documentId: { type: "string", description: "Id ESTÁVEL para upsert idempotente (ex.: 'dec-rest-contract-007'); sem ele o servidor cria um novo" },
+                    type: { type: "string", description: "Categoria: decision, knowledge (padrão), note, bugfix" },
+                    tags: { type: "array", items: { type: "string" }, description: "Tags para busca futura" },
+                    documents: {
+                        type: "array",
+                        description: "Array de documentos para batch (máx. 20). Cada item: {content, documentId?, type?, tags?}",
+                        items: {
+                            type: "object",
+                            properties: {
+                                content: { type: "string" },
+                                documentId: { type: "string" },
+                                type: { type: "string" },
+                                tags: { type: "array", items: { type: "string" } },
+                            },
+                            required: ["content"],
+                        },
+                    },
+                },
+                anyOf: [
+                    { required: ["content"] },
+                    { required: ["documents"] },
+                ],
+                additionalProperties: false,
+            },
+            handler: async (args) => {
+                const c = await connect(toolCwd());
+                if (!c.ok) return `🧠 Memória offline: ${c.reason}`;
+                if (!c.projectId) return buildScopeAlert(c.workdir);
+
+                // Modo batch: array de documentos
+                if (Array.isArray(args.documents) && args.documents.length > 0) {
+                    const docs = args.documents.slice(0, 20); // limita a 20
+                    const batchDocs = docs.map((d) => {
+                        const content = String(d.content || "").trim();
+                        const extra = { type: d.type || "knowledge", source: "copilot" };
+                        if (Array.isArray(d.tags) && d.tags.length) extra.tags = d.tags;
+                        const metadata = scopedMeta(c, extra);
+                        return { content, metadata, documentId: d.documentId };
+                    }).filter((d) => d.content); // remove vazios
+
+                    if (!batchDocs.length) return "Nenhum documento válido no batch.";
+                    if (batchDocs.length === 1) {
+                        // Fallback para 1 doc: usa save individual
+                        const doc = batchDocs[0];
+                        try {
+                            const res = await c.client.save(doc.content, doc.metadata, { documentId: doc.documentId });
+                            const id = (res && (res.id || res.documentId)) || doc.documentId || "?";
+                            const upsert = doc.documentId ? " · upsert idempotente" : "";
+                            return `Documento tratado salvo (${c.projectId}) · id=${id}${upsert} · type=${doc.metadata.type}`;
+                        } catch (e) {
+                            return "Erro ao salvar: " + (e?.message || e);
+                        }
+                    }
+
+                    // Batch real
+                    try {
+                        const res = await c.client.saveBatch(batchDocs);
+                        const succeeded = res.succeeded || 0;
+                        const failed = res.failed || 0;
+                        const ids = (res.results || []).filter((r) => r.status === "ok").map((r) => r.id).join(", ");
+                        return `Batch salvo (${c.projectId}) · ${succeeded} sucesso(s), ${failed} falha(s)${ids ? " · ids=" + ids : ""}`;
+                    } catch (e) {
+                        return "Erro no batch: " + (e?.message || e);
+                    }
+                }
+
+                // Modo single: documento individual
+                const content = String(args.content || "").trim();
+                if (!content) return "Conteúdo vazio — nada salvo.";
+                const extra = { type: args.type || "knowledge", source: "copilot" };
+                if (Array.isArray(args.tags) && args.tags.length) extra.tags = args.tags;
+                const metadata = scopedMeta(c, extra);
+                let res;
+                try {
+                    res = await c.client.save(content, metadata, { documentId: args.documentId });
+                } catch (e) {
+                    return "Erro ao salvar: " + (e?.message || e);
+                }
+                const id = (res && (res.id || res.documentId)) || args.documentId || "?";
+                const upsert = args.documentId ? " · upsert idempotente" : "";
+                return `Documento tratado salvo (${c.projectId}) · id=${id}${upsert} · type=${metadata.type}`;
+            },
+        },
+
+        {
+            name: "memory_ingest_guide",
+            description:
+                "Retorna o GUIA de ingestão para o modo 'curadoria local desligada' (features.ingestion=false): " +
+                "como limpar o transcript cru (só user+assistant, sem tool calls/results), consolidar turnos a " +
+                "cada intervalo, destilar o que é generalizável, salvar por tipo com documentId estável e o " +
+                "template de documento tratado. Use ANTES de memory_save_document quando for consolidar a conversa.",
+            parameters: { type: "object", properties: {}, additionalProperties: false },
+            handler: async () => INGESTION_GUIDE,
+        },
+
+        {
             name: "memory_distill",
             description:
                 "DESTILADOR de aprendizado (curadoria por AGENTE): força AGORA a curadoria dos checkpoints e turnos " +
@@ -507,7 +698,7 @@ export const tools = [
                     sessionId: sid,
                     workingDirectory: wd,
                     getEvents,
-                    persistSkill: makePersistSkill(c, sid, wd),
+                    batchPersist: makeBatchPersistSkill(c, sid, wd),
                     maxUnits: 2,
                 });
                 if (!sum.checkpoints && !sum.liveBlocks && !sum.skills) {
@@ -802,6 +993,17 @@ export const tools = [
         ...graphTools({ toolCwd }),
 ];
 
+// Compõe o additionalContext do hook: a NOTA de capacidade de ingestão (quando aplicável) vem ANTES do
+// recall — é uma diretiva de comportamento do agente, não memória a relembrar. Sem nota nem recall → null.
+function contextWithIngestNote(r, scaffoldBlock = null) {
+    const note = ingestionCapabilityNote(r && r.features);
+    const parts = [];
+    if (scaffoldBlock) parts.push(scaffoldBlock);
+    if (note) parts.push(note);
+    if (r && r.text) parts.push(r.text);
+    return parts.length ? parts.join("\n\n") : null;
+}
+
 export const hooks = {
         // Abertura da sessão: injeta o estado/decisões do projeto aberto como contexto inicial.
         onSessionStart: async (input) => {
@@ -834,7 +1036,7 @@ export const hooks = {
                                 sessionId: sid,
                                 workingDirectory: wd,
                                 getEvents,
-                                persistSkill: makePersistSkill(c, sid, wd),
+                                batchPersist: makeBatchPersistSkill(c, sid, wd),
                                 log: (m) => { try { hostSession?.log?.("[curator] " + m); } catch { /* ignore */ } },
                             });
                         } catch { /* background, fail-open */ }
@@ -860,8 +1062,10 @@ export const hooks = {
                 const r = await recallBlock(input.workingDirectory, OPEN_QUERY, { minScore: 0.5 });
                 if (r && r.text) {
                     recordRecall({ sessionId: input.sessionId, projectId: r.projectId, source: r.source, pointerIds: r.pointerIds, count: r.count });
-                    return { additionalContext: scaffoldBlock ? `${scaffoldBlock}\n\n${r.text}` : r.text };
+                    return { additionalContext: contextWithIngestNote(r, scaffoldBlock) };
                 }
+                const note = ingestionCapabilityNote(r && r.features);
+                if (note) return { additionalContext: contextWithIngestNote(r, scaffoldBlock) };
             } catch { /* hook nunca derruba a sessão */ }
             if (scaffoldBlock) return { additionalContext: scaffoldBlock };
         },
@@ -874,10 +1078,15 @@ export const hooks = {
             if (q.length < 4) return; // ignora prompts triviais
             try {
                 const r = await recallBlock(input.workingDirectory, q);
+                // Curadoria por TURNOS (modo ingestão client-side, features.ingestion=false): dispara em
+                // background a consolidação dos turnos vivos a cada X prompts — NÃO a cada stop.
+                maybeCureByTurns(input, r && r.features);
                 if (r && r.text) {
                     recordRecall({ sessionId: input.sessionId, projectId: r.projectId, source: r.source, pointerIds: r.pointerIds, count: r.count });
-                    return { additionalContext: r.text };
+                    return { additionalContext: contextWithIngestNote(r) };
                 }
+                const note = ingestionCapabilityNote(r && r.features);
+                if (note) return { additionalContext: note };
             } catch { /* hook nunca derruba a sessão */ }
         },
 };
