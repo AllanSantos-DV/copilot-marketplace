@@ -984,14 +984,19 @@ class _VoxBridge:
     def synthesize(self, text, voice=None, speed=1.0):
         """(texto) -> (wav_bytes, sample_rate:int) via {cmd:"tts"} do motor único, com a
         NORMALIZAÇÃO na FONTE (``normalize=True``) e o áudio já em WAV codificado — o cliente
-        NÃO renormaliza nem toca numpy (o SDK só cria ndarray no fmt "pcm"). Fast-fail. Voz por
-        NOME quando definida; vazio => voz padrão. LEVANTA :class:`VoxEngineError` em qualquer
-        falha — sem fallback mudo. (O fade anti-clique fica no iframe, Web Audio ramp.)"""
+        NÃO renormaliza nem toca numpy (o SDK só cria ndarray no fmt "pcm"). BOOT (não
+        fast-fail): TTS é uma chamada avulsa (não é o loop contínuo de decode), então religa
+        o motor se ele tiver se auto-encerrado por ociosidade (``ocioso -> encerrando`` no
+        daemon) em vez de falhar na hora — igual ``capture_open``. Sem isso, a 1ª fala após
+        ~30min ocioso batia "motor de voz (vox-engine) indisponível" mesmo o motor sabendo
+        religar sozinho em segundos. Voz por NOME quando definida; vazio => voz padrão.
+        LEVANTA :class:`VoxEngineError` em qualquer falha — sem fallback mudo. (O fade
+        anti-clique fica no iframe, Web Audio ramp.)"""
         h, wav = self._call(
             lambda c: c.tts(text, fmt="wav", normalize=True, voice=voice or "",
                             speed=float(speed or 1.0), session=self._session,
                             timeout=max(VOX_REQ_TIMEOUT, 120.0)),
-            boot_timeout=0.0)
+            boot_timeout=60.0)
         sr = int(h.get("sample_rate") or 22050)
         return wav, sr
 
