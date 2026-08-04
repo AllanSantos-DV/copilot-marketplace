@@ -37,15 +37,14 @@ async function enrich(client, cands) {
     return out;
 }
 
-// Cria/atualiza/promove uma skill a partir de uma lição. deps: { client, projectId, sessionId,
-// reconcile: async(lesson, candidates)=>decision, strongScore }. Retorna { action, id?, name, reason? }.
-export async function createOrUpdateSkill(lesson, { client, projectId, sessionId, reconcile, strongScore = 0.62 } = {}) {
+// Decidir (sem aplicar) uma skill a partir de uma lição. Retorna { action, id?, name, reason?, decision, known, lesson }.
+export async function decideSkill(lesson, { client, projectId, sessionId, reconcile, strongScore = 0.62 } = {}) {
     // Normaliza o name ao limite (o curador às vezes excede; truncar > descartar a skill).
     if (lesson && typeof lesson.name === "string" && lesson.name.length > 64) {
         lesson = { ...lesson, name: lesson.name.slice(0, 63).trimEnd() + "…" };
     }
     const v = validateSkill(lesson);
-    if (!v.ok) return { action: "skip", reason: "inválida: " + v.errors.join("; ") };
+    if (!v.ok) return { action: "skip", reason: "inválida: " + v.errors.join("; "), name: lesson?.name };
 
     const frontmatter = `${lesson.name}\n${lesson.description}`;
     const cands = await findSimilar(client, projectId, frontmatter);
@@ -64,7 +63,108 @@ export async function createOrUpdateSkill(lesson, { client, projectId, sessionId
         decision = strong.some((c) => c.scope === "project") ? { action: "skip", reason: "similar já existe" } : { action: "create", ...lesson };
     }
 
-    return await apply(client, projectId, sessionId, lesson, decision, known);
+    return { ...decision, decision, known, lesson };
+}
+
+// Aplicar uma decisão (decideSkill) — pode envolver save/update/patchMetadata.
+export async function applyDecision(client, projectId, sessionId, result) {
+    const { decision, known, lesson } = result;
+    // O action pode estar no result (top-level) ou no decision
+    const action = result.action || decision.action;
+    const decisionWithAction = { ...decision, action };
+    return await apply(client, projectId, sessionId, lesson, decisionWithAction, known);
+}
+
+// Cria/atualiza/promove uma skill a partir de uma lição. deps: { client, projectId, sessionId,
+// reconcile: async(lesson, candidates)=>decision, strongScore }. Retorna { action, id?, name, reason? }.
+export async function createOrUpdateSkill(lesson, { client, projectId, sessionId, reconcile, strongScore = 0.62 } = {}) {
+    const result = await decideSkill(lesson, { client, projectId, sessionId, reconcile, strongScore });
+    return await applyDecision(client, projectId, sessionId, result);
+}
+
+// Aplicar múltiplas decisões em batch (create-only para saveBatch). Retorna { results, succeeded, failed }.
+export async function applyDecisionsBatch(client, projectId, sessionId, results) {
+    const creates = [];
+    const others = [];
+    const skipped = [];
+    
+    // Separar creates de outras ações
+    for (const r of results) {
+        if (r.action === "skip") {
+            skipped.push(r);
+        } else if (r.action === "create") {
+            creates.push(r);
+        } else {
+            others.push(r);
+        }
+    }
+    
+    const summary = { results: [], succeeded: 0, failed: 0, skipped: skipped.length };
+    
+    // Aplicar creates em batch
+    if (creates.length > 0) {
+        const docs = creates.map(r => {
+            const name = r.decision.name || r.lesson.name;
+            const description = r.decision.description || r.lesson.description;
+            const body = r.decision.body || r.lesson.body;
+            const kind = r.decision.kind || r.lesson.kind;
+            const built = buildSkillDocument({ name, description, body, tags: kind ? [kind] : undefined, projectId, sessionId });
+            const content = built.content;
+            const baseMeta = {
+                status: "active",
+                confidence: "medium",
+                name,
+                description,
+                source: "copilot-curator",
+                type: TYPE_ACTIVE,
+                project_id: projectId,
+            };
+            if (kind) baseMeta.kind = kind;
+            if (sessionId) baseMeta.session_id = sessionId;
+            return { content, metadata: baseMeta };
+        });
+        
+        try {
+            const batchResult = await client.saveBatch(docs);
+            for (let i = 0; i < creates.length; i++) {
+                const r = creates[i];
+                const batchR = batchResult.results[i];
+                if (batchR && batchR.status === "ok") {
+                    summary.results.push({ action: "create", id: batchR.id, name: r.decision.name || r.lesson.name });
+                    summary.succeeded++;
+                } else {
+                    summary.results.push({ action: "create", error: batchR?.error || "batch failed", name: r.decision.name || r.lesson.name });
+                    summary.failed++;
+                }
+            }
+        } catch (e) {
+            // Fallback para creates individuais se batch falhar
+            for (const r of creates) {
+                try {
+                    const res = await applyDecision(client, projectId, sessionId, r);
+                    summary.results.push(res);
+                    summary.succeeded++;
+                } catch (e2) {
+                    summary.results.push({ action: "create", error: e2.message, name: r.decision.name || r.lesson.name });
+                    summary.failed++;
+                }
+            }
+        }
+    }
+    
+    // Aplicar outras ações (update, promote_global) individualmente
+    for (const r of others) {
+        try {
+            const res = await applyDecision(client, projectId, sessionId, r);
+            summary.results.push(res);
+            summary.succeeded++;
+        } catch (e) {
+            summary.results.push({ action: r.action, error: e.message, name: r.decision?.name || r.lesson?.name });
+            summary.failed++;
+        }
+    }
+    
+    return summary;
 }
 
 const AUTO_SOURCES = new Set(["copilot-curator", "copilot-autoskill", "copilot"]);

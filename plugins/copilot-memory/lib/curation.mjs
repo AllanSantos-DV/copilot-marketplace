@@ -9,9 +9,10 @@ import { isCheckpointCurated, markCheckpointCurated, liveProgress, markLiveProgr
 import { curateBlock } from "./curator.mjs";
 import { redact } from "./redact.mjs";
 
-// deps: { sessionId, workingDirectory, getEvents, persistSkill, maxBlockChars?, curator?, curatorOpts?, log? }
+// deps: { sessionId, workingDirectory, getEvents, persistSkill, batchPersist?, maxBlockChars?, curator?, curatorOpts?, log? }
 //  - getEvents:    async () => SessionEvent[]  (do hostSession)
 //  - persistSkill: async (skill, meta) => any  (valida/dedup/salva; skill = {kind,name,description,body})
+//  - batchPersist: { collect, flush, pending }  (opcional: modo batch — coleta skills e faz flush no final)
 //  - curator:      async (text, opts) => { skills, error? }  (default: curateBlock)
 // Retorna um summary { checkpoints, liveBlocks, skills, errors }.
 //
@@ -44,6 +45,7 @@ async function runCurationInner(deps = {}) {
         workingDirectory,
         getEvents,
         persistSkill,
+        batchPersist,
         maxBlockChars = 12000,
         maxUnits = Infinity,   // teto de unidades (checkpoints + blocos) por chamada; ilimitado no background
         curator = curateBlock,
@@ -52,13 +54,27 @@ async function runCurationInner(deps = {}) {
     } = deps;
 
     const summary = { checkpoints: 0, liveBlocks: 0, skills: 0, errors: [], remaining: 0 };
-    if (!sessionId || typeof persistSkill !== "function") {
-        summary.errors.push("deps insuficientes (sessionId/persistSkill)");
+    if (!sessionId || (typeof persistSkill !== "function" && !batchPersist)) {
+        summary.errors.push("deps insuficientes (sessionId/persistSkill ou batchPersist)");
         return summary;
     }
     let units = 0;
 
     const saveAll = async (skills, meta) => {
+        // Modo batch: coleta skills e faz flush no final
+        if (batchPersist) {
+            for (const s of skills || []) {
+                try {
+                    await batchPersist.collect(s);
+                    summary.skills++;
+                } catch (e) {
+                    summary.errors.push("collect: " + (e?.message || e));
+                }
+            }
+            return;
+        }
+        
+        // Modo tradicional: persiste uma a uma
         for (const s of skills || []) {
             try {
                 await persistSkill(s, meta);
@@ -115,6 +131,17 @@ async function runCurationInner(deps = {}) {
         markLiveProgress(sessionId, b.toId);
         summary.liveBlocks++;
         units++;
+    }
+
+    // Flush batch se houver skills coletadas
+    if (batchPersist && batchPersist.pending() > 0) {
+        try {
+            const batchResult = await batchPersist.flush();
+            summary.batchResult = batchResult;
+            log(`batch flush: ${batchResult.succeeded} succeeded, ${batchResult.failed} failed, ${batchResult.skipped} skipped`);
+        } catch (e) {
+            summary.errors.push("batch flush: " + (e?.message || e));
+        }
     }
 
     return summary;

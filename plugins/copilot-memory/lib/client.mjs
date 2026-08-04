@@ -65,10 +65,27 @@ export class MemoryClient {
     }
 
     // Salva um documento carimbando o metadata fornecido (inclua project_id do projeto aberto).
-    save(content, metadata) {
+    // opts.documentId (opcional, servidor ≥2.33.0): id ESTÁVEL → upsert idempotente (re-escrita no mesmo
+    // doc em vez de duplicar). Sem ele, o servidor gera um id novo a cada POST.
+    save(content, metadata, opts = {}) {
         const body = { content };
         if (metadata) body.metadata = metadata;
+        if (opts.documentId) body.documentId = String(opts.documentId);
         return this.#req("POST", "/api/v1/documents", body);
+    }
+
+    // Batch: salva N documentos numa única round-trip. Servidor ≥2.33.0.
+    // docs = [{ content, metadata, documentId? }, ...]
+    // → { results: [{ index, status, id?, error? }], succeeded, failed }
+    saveBatch(docs, opts = {}) {
+        if (!Array.isArray(docs) || !docs.length) return Promise.resolve({ results: [], succeeded: 0, failed: 0 });
+        const body = { documents: docs.map((d) => {
+            const item = { content: d.content };
+            if (d.metadata) item.metadata = d.metadata;
+            if (d.documentId) item.documentId = String(d.documentId);
+            return item;
+        }) };
+        return this.#req("POST", "/api/v1/documents", body, opts.timeoutMs);
     }
 
     // POST /api/v1/compose (compose_recall). O SERVIDOR compõe os blocos rotulados.
