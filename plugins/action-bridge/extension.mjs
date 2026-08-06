@@ -16152,7 +16152,7 @@ var StdioClientTransport = class {
 
 // extension.mjs
 import { spawn as spawn4 } from "node:child_process";
-import { existsSync as existsSync3, readFileSync as readFileSync2 } from "node:fs";
+import { existsSync as existsSync3, readFileSync as readFileSync2, writeFileSync, renameSync, unlinkSync as unlinkSync2 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
 import { join as join3 } from "node:path";
 
@@ -16477,6 +16477,7 @@ async function tryConnectDaemon(mcpCommand, env, { allowSpawn = false } = {}) {
 // extension.mjs
 var TOOL_PREFIX = "action_";
 var RUNTIME_PATH2 = join3(homedir2(), ".action", "runtime.json");
+var MANIFEST_PATH = join3(homedir2(), ".action", "tools-manifest.json");
 function elog(...parts) {
   process.stderr.write(`[action-bridge] ${parts.join(" ")}
 `);
@@ -16498,6 +16499,30 @@ function discover() {
   } catch (e) {
     elog("discover failed:", e.message);
     return null;
+  }
+}
+function readManifestCache(version2) {
+  try {
+    if (!existsSync3(MANIFEST_PATH)) return null;
+    const m = JSON.parse(readFileSync2(MANIFEST_PATH, "utf8"));
+    if (m.daemonVersion !== version2 || !Array.isArray(m.tools)) return null;
+    return m.tools;
+  } catch (e) {
+    elog("manifest cache inv\xE1lido, ignorando:", e.message);
+    return null;
+  }
+}
+function writeManifestCache(version2, tools2) {
+  try {
+    const tmp = MANIFEST_PATH + `.tmp-${process.pid}`;
+    writeFileSync(tmp, JSON.stringify({ daemonVersion: version2, tools: tools2, cachedAt: (/* @__PURE__ */ new Date()).toISOString() }));
+    renameSync(tmp, MANIFEST_PATH);
+  } catch (e) {
+    elog("falha ao gravar manifest cache (n\xE3o-fatal):", e.message);
+    try {
+      unlinkSync2(MANIFEST_PATH + `.tmp-${process.pid}`);
+    } catch {
+    }
   }
 }
 var state = { disc: null, client: null, transport: null, connecting: null, mode: "stdio" };
@@ -16596,6 +16621,7 @@ function openTool() {
         const child = spawn4(cmd, args, {
           detached: true,
           stdio: "ignore",
+          windowsHide: true,
           env: { ...process.env, ...state.disc.env }
         });
         child.unref();
@@ -16673,13 +16699,29 @@ async function buildTools() {
     elog("Action n\xE3o encontrado (runtime.json ausente).");
     return [statusTool("Action n\xE3o instalado/registrado"), installTool()];
   }
+  const cached2 = readManifestCache(state.disc.version);
+  if (cached2) {
+    const bridged = cached2.map((t) => bridgedTool(t.name, t.description, t.inputSchema));
+    elog(`tools do Action v${state.disc.version} carregadas do cache (${bridged.length}), sem conectar.`);
+    return [
+      statusTool(`cache (${bridged.length} tools; conecta no 1\xBA uso)`),
+      openTool(),
+      installTool(),
+      ...bridged
+    ];
+  }
   try {
     const client = await ensureClient();
     const { tools: mcpTools = [] } = await client.listTools();
+    writeManifestCache(state.disc.version, mcpTools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      inputSchema: t.inputSchema
+    })));
     const bridged = mcpTools.map(
       (t) => bridgedTool(t.name, t.description, t.inputSchema)
     );
-    elog(`conectado ao Action v${state.disc.version}: ${bridged.length} tools`);
+    elog(`conectado ao Action v${state.disc.version}: ${bridged.length} tools (cache gravado)`);
     const modeLabel = state.mode === "http-daemon" ? "daemon HTTP \xFAnico" : "stdio (fallback)";
     return [
       statusTool(`ativa (${modeLabel}) \u2014 ${bridged.length} tools`),

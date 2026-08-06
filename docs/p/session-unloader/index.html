@@ -178,7 +178,7 @@
             <li class="tree__row">
               <code class="tree__name">README.md</code>
               <span class="tree__role">Documentação vinda do repositório de origem.</span>
-              <span class="tree__size">8.4 KB</span>
+              <span class="tree__size">8.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">scan-hook-session-start.neural-link.json</code>
@@ -198,22 +198,22 @@
             <li class="tree__row">
               <code class="tree__name">server-daemon.mjs</code>
               <span class="tree__role">O DAEMON ÚNICO (singleton por porta): dono do sampler, telemetria, scheduler e do painel.</span>
-              <span class="tree__size">5.4 KB</span>
+              <span class="tree__size">5.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/canvas-meta.mjs</code>
               <span class="tree__role">Identidade do canvas (id/título), sem dependências — mantém <code>extension.mjs</code> fora do grafo pesado.</span>
-              <span class="tree__size">476 B</span>
+              <span class="tree__size">470 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/config.mjs</code>
               <span class="tree__role">Lê/valida a configuração do canvas (timeout, allowlist, automático) — fail-closed em qualquer entrada inválida.</span>
-              <span class="tree__size">5.6 KB</span>
+              <span class="tree__size">5.5 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/daemon-client.mjs</code>
               <span class="tree__role">Cliente HTTP fino do daemon único — único ponto de contato entre a sessão e o núcleo pesado.</span>
-              <span class="tree__size">4.3 KB</span>
+              <span class="tree__size">4.2 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/daemon-lifecycle.mjs</code>
@@ -233,12 +233,12 @@
             <li class="tree__row">
               <code class="tree__name">lib/guards.mjs</code>
               <span class="tree__role">As travas antes do kill: auto-preservação, anti-TOCTOU e daemons intocáveis.</span>
-              <span class="tree__size">9.5 KB</span>
+              <span class="tree__size">9.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/home.mjs</code>
               <span class="tree__role">Resolve a raiz do Copilot (<code>~/.copilot</code>).</span>
-              <span class="tree__size">556 B</span>
+              <span class="tree__size">544 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/idle-decision.mjs</code>
@@ -253,7 +253,7 @@
             <li class="tree__row">
               <code class="tree__name">lib/log.mjs</code>
               <span class="tree__role">Log append-only em <code>~/.copilot/logs/unloader.log</code>.</span>
-              <span class="tree__size">524 B</span>
+              <span class="tree__size">512 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/process-utils.mjs</code>
@@ -263,17 +263,17 @@
             <li class="tree__row">
               <code class="tree__name">lib/procmap.mjs</code>
               <span class="tree__role">Fotografia de todos os processos (<code>pid → ppid</code>) que as guardas consultam.</span>
-              <span class="tree__size">999 B</span>
+              <span class="tree__size">976 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/pwsh.mjs</code>
               <span class="tree__role">Executa o PowerShell da varredura com timeout — nunca trava o hook.</span>
-              <span class="tree__size">735 B</span>
+              <span class="tree__size">716 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/sampler.mjs</code>
               <span class="tree__role">Sampler singleton do daemon: scan em segundo plano com coalescing — nunca dois scans em voo.</span>
-              <span class="tree__size">8.4 KB</span>
+              <span class="tree__size">8.2 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/scan.mjs</code>
@@ -288,12 +288,12 @@
             <li class="tree__row">
               <code class="tree__name">lib/snapshot.mjs</code>
               <span class="tree__role">Guarda o snapshot por PID (CPU acumulada + <code>idleSince</code>) que alimenta a decisão de ociosidade da árvore.</span>
-              <span class="tree__size">5.2 KB</span>
+              <span class="tree__size">5.0 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/telemetry-store.mjs</code>
               <span class="tree__role">Telemetria operacional incremental: tail do NDJSON com cursor persistido + contadores cumulativos.</span>
-              <span class="tree__size">6.7 KB</span>
+              <span class="tree__size">6.6 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/telemetry.mjs</code>
@@ -303,12 +303,12 @@
             <li class="tree__row">
               <code class="tree__name">lib/throttle.mjs</code>
               <span class="tree__role">Cadência do nudge no <code>UserPromptSubmit</code> (throttle de ~1 h).</span>
-              <span class="tree__size">1.0 KB</span>
+              <span class="tree__size">1001 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">lib/unload.mjs</code>
               <span class="tree__role">Orquestra a descarga: lock → scan → decide ocioso → guardas → mata a árvore → log.</span>
-              <span class="tree__size">5.1 KB</span>
+              <span class="tree__size">4.9 KB</span>
             </li>
             </ul>
           </div>
