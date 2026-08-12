@@ -5,7 +5,7 @@
     { "title": "MCP onde a política bloqueia", "body": "Reconecta o agente a servidores MCP pelo canal de extensões — o que a política permite — e expõe **tools, prompts e resources** como capacidades nativas." },
     { "title": "O config guarda nome, não segredo", "body": "`engine: mcp-gateway` no lugar de `url` + `headers`. A ponte lê o `runtime.json` e o cofre do motor **na hora de conectar** — o token nunca é escrito por ela." },
     { "title": "Falha alto, nunca no escuro", "body": "Motor parado ou ausente derruba **aquele** servidor com erro explícito. Entrada de config que a ponte não entende, backend degradado, proteção do motor desligada: tudo aparece como aviso na sessão — nunca some calado, levando as tools junto. Erro claro agora vale mais que erro silencioso depois." },
-    { "title": "Tudo à vista", "body": "Painel de saúde no app, auditoria linha a linha de cada chamada, perfis de servidores, retry com circuit breaker e limite de resposta." }
+    { "title": "Tudo à vista", "body": "Painel de saúde no app, auditoria linha a linha de cada chamada, perfis de servidores, retry com circuit breaker e ações para limpar ou refazer o login OAuth." }
   ],
   "sections": [
     {
@@ -27,7 +27,7 @@
             { "title": "Instale o plugin", "text": "Pelo marketplace (comando na seção Instalar) e reinicie o app uma vez — o painel entra no próximo boot. A cada atualização, reinicie de novo: o app só executa a versão nova no boot seguinte." },
             { "title": "Declare seus servidores", "text": "Abra o `config.json` e liste o que quer conectar: `stdio` para processos locais, `http` ou `sse` para os remotos." },
             { "title": "Aponte pelo motor, quando houver um", "text": "Num servidor `http`/`sse`, troque `url` e `headers` pelo campo `engine` com o nome do motor. A ponte resolve endereço e credencial sozinha." },
-            { "title": "Entre nos que pedem login", "text": "`mcpbridge_login <servidor>` abre o navegador para autorizar (OAuth 2.1). Depois, rode `/clear` ou reinicie a sessão." },
+            { "title": "Entre nos que pedem login", "text": "`mcpbridge_login <servidor>` abre o navegador para autorizar (OAuth 2.1) e reconecta o servidor. No painel, use **Reautenticar** para limpar as credenciais e abrir esse fluxo de novo." },
             { "title": "Use as capacidades", "text": "As tools, prompts e resources passam a aparecer nativamente para o agente. `mcpbridge_list_servers` mostra o que conectou e o que cada servidor trouxe." },
             { "title": "Acompanhe a saúde", "text": "O painel **MCP Bridge — Dashboard** mostra status, latência e erros; `mcpbridge_audit` lista as últimas chamadas." }
           ]
@@ -97,6 +97,7 @@
       "title": "Painel e auditoria",
       "blocks": [
         { "type": "p", "text": "A ponte registra o painel **MCP Bridge — Dashboard** no app: a foto do que está de pé — servidor, transporte, status, quantas tools, prompts e resources cada um trouxe, latência média, erros e as últimas chamadas auditadas. E a foto não congela no boot: quando um servidor avisa que mexeu nas próprias tools (`notifications/tools/list_changed`), a ponte relê o catálogo dele e atualiza o que mostra." },
+        { "type": "p", "text": "Cada servidor `http` ou `sse` configurado com OAuth traz duas ações no painel. **Limpar credenciais** desconecta o servidor e remove os tokens salvos; ele fica marcado como precisando de autenticação. **Reautenticar** faz essa limpeza e abre o navegador para você entrar de novo, reconectando o servidor ao terminar. Use a primeira para sair; use a segunda quando a conta, a autorização ou o token mudou." },
         { "type": "p", "text": "As mesmas respostas vêm por tools, sem sair do chat:" },
         {
           "type": "list",
@@ -130,6 +131,7 @@
     { "q": "Atualizei o plugin. Preciso reiniciar o app?", "a": "Precisa, uma vez. O `copilot plugin update` troca os arquivos no disco, mas o app carregou a extensão no boot e segue executando a versão anterior até você reiniciá-lo — **pasta nova não é versão nova em execução**. Depois do reinício, o `canvas-sync` espelha a extensão e o app sobe com a versão nova: a mesma que a ponte passa a anunciar ao conectar em cada servidor." },
     { "q": "Posso continuar usando `url` e `headers`?", "a": "Pode. Uma `url` explícita continua valendo exatamente como você escreveu; o campo `engine` só entra quando você o declara. Se os dois aparecerem no mesmo servidor, o motor vivo vence — para que um endereço velho no config não sequestre a conexão." },
     { "q": "Meu token fica salvo no config?", "a": "Não. Com `engine`, a ponte lê o bearer do cofre do motor na hora de conectar e o usa em memória — nada é gravado no `config.json`. Os tokens de OAuth ficam à parte, em `~/.copilot/mcp-bridge/oauth/`, com permissão restrita ao seu usuário." },
+    { "q": "Como limpo ou refaço meu login OAuth?", "a": "No **MCP Bridge — Dashboard**, o servidor OAuth mostra **Limpar credenciais** para desconectar e remover seus tokens, e **Reautenticar** para limpar e abrir o navegador para uma nova autorização. No chat, `mcpbridge_logout <servidor>` remove os tokens e `mcpbridge_login <servidor>` inicia o login." },
     { "q": "Que transportes suporta?", "a": "`stdio` para processos locais, `http` e `sse` para remotos — com login OAuth 2.1 (PKCE e registro dinâmico de cliente) quando o servidor exige." }
   ],
   "files": {

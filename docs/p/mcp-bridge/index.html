@@ -68,7 +68,7 @@
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Tudo à vista</h3>
-          <p class="hl__body">Painel de saúde no app, auditoria linha a linha de cada chamada, perfis de servidores, retry com circuit breaker e limite de resposta.</p>
+          <p class="hl__body">Painel de saúde no app, auditoria linha a linha de cada chamada, perfis de servidores, retry com circuit breaker e ações para limpar ou refazer o login OAuth.</p>
         </li>
       </ul>
     </header>
@@ -84,7 +84,7 @@
 
         <section class="doc-section" id="como-usar">
           <h2 class="doc-h2"><a class="doc-anchor" href="#como-usar" aria-label="Link para Como usar">#</a>Como usar</h2>
-          <ol class="doc-steps"><li><h4>Instale o plugin</h4><p>Pelo marketplace (comando na seção Instalar) e reinicie o app uma vez — o painel entra no próximo boot. A cada atualização, reinicie de novo: o app só executa a versão nova no boot seguinte.</p></li><li><h4>Declare seus servidores</h4><p>Abra o <code>config.json</code> e liste o que quer conectar: <code>stdio</code> para processos locais, <code>http</code> ou <code>sse</code> para os remotos.</p></li><li><h4>Aponte pelo motor, quando houver um</h4><p>Num servidor <code>http</code>/<code>sse</code>, troque <code>url</code> e <code>headers</code> pelo campo <code>engine</code> com o nome do motor. A ponte resolve endereço e credencial sozinha.</p></li><li><h4>Entre nos que pedem login</h4><p><code>mcpbridge_login &lt;servidor&gt;</code> abre o navegador para autorizar (OAuth 2.1). Depois, rode <code>/clear</code> ou reinicie a sessão.</p></li><li><h4>Use as capacidades</h4><p>As tools, prompts e resources passam a aparecer nativamente para o agente. <code>mcpbridge_list_servers</code> mostra o que conectou e o que cada servidor trouxe.</p></li><li><h4>Acompanhe a saúde</h4><p>O painel <strong>MCP Bridge — Dashboard</strong> mostra status, latência e erros; <code>mcpbridge_audit</code> lista as últimas chamadas.</p></li></ol>
+          <ol class="doc-steps"><li><h4>Instale o plugin</h4><p>Pelo marketplace (comando na seção Instalar) e reinicie o app uma vez — o painel entra no próximo boot. A cada atualização, reinicie de novo: o app só executa a versão nova no boot seguinte.</p></li><li><h4>Declare seus servidores</h4><p>Abra o <code>config.json</code> e liste o que quer conectar: <code>stdio</code> para processos locais, <code>http</code> ou <code>sse</code> para os remotos.</p></li><li><h4>Aponte pelo motor, quando houver um</h4><p>Num servidor <code>http</code>/<code>sse</code>, troque <code>url</code> e <code>headers</code> pelo campo <code>engine</code> com o nome do motor. A ponte resolve endereço e credencial sozinha.</p></li><li><h4>Entre nos que pedem login</h4><p><code>mcpbridge_login &lt;servidor&gt;</code> abre o navegador para autorizar (OAuth 2.1) e reconecta o servidor. No painel, use <strong>Reautenticar</strong> para limpar as credenciais e abrir esse fluxo de novo.</p></li><li><h4>Use as capacidades</h4><p>As tools, prompts e resources passam a aparecer nativamente para o agente. <code>mcpbridge_list_servers</code> mostra o que conectou e o que cada servidor trouxe.</p></li><li><h4>Acompanhe a saúde</h4><p>O painel <strong>MCP Bridge — Dashboard</strong> mostra status, latência e erros; <code>mcpbridge_audit</code> lista as últimas chamadas.</p></li></ol>
           <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Mexeu no <code>config.json</code>? A mudança entra no próximo <code>/clear</code> ou reinício da sessão.</p></aside>
         </section>
 
@@ -127,6 +127,7 @@
         <section class="doc-section" id="painel">
           <h2 class="doc-h2"><a class="doc-anchor" href="#painel" aria-label="Link para Painel e auditoria">#</a>Painel e auditoria</h2>
           <p>A ponte registra o painel <strong>MCP Bridge — Dashboard</strong> no app: a foto do que está de pé — servidor, transporte, status, quantas tools, prompts e resources cada um trouxe, latência média, erros e as últimas chamadas auditadas. E a foto não congela no boot: quando um servidor avisa que mexeu nas próprias tools (<code>notifications/tools/list_changed</code>), a ponte relê o catálogo dele e atualiza o que mostra.</p>
+          <p>Cada servidor <code>http</code> ou <code>sse</code> configurado com OAuth traz duas ações no painel. <strong>Limpar credenciais</strong> desconecta o servidor e remove os tokens salvos; ele fica marcado como precisando de autenticação. <strong>Reautenticar</strong> faz essa limpeza e abre o navegador para você entrar de novo, reconectando o servidor ao terminar. Use a primeira para sair; use a segunda quando a conta, a autorização ou o token mudou.</p>
           <p>As mesmas respostas vêm por tools, sem sair do chat:</p>
           <ul class="doc-list"><li><code>mcpbridge_list_servers</code> — o diagnóstico da ponte: status, erro da última tentativa e o que cada servidor expôs.</li><li><code>mcpbridge_audit</code> — as últimas chamadas (servidor/tool, status, duração), com filtro por servidor ou tool.</li><li><code>mcpbridge_profiles</code> e <code>mcpbridge_use_profile</code> — vê e troca o perfil ativo.</li><li><code>mcpbridge_login</code> e <code>mcpbridge_logout</code> — entra e sai dos servidores com OAuth.</li><li><code>mcpbridge_list_resources</code> e <code>mcpbridge_read_resource</code> — lista e lê os resources dos servidores conectados.</li></ul>
           <p>No início de cada sessão a ponte anuncia quantos servidores conectaram e quantas capacidades entraram. Se algum falhou, o aviso nomeia o servidor e o motivo — em vez de sumir com ele da lista. Quando o servidor vem de um motor, ela ainda pergunta a saúde dele e repassa o que ouvir: backend degradado e o que o motor reclama da <strong>própria</strong> configuração, como uma proteção declarada mas desligada.</p>
@@ -226,6 +227,10 @@
           <details class="faq">
             <summary>Meu token fica salvo no config?</summary>
             <p>Não. Com <code>engine</code>, a ponte lê o bearer do cofre do motor na hora de conectar e o usa em memória — nada é gravado no <code>config.json</code>. Os tokens de OAuth ficam à parte, em <code>~/.copilot/mcp-bridge/oauth/</code>, com permissão restrita ao seu usuário.</p>
+          </details>
+          <details class="faq">
+            <summary>Como limpo ou refaço meu login OAuth?</summary>
+            <p>No <strong>MCP Bridge — Dashboard</strong>, o servidor OAuth mostra <strong>Limpar credenciais</strong> para desconectar e remover seus tokens, e <strong>Reautenticar</strong> para limpar e abrir o navegador para uma nova autorização. No chat, <code>mcpbridge_logout &lt;servidor&gt;</code> remove os tokens e <code>mcpbridge_login &lt;servidor&gt;</code> inicia o login.</p>
           </details>
           <details class="faq">
             <summary>Que transportes suporta?</summary>
