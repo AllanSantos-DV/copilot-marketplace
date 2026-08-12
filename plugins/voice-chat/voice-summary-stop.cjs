@@ -150,6 +150,10 @@ if (require.main === module) {
     const tp = p.transcriptPath || p.transcript_path || '';
     const st = sid ? readState(sid) : {};
 
+    // Voz DESLIGADA nesta sessão (modes/<sid>.json voiceEnabled:false): hook INERTE — não cobra
+    // `falar`, não bloqueia, não aconselha reload de canvas. Default ON (ausente/lixo = ligado).
+    if (sid && !shared.readSessionVoiceEnabled(DATA_DIR, sid)) process.exit(0);
+
     // Liveness do fork do canvas (fato do SO) — reusado no enforcement E no advisor. A tool `falar` VIVE
     // no fork; se ele morreu, pedir `falar` é IMPOSSÍVEL -> pulamos o enforcement e deixamos o advisor
     // pedir o reload (senão o usuário come 3 nags inúteis antes da dica que resolve).

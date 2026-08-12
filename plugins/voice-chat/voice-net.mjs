@@ -25,6 +25,7 @@ import {
     quiesceClosedPanelCapture, sessionHasClient, checkForUpdate, readUpdateState, micLockHeldByOther,
     writeUpdateState, effectiveVersion, pendingRestartVersion, saveSettings, drainPendingSpeak,
     sanitizeSettings, settings, setSettings, setLastTtsPreviewSid, readSessionFullRead, writeSessionFullRead,
+    readSessionVoiceEnabled, writeSessionVoiceEnabled, readSessionModeStrict,
     session, RUNNING_AS_PLUGIN, log, recordingActiveSid,
 } from "./extension.mjs";
 
@@ -207,11 +208,24 @@ export async function handleRequest(req, res) {
         if (sid) drainPendingSpeak(sid).catch(() => { });   // canvas conectou -> toca o que o hook coletou
         const _us = readUpdateState();
         const pendingUpdate = pendingRestartVersion(_us);
+        // modes/<sid> via strict (shared direto): se JSON corrompido, manda modeError (UI não finge ON).
+        let helloFullRead = false, helloVoiceEnabled = true, helloModeError = null;
+        try {
+            const mode = shared.readSessionModeStrict(ARTIFACTS, sid);
+            helloFullRead = !!mode.fullRead;
+            helloVoiceEnabled = mode.voiceEnabled !== false;
+        } catch (e) {
+            helloModeError = (e && e.code) || "mode-read-failed";
+            helloFullRead = shared.readSessionFullRead(ARTIFACTS, sid);
+            helloVoiceEnabled = shared.readSessionVoiceEnabled(ARTIFACTS, sid);
+        }
         res.write(
             `data: ${JSON.stringify({
                 type: "hello",
                 settings,
-                fullRead: readSessionFullRead(sid),
+                fullRead: helloFullRead,
+                voiceEnabled: helloVoiceEnabled,
+                modeError: helloModeError,
                 worker: workerReady ? "ready" : "loading",
                 voices: lastVoices,
                 appFocused: lastAppFocused,
@@ -337,16 +351,44 @@ export async function handleRequest(req, res) {
     }
 
     if (req.method === "POST" && path === "/full-mode") {
-        // fullRead é POR SESSÃO: grava no arquivo modes/<sid>.json DESTA fork (o servidor é por-fork,
-        // então o sid é o mySid()). NÃO toca no settings.json global nem nas outras sessões.
+        // fullRead é POR SESSÃO: grava no arquivo modes/<sid>.json DESTA fork (o servidor é por-fork).
+        // Prefer body.sid (iframe) e cai p/ mySid().
         const body = await readBody(req);
         const on = !!(body && body.fullRead);
-        writeSessionFullRead(mySid(), on);
+        const sid = String((body && body.sid) || mySid() || "").trim();
+        if (!sid) return sendJson(res, { ok: false, error: "missing sid" }, 400);
+        // shared direto (evita live-binding circular com extension.mjs)
+        const ok = shared.writeSessionFullRead(ARTIFACTS, sid, on);
+        if (!ok) return sendJson(res, { ok: false, error: "mode-write-failed" }, 500);
         sendJson(res, { ok: true, fullRead: on });
         // avisa o(s) painel(éis) DESTA sessão por SSE p/ o banner "Fala Completa" reagir na hora,
         // sem reload. DEPOIS do sendJson (erro no broadcast nunca impede a resposta HTTP).
-        try { broadcastTo(mySid(), { type: "fullReadChange", fullRead: on }); } catch { }
+        try { broadcastTo(sid, { type: "fullReadChange", sid, fullRead: on }); } catch { }
         return;
+    }
+
+    if (req.method === "POST" && path === "/voice-mode") {
+        // voiceEnabled POR SESSÃO (modes/<sid>.json). OFF atômico: TTS + hooks desta sid.
+        // Write strict (merge); broadcast só após sucesso. sid inválido/ausente -> 400.
+        // Prefer body.sid (iframe sempre manda) e cai p/ mySid() — mySid() às vezes vem vazio
+        // no fork se SESSION_ID/session.sessionId ainda não populou.
+        const body = await readBody(req);
+        const on = !(body && body.voiceEnabled === false);
+        const sid = String((body && body.sid) || mySid() || "").trim();
+        if (!sid) return sendJson(res, { ok: false, error: "missing sid" }, 400);
+        // shared direto (evita live-binding circular com extension.mjs)
+        let ok = false;
+        try { ok = !!shared.writeSessionVoiceEnabled(ARTIFACTS, sid, on); }
+        catch (e) { return sendJson(res, { ok: false, error: "mode-write-threw", msg: String(e && e.message || e) }, 500); }
+        if (!ok) return sendJson(res, { ok: false, error: "mode-write-failed" }, 500);
+        sendJson(res, { ok: true, voiceEnabled: on });
+        try { broadcastTo(sid, { type: "voiceEnabledChange", sid, voiceEnabled: on }); } catch { }
+        return;
+    }
+
+    // Diagnóstico: confirma que a fork carregou o handler novo (sem efeito colateral).
+    if (req.method === "GET" && path === "/voice-mode-ping") {
+        return sendJson(res, { ok: true, route: "voice-mode", sid: mySid() || null });
     }
 
     if (req.method === "POST" && path === "/reload-extension") {

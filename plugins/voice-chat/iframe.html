@@ -80,6 +80,17 @@
     border-color: var(--true-color-green, #3fb950);
     color: var(--true-color-green, #3fb950);
   }
+  .toggle-chip.off {
+    background: color-mix(in srgb, var(--true-color-red, #f85149) 18%, transparent);
+    border-color: var(--true-color-red, #f85149);
+    color: var(--true-color-red, #f85149);
+  }
+  .toggle-chip.saving { opacity: .6; cursor: wait; }
+  .toggle-chip.err {
+    background: color-mix(in srgb, var(--true-color-red, #f85149) 28%, transparent);
+    border-color: var(--true-color-red, #f85149);
+    color: var(--true-color-red, #f85149);
+  }
 
   main {
     flex: 1; overflow-y: auto; padding: 16px;
@@ -220,6 +231,10 @@
 
 <div class="quickbar">
   <span class="qlabel">Atalhos</span>
+  <button id="voiceSessBtn" class="toggle-chip active" type="button" aria-pressed="true"
+          title="Voz nesta sessão: desliga TTS, a tool falar e os hooks de enforcement só DESTA sessão. Outras sessões não mudam. Persiste até você religar.">
+    <span class="ic">🎙️</span><span id="voiceSessLabel">Voz nesta sessão: ON</span>
+  </button>
   <button id="hfBtn" class="toggle-chip" type="button" aria-pressed="false"
           title="Mãos-livres: toque o microfone para iniciar/parar (sem precisar segurar)">
     <span class="ic">✋</span><span>Mãos livres</span>
@@ -334,6 +349,10 @@
     <div class="row">
       <div><label>Microfone</label><div class="sub" id="micSub">Usando o microfone padrão do sistema</div></div>
       <select id="setMic"><option value="">Padrão do sistema</option></select>
+    </div>
+    <div class="row">
+      <div><label>Voz nesta sessão</label><div class="sub" id="voiceSessSub">TTS + hooks só desta sessão</div></div>
+      <label class="switch"><input id="setVoiceSess" type="checkbox" checked /><span></span></label>
     </div>
     <div class="row">
       <div><label>Ler resposta completa</label><div class="sub">em vez de só o resumo</div></div>
@@ -498,6 +517,66 @@ function reflectPhase() {
 function showBanner(msg) { banner.textContent = msg; banner.classList.add("show"); }
 function hideBanner() { banner.classList.remove("show"); }
 function applyFullBanner(on) { document.getElementById("fullBanner").classList.toggle("show", !!on); }
+
+// voiceEnabled POR SESSÃO — estados honestos: on | off | saving | error
+let voiceSessState = "on";   // default ON até o hello confirmar
+let voiceSessEnabled = true;
+let _voiceSessPrev = true;
+function applyVoiceSessUi(state, enabled) {
+  voiceSessState = state;
+  if (state === "on" || state === "off") {
+    voiceSessEnabled = !!enabled;
+    _voiceSessPrev = voiceSessEnabled;
+  }
+  const btn = $("voiceSessBtn");
+  const lab = $("voiceSessLabel");
+  const sw = $("setVoiceSess");
+  const sub = $("voiceSessSub");
+  btn.classList.remove("active", "off", "saving", "err");
+  btn.disabled = false;
+  sw.disabled = false;
+  if (state === "saving") {
+    btn.classList.add("saving");
+    btn.disabled = true;
+    sw.disabled = true;
+    lab.textContent = "Voz nesta sessão: …";
+    sub.textContent = "Salvando…";
+  } else if (state === "error") {
+    btn.classList.add("err");
+    btn.disabled = true;
+    sw.disabled = true;
+    lab.textContent = "Voz nesta sessão: ERRO";
+    sub.textContent = "Falha ao ler/gravar o modo desta sessão";
+    showBanner("Não foi possível ler o modo de voz desta sessão (arquivo corrompido).");
+  } else if (state === "off") {
+    btn.classList.add("off");
+    btn.setAttribute("aria-pressed", "false");
+    sw.checked = false;
+    lab.textContent = "Voz nesta sessão: OFF";
+    sub.textContent = "TTS e hooks desligados só nesta sessão";
+  } else {
+    btn.classList.add("active");
+    btn.setAttribute("aria-pressed", "true");
+    sw.checked = true;
+    lab.textContent = "Voz nesta sessão: ON";
+    sub.textContent = "TTS + hooks só desta sessão";
+  }
+}
+function setVoiceSess(on) {
+  if (voiceSessState === "error" || voiceSessState === "saving") return;
+  const next = !!on;
+  applyVoiceSessUi("saving", next);
+  post("/voice-mode", { voiceEnabled: next }).then((r) => {
+    if (r && r.ok) applyVoiceSessUi(next ? "on" : "off", next);
+    else {
+      applyVoiceSessUi(_voiceSessPrev ? "on" : "off", _voiceSessPrev);
+      showBanner((r && r.error) ? ("Falha ao gravar voz da sessão: " + r.error) : "Falha ao gravar voz da sessão.");
+    }
+  }).catch(() => {
+    applyVoiceSessUi(_voiceSessPrev ? "on" : "off", _voiceSessPrev);
+    showBanner("Falha de rede ao gravar voz da sessão.");
+  });
+}
 function showReloadFallback() {
   // não reconectou -> instrução honesta com o comando SELECIONÁVEL (sem onclick/fetch).
   banner.innerHTML = 'Não consegui recarregar a voz sozinho. Peça ao agente: <code>extensions_reload</code>';
@@ -548,10 +627,14 @@ async function post(path, body, silent) {
         headers: { "Content-Type": "application/json", ...(TOK ? { "x-voice-token": TOK } : {}) },
         body: payload,
       });
-      return await r.json().catch(() => ({}));
+      const data = await r.json().catch(() => ({}));
+      // HTTP não-2xx: nunca finja sucesso (404 "not found" vinha como {} sem ok).
+      if (!r.ok) return { ok: false, error: (data && data.error) || ("http-" + r.status), status: r.status, ...data };
+      return data;
     } catch (e) { lastErr = e; }
   }
   if (!silent) showBanner("Falha de comunicação: " + (lastErr && lastErr.message));
+  return { ok: false, error: "network", msg: lastErr && lastErr.message };
 }
 
 function startRec() {
@@ -1047,6 +1130,12 @@ function pushSettings() {
 // fullRead (Ler resposta completa) é POR SESSÃO — vai num endpoint dedicado (modes/<sid>.json), FORA do
 // pushSettings global. Ligar aqui NÃO afeta as outras sessões.
 $("setFull").addEventListener("change", () => { post("/full-mode", { fullRead: $("setFull").checked }); applyFullBanner($("setFull").checked); });
+// voiceEnabled POR SESSÃO — chip + switch compartilham o mesmo POST /voice-mode.
+$("setVoiceSess").addEventListener("change", () => { setVoiceSess($("setVoiceSess").checked); });
+$("voiceSessBtn").addEventListener("click", () => {
+  if (voiceSessState === "error" || voiceSessState === "saving") return;
+  setVoiceSess(!voiceSessEnabled);
+});
 
 (function initVolume() {
   try { const v = parseFloat(localStorage.getItem("voiceGain2")); if (!isNaN(v)) currentGain = Math.max(0, Math.min(3, v)); } catch (e) {}
@@ -1402,6 +1491,9 @@ function handle(m) {
       applySettings(m.settings);
       $("setFull").checked = !!m.fullRead;   // fullRead é POR SESSÃO (raiz do hello), não vem em m.settings
       applyFullBanner(!!m.fullRead);
+      if (m.modeError) applyVoiceSessUi("error", true);
+      else if (typeof m.voiceEnabled === "boolean") applyVoiceSessUi(m.voiceEnabled ? "on" : "off", m.voiceEnabled);
+      else applyVoiceSessUi("on", true);
       if (typeof m.appFocused === "boolean") onAppFocus(m.appFocused);
       if (m.version) { appVersion = m.version; setUpdateVersionLabel(); }
       if (m.pluginManaged) {
@@ -1420,6 +1512,13 @@ function handle(m) {
       // qualquer painel aberto desta sessão, sem reload.
       $("setFull").checked = !!m.fullRead;
       applyFullBanner(!!m.fullRead);
+      break;
+    case "voiceEnabledChange":
+      // eco por SSE do POST /voice-mode. Ignora sid de outra sessão (defesa em profundidade:
+      // o servidor já filtra por broadcastTo, mas o payload carrega sid).
+      if (m.sid && SID && m.sid !== SID) break;
+      if (voiceSessState === "error") break;
+      applyVoiceSessUi(m.voiceEnabled !== false ? "on" : "off", m.voiceEnabled !== false);
       break;
     case "worker":      if (m.state === "ready") {
         workerReady = true; hideBanner(); hideLoading();

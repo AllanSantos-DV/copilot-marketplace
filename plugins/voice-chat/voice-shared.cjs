@@ -30,34 +30,106 @@ function forkHeartbeatFile(dataDir, sid) { return path.join(forksDir(dataDir), s
 function pendingDir(dataDir) { return path.join(dataDir, 'pending'); }
 function pendingSpeakFile(dataDir, sid) { return path.join(pendingDir(dataDir), sanitizeSid(sid) + '.jsonl'); }
 function hookStateFile(dataDir, sid) { return path.join(dataDir, 'hook-state-' + sanitizeSid(sid) + '.json'); }
-// Modo POR SESSÃO (fullRead / "Ler resposta completa"): diferente dos demais toggles (globais no
-// settings.json), o modo Fala Completa é PER-SID — ligar num painel não afeta as outras sessões.
-// Mesmo padrão dos irmãos (forks/<sid>.json): arquivo modes/<sid>.json = { fullRead: bool }. É a
-// ÚNICA fonte do path (hook + extensão leem o MESMO arquivo -> nunca divergem).
+// Modo POR SESSÃO (fullRead / voiceEnabled): diferente dos demais toggles (globais no
+// settings.json), estes flags são PER-SID — ligar num painel não afeta as outras sessões.
+// Arquivo modes/<sid>.json = { fullRead?: bool, voiceEnabled?: bool }. ÚNICA fonte do path
+// (hook + extensão leem o MESMO arquivo -> nunca divergem).
+// Defaults: fullRead=false (resumo), voiceEnabled=true (voz ligada).
 function sessionModesDir(dataDir) { return path.join(dataDir, 'modes'); }
 function sessionModeFile(dataDir, sid) { return path.join(sessionModesDir(dataDir), sanitizeSid(sid) + '.json'); }
-// Leitura resiliente (try/catch + fallback false), igual ao readState/readFullRead do hook: sid vazio
-// ou arquivo ausente/corrompido -> false (modo RESUMO, o default seguro).
+
+const MODE_DEFAULTS = { fullRead: false, voiceEnabled: true };
+
+// Leitura ESTRITA p/ API/UI/write: arquivo ausente -> defaults; JSON inválido -> throw
+// (nunca inventa ON saudável a partir de lixo). sid vazio -> throw.
+function readSessionModeStrict(dataDir, sid) {
+  if (!sid) throw new Error('missing sid');
+  const fs = require('fs');
+  const fp = sessionModeFile(dataDir, sid);
+  let raw;
+  try { raw = fs.readFileSync(fp, 'utf8'); }
+  catch (e) {
+    if (e && e.code === 'ENOENT') return { ...MODE_DEFAULTS };
+    throw e;
+  }
+  let m;
+  try { m = JSON.parse(raw); }
+  catch (e) {
+    const err = new Error('invalid session mode json');
+    err.code = 'INVALID_MODE_JSON';
+    err.cause = e;
+    throw err;
+  }
+  if (!m || typeof m !== 'object' || Array.isArray(m)) {
+    const err = new Error('invalid session mode json');
+    err.code = 'INVALID_MODE_JSON';
+    throw err;
+  }
+  return {
+    fullRead: m.fullRead === true,
+    // ausente => default ON (retrocompat com modes/<sid> só de fullRead)
+    voiceEnabled: m.voiceEnabled !== false,
+  };
+}
+
+// Leitura PERMISSIVA p/ runtime de hooks/tool: fail-open. sid vazio / ausente / lixo -> true
+// (voz ligada = comportamento legado; só OFF EXPLÍCITO desliga). Loga parse inválido.
+function readSessionVoiceEnabled(dataDir, sid) {
+  if (!sid) return true;
+  try {
+    return readSessionModeStrict(dataDir, sid).voiceEnabled !== false;
+  } catch (e) {
+    if (e && e.code === 'INVALID_MODE_JSON') {
+      try { console.error('[voice-shared] modes/' + sanitizeSid(sid) + '.json inválido — voiceEnabled fail-open true'); } catch { /* ignore */ }
+    }
+    return true;
+  }
+}
+
+// Leitura resiliente de fullRead: sid vazio / ausente / corrompido -> false (resumo).
 function readSessionFullRead(dataDir, sid) {
   if (!sid) return false;
   try {
-    const m = JSON.parse(require('fs').readFileSync(sessionModeFile(dataDir, sid), 'utf8'));
-    return !!(m && m.fullRead === true);
+    return !!readSessionModeStrict(dataDir, sid).fullRead;
   } catch { return false; }
 }
-// Escrita best-effort (cria modes/ se preciso). Devolve true se persistiu.
-function writeSessionFullRead(dataDir, sid, val) {
+
+// Merge-write: lê o arquivo existente (strict), aplica patch, grava. NÃO repara JSON corrompido
+// (write falha e o arquivo lixo fica intacto). sid vazio -> false.
+function writeSessionModePatch(dataDir, sid, patch) {
   if (!sid) return false;
+  const fs = require('fs');
+  const fp = sessionModeFile(dataDir, sid);
+  let cur;
   try {
-    const fs = require('fs');
+    cur = readSessionModeStrict(dataDir, sid);
+  } catch (e) {
+    // ENOENT já vira defaults em strict; qualquer outro (incl. INVALID_MODE_JSON) = não grava
+    return false;
+  }
+  const next = {
+    fullRead: Object.prototype.hasOwnProperty.call(patch, 'fullRead') ? !!patch.fullRead : !!cur.fullRead,
+    voiceEnabled: Object.prototype.hasOwnProperty.call(patch, 'voiceEnabled') ? !!patch.voiceEnabled : (cur.voiceEnabled !== false),
+  };
+  try {
     fs.mkdirSync(sessionModesDir(dataDir), { recursive: true });
-    fs.writeFileSync(sessionModeFile(dataDir, sid), JSON.stringify({ fullRead: !!val }));
+    fs.writeFileSync(fp, JSON.stringify(next));
     return true;
   } catch { return false; }
+}
+
+function writeSessionFullRead(dataDir, sid, val) {
+  return writeSessionModePatch(dataDir, sid, { fullRead: !!val });
+}
+
+function writeSessionVoiceEnabled(dataDir, sid, val) {
+  return writeSessionModePatch(dataDir, sid, { voiceEnabled: !!val });
 }
 
 module.exports = {
   resolveDataDir, sanitizeSid,
   forksDir, forkHeartbeatFile, pendingDir, pendingSpeakFile, hookStateFile,
-  sessionModesDir, sessionModeFile, readSessionFullRead, writeSessionFullRead,
+  sessionModesDir, sessionModeFile, MODE_DEFAULTS,
+  readSessionModeStrict, readSessionVoiceEnabled, readSessionFullRead,
+  writeSessionModePatch, writeSessionFullRead, writeSessionVoiceEnabled,
 };
