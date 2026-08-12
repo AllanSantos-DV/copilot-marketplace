@@ -1,6 +1,6 @@
 import { createRequire as __createRequire } from "node:module";
 const require = globalThis.require ?? __createRequire(import.meta.url);
-// mcp-bridge v0.2.7 — Copilot CLI extension (MCP SDK embutido; @github/copilot-sdk external). Gerado por esbuild — não editar à mão.
+// mcp-bridge v0.2.8 — Copilot CLI extension (MCP SDK embutido; @github/copilot-sdk external). Gerado por esbuild — não editar à mão.
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -37,9 +37,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// integrations/copilot-extension/node_modules/ajv/dist/compile/codegen/code.js
+// node_modules/ajv/dist/compile/codegen/code.js
 var require_code = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/compile/codegen/code.js"(exports) {
+  "node_modules/ajv/dist/compile/codegen/code.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.regexpCode = exports.getEsmExportName = exports.getProperty = exports.safeStringify = exports.stringify = exports.strConcat = exports.addCodeArg = exports.str = exports._ = exports.nil = exports._Code = exports.Name = exports.IDENTIFIER = exports._CodeOrName = void 0;
@@ -191,9 +191,9 @@ var require_code = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/compile/codegen/scope.js
+// node_modules/ajv/dist/compile/codegen/scope.js
 var require_scope = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/compile/codegen/scope.js"(exports) {
+  "node_modules/ajv/dist/compile/codegen/scope.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ValueScope = exports.ValueScopeName = exports.Scope = exports.varKinds = exports.UsedValueState = void 0;
@@ -336,9 +336,9 @@ var require_scope = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/compile/codegen/index.js
+// node_modules/ajv/dist/compile/codegen/index.js
 var require_codegen = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/compile/codegen/index.js"(exports) {
+  "node_modules/ajv/dist/compile/codegen/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.or = exports.and = exports.not = exports.CodeGen = exports.operators = exports.varKinds = exports.ValueScopeName = exports.ValueScope = exports.Scope = exports.Name = exports.regexpCode = exports.stringify = exports.getProperty = exports.nil = exports.strConcat = exports.str = exports._ = void 0;
@@ -1056,9 +1056,9 @@ var require_codegen = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/compile/util.js
+// node_modules/ajv/dist/compile/util.js
 var require_util = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/compile/util.js"(exports) {
+  "node_modules/ajv/dist/compile/util.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.checkStrictMode = exports.getErrorPath = exports.Type = exports.useFunc = exports.setEvaluated = exports.evaluatedPropsToName = exports.mergeEvaluated = exports.eachItem = exports.unescapeJsonPointer = exports.escapeJsonPointer = exports.escapeFragment = exports.unescapeFragment = exports.schemaRefOrVal = exports.schemaHasRulesButRef = exports.schemaHasRules = exports.checkUnknownRules = exports.alwaysValidSchema = exports.toHash = void 0;
@@ -1223,9 +1223,9 @@ var require_util = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/compile/names.js
+// node_modules/ajv/dist/compile/names.js
 var require_names = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/compile/names.js"(exports) {
+  "node_modules/ajv/dist/compile/names.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -1262,9 +1262,9 @@ var require_names = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/compile/errors.js
+// node_modules/ajv/dist/compile/errors.js
 var require_errors = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/compile/errors.js"(exports) {
+  "node_modules/ajv/dist/compile/errors.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.extendErrors = exports.resetErrorsCount = exports.reportExtraError = exports.reportError = exports.keyword$DataError = exports.keywordError = void 0;
@@ -1384,9 +1384,9 @@ var require_errors = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/compile/validate/boolSchema.js
+// node_modules/ajv/dist/compile/validate/boolSchema.js
 var require_boolSchema = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/compile/validate/boolSchema.js"(exports) {
+  "node_modules/ajv/dist/compile/validate/boolSchema.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.boolOrEmptySchema = exports.topBoolOrEmptySchema = void 0;
@@ -1435,9 +1435,9 @@ var require_boolSchema = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/compile/rules.js
+// node_modules/ajv/dist/compile/rules.js
 var require_rules = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/compile/rules.js"(exports) {
+  "node_modules/ajv/dist/compile/rules.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getRules = exports.isJSONType = void 0;
@@ -1466,9 +1466,9 @@ var require_rules = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/compile/validate/applicability.js
+// node_modules/ajv/dist/compile/validate/applicability.js
 var require_applicability = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/compile/validate/applicability.js"(exports) {
+  "node_modules/ajv/dist/compile/validate/applicability.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.shouldUseRule = exports.shouldUseGroup = exports.schemaHasRulesForType = void 0;
@@ -1489,9 +1489,9 @@ var require_applicability = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/compile/validate/dataType.js
+// node_modules/ajv/dist/compile/validate/dataType.js
 var require_dataType = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/compile/validate/dataType.js"(exports) {
+  "node_modules/ajv/dist/compile/validate/dataType.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.reportTypeError = exports.checkDataTypes = exports.checkDataType = exports.coerceAndCheckDataType = exports.getJSONTypes = exports.getSchemaTypes = exports.DataType = void 0;
@@ -1673,9 +1673,9 @@ var require_dataType = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/compile/validate/defaults.js
+// node_modules/ajv/dist/compile/validate/defaults.js
 var require_defaults = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/compile/validate/defaults.js"(exports) {
+  "node_modules/ajv/dist/compile/validate/defaults.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.assignDefaults = void 0;
@@ -1710,9 +1710,9 @@ var require_defaults = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/code.js
+// node_modules/ajv/dist/vocabularies/code.js
 var require_code2 = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/code.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/code.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateUnion = exports.validateArray = exports.usePattern = exports.callValidateCode = exports.schemaProperties = exports.allSchemaProperties = exports.noPropertyInData = exports.propertyInData = exports.isOwnProperty = exports.hasPropFunc = exports.reportMissingProp = exports.checkMissingProp = exports.checkReportMissingProp = void 0;
@@ -1843,9 +1843,9 @@ var require_code2 = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/compile/validate/keyword.js
+// node_modules/ajv/dist/compile/validate/keyword.js
 var require_keyword = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/compile/validate/keyword.js"(exports) {
+  "node_modules/ajv/dist/compile/validate/keyword.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateKeywordUsage = exports.validSchemaType = exports.funcKeywordCode = exports.macroKeywordCode = void 0;
@@ -1961,9 +1961,9 @@ var require_keyword = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/compile/validate/subschema.js
+// node_modules/ajv/dist/compile/validate/subschema.js
 var require_subschema = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/compile/validate/subschema.js"(exports) {
+  "node_modules/ajv/dist/compile/validate/subschema.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.extendSubschemaMode = exports.extendSubschemaData = exports.getSubschema = void 0;
@@ -2044,9 +2044,9 @@ var require_subschema = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/fast-deep-equal/index.js
+// node_modules/fast-deep-equal/index.js
 var require_fast_deep_equal = __commonJS({
-  "integrations/copilot-extension/node_modules/fast-deep-equal/index.js"(exports, module) {
+  "node_modules/fast-deep-equal/index.js"(exports, module) {
     "use strict";
     module.exports = function equal(a, b) {
       if (a === b) return true;
@@ -2079,9 +2079,9 @@ var require_fast_deep_equal = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/json-schema-traverse/index.js
+// node_modules/json-schema-traverse/index.js
 var require_json_schema_traverse = __commonJS({
-  "integrations/copilot-extension/node_modules/json-schema-traverse/index.js"(exports, module) {
+  "node_modules/json-schema-traverse/index.js"(exports, module) {
     "use strict";
     var traverse = module.exports = function(schema, opts, cb) {
       if (typeof opts == "function") {
@@ -2167,9 +2167,9 @@ var require_json_schema_traverse = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/compile/resolve.js
+// node_modules/ajv/dist/compile/resolve.js
 var require_resolve = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/compile/resolve.js"(exports) {
+  "node_modules/ajv/dist/compile/resolve.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getSchemaRefs = exports.resolveUrl = exports.normalizeId = exports._getFullPath = exports.getFullPath = exports.inlineRef = void 0;
@@ -2323,9 +2323,9 @@ var require_resolve = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/compile/validate/index.js
+// node_modules/ajv/dist/compile/validate/index.js
 var require_validate = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/compile/validate/index.js"(exports) {
+  "node_modules/ajv/dist/compile/validate/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getData = exports.KeywordCxt = exports.validateFunctionCode = void 0;
@@ -2831,9 +2831,9 @@ var require_validate = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/runtime/validation_error.js
+// node_modules/ajv/dist/runtime/validation_error.js
 var require_validation_error = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/runtime/validation_error.js"(exports) {
+  "node_modules/ajv/dist/runtime/validation_error.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var ValidationError = class extends Error {
@@ -2847,9 +2847,9 @@ var require_validation_error = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/compile/ref_error.js
+// node_modules/ajv/dist/compile/ref_error.js
 var require_ref_error = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/compile/ref_error.js"(exports) {
+  "node_modules/ajv/dist/compile/ref_error.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var resolve_1 = require_resolve();
@@ -2864,9 +2864,9 @@ var require_ref_error = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/compile/index.js
+// node_modules/ajv/dist/compile/index.js
 var require_compile = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/compile/index.js"(exports) {
+  "node_modules/ajv/dist/compile/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.resolveSchema = exports.getCompilingSchema = exports.resolveRef = exports.compileSchema = exports.SchemaEnv = void 0;
@@ -3088,9 +3088,9 @@ var require_compile = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/refs/data.json
+// node_modules/ajv/dist/refs/data.json
 var require_data = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/refs/data.json"(exports, module) {
+  "node_modules/ajv/dist/refs/data.json"(exports, module) {
     module.exports = {
       $id: "https://raw.githubusercontent.com/ajv-validator/ajv/master/lib/refs/data.json#",
       description: "Meta-schema for $data reference (JSON AnySchema extension proposal)",
@@ -3107,9 +3107,9 @@ var require_data = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/fast-uri/lib/utils.js
+// node_modules/fast-uri/lib/utils.js
 var require_utils = __commonJS({
-  "integrations/copilot-extension/node_modules/fast-uri/lib/utils.js"(exports, module) {
+  "node_modules/fast-uri/lib/utils.js"(exports, module) {
     "use strict";
     var isUUID = RegExp.prototype.test.bind(/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu);
     var isIPv4 = RegExp.prototype.test.bind(/^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)$/u);
@@ -3420,9 +3420,9 @@ var require_utils = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/fast-uri/lib/schemes.js
+// node_modules/fast-uri/lib/schemes.js
 var require_schemes = __commonJS({
-  "integrations/copilot-extension/node_modules/fast-uri/lib/schemes.js"(exports, module) {
+  "node_modules/fast-uri/lib/schemes.js"(exports, module) {
     "use strict";
     var { isUUID } = require_utils();
     var URN_REG = /([\da-z][\d\-a-z]{0,31}):((?:[\w!$'()*+,\-.:;=@]|%[\da-f]{2})+)/iu;
@@ -3630,9 +3630,9 @@ var require_schemes = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/fast-uri/index.js
+// node_modules/fast-uri/index.js
 var require_fast_uri = __commonJS({
-  "integrations/copilot-extension/node_modules/fast-uri/index.js"(exports, module) {
+  "node_modules/fast-uri/index.js"(exports, module) {
     "use strict";
     var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizePercentEncoding, normalizePathEncoding, escapePreservingEscapes, reescapeHostDelimiters, isIPv4, nonSimpleDomain } = require_utils();
     var { SCHEMES, getSchemeHandler } = require_schemes();
@@ -3916,9 +3916,9 @@ var require_fast_uri = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/runtime/uri.js
+// node_modules/ajv/dist/runtime/uri.js
 var require_uri = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/runtime/uri.js"(exports) {
+  "node_modules/ajv/dist/runtime/uri.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var uri = require_fast_uri();
@@ -3927,9 +3927,9 @@ var require_uri = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/core.js
+// node_modules/ajv/dist/core.js
 var require_core = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/core.js"(exports) {
+  "node_modules/ajv/dist/core.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.CodeGen = exports.Name = exports.nil = exports.stringify = exports.str = exports._ = exports.KeywordCxt = void 0;
@@ -4538,9 +4538,9 @@ var require_core = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/core/id.js
+// node_modules/ajv/dist/vocabularies/core/id.js
 var require_id = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/core/id.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/core/id.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var def = {
@@ -4553,9 +4553,9 @@ var require_id = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/core/ref.js
+// node_modules/ajv/dist/vocabularies/core/ref.js
 var require_ref = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/core/ref.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/core/ref.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.callRef = exports.getValidate = void 0;
@@ -4675,9 +4675,9 @@ var require_ref = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/core/index.js
+// node_modules/ajv/dist/vocabularies/core/index.js
 var require_core2 = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/core/index.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/core/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var id_1 = require_id();
@@ -4696,9 +4696,9 @@ var require_core2 = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/limitNumber.js
+// node_modules/ajv/dist/vocabularies/validation/limitNumber.js
 var require_limitNumber = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/limitNumber.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/limitNumber.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4728,9 +4728,9 @@ var require_limitNumber = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/multipleOf.js
+// node_modules/ajv/dist/vocabularies/validation/multipleOf.js
 var require_multipleOf = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/multipleOf.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/multipleOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4756,9 +4756,9 @@ var require_multipleOf = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/runtime/ucs2length.js
+// node_modules/ajv/dist/runtime/ucs2length.js
 var require_ucs2length = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/runtime/ucs2length.js"(exports) {
+  "node_modules/ajv/dist/runtime/ucs2length.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     function ucs2length(str) {
@@ -4782,9 +4782,9 @@ var require_ucs2length = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/limitLength.js
+// node_modules/ajv/dist/vocabularies/validation/limitLength.js
 var require_limitLength = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/limitLength.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/limitLength.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4814,9 +4814,9 @@ var require_limitLength = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/pattern.js
+// node_modules/ajv/dist/vocabularies/validation/pattern.js
 var require_pattern = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/pattern.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/pattern.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -4851,9 +4851,9 @@ var require_pattern = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/limitProperties.js
+// node_modules/ajv/dist/vocabularies/validation/limitProperties.js
 var require_limitProperties = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/limitProperties.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/limitProperties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4880,9 +4880,9 @@ var require_limitProperties = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/required.js
+// node_modules/ajv/dist/vocabularies/validation/required.js
 var require_required = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/required.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/required.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -4962,9 +4962,9 @@ var require_required = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/limitItems.js
+// node_modules/ajv/dist/vocabularies/validation/limitItems.js
 var require_limitItems = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/limitItems.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/limitItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4991,9 +4991,9 @@ var require_limitItems = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/runtime/equal.js
+// node_modules/ajv/dist/runtime/equal.js
 var require_equal = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/runtime/equal.js"(exports) {
+  "node_modules/ajv/dist/runtime/equal.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var equal = require_fast_deep_equal();
@@ -5002,9 +5002,9 @@ var require_equal = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js
+// node_modules/ajv/dist/vocabularies/validation/uniqueItems.js
 var require_uniqueItems = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/uniqueItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var dataType_1 = require_dataType();
@@ -5069,9 +5069,9 @@ var require_uniqueItems = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/const.js
+// node_modules/ajv/dist/vocabularies/validation/const.js
 var require_const = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/const.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/const.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5098,9 +5098,9 @@ var require_const = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/enum.js
+// node_modules/ajv/dist/vocabularies/validation/enum.js
 var require_enum = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/enum.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/enum.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5147,9 +5147,9 @@ var require_enum = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/index.js
+// node_modules/ajv/dist/vocabularies/validation/index.js
 var require_validation = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/validation/index.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var limitNumber_1 = require_limitNumber();
@@ -5185,9 +5185,9 @@ var require_validation = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js
+// node_modules/ajv/dist/vocabularies/applicator/additionalItems.js
 var require_additionalItems = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/additionalItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateAdditionalItems = void 0;
@@ -5238,9 +5238,9 @@ var require_additionalItems = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/items.js
+// node_modules/ajv/dist/vocabularies/applicator/items.js
 var require_items = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/items.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/items.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateTuple = void 0;
@@ -5295,9 +5295,9 @@ var require_items = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js
+// node_modules/ajv/dist/vocabularies/applicator/prefixItems.js
 var require_prefixItems = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/prefixItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var items_1 = require_items();
@@ -5312,9 +5312,9 @@ var require_prefixItems = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/items2020.js
+// node_modules/ajv/dist/vocabularies/applicator/items2020.js
 var require_items2020 = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/items2020.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/items2020.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5347,9 +5347,9 @@ var require_items2020 = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/contains.js
+// node_modules/ajv/dist/vocabularies/applicator/contains.js
 var require_contains = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/contains.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/contains.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5441,9 +5441,9 @@ var require_contains = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/dependencies.js
+// node_modules/ajv/dist/vocabularies/applicator/dependencies.js
 var require_dependencies = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/dependencies.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/dependencies.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateSchemaDeps = exports.validatePropertyDeps = exports.error = void 0;
@@ -5535,9 +5535,9 @@ var require_dependencies = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js
+// node_modules/ajv/dist/vocabularies/applicator/propertyNames.js
 var require_propertyNames = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/propertyNames.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5578,9 +5578,9 @@ var require_propertyNames = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js
+// node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js
 var require_additionalProperties = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -5684,9 +5684,9 @@ var require_additionalProperties = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/properties.js
+// node_modules/ajv/dist/vocabularies/applicator/properties.js
 var require_properties = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/properties.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/properties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var validate_1 = require_validate();
@@ -5742,9 +5742,9 @@ var require_properties = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js
+// node_modules/ajv/dist/vocabularies/applicator/patternProperties.js
 var require_patternProperties = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/patternProperties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -5816,9 +5816,9 @@ var require_patternProperties = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/not.js
+// node_modules/ajv/dist/vocabularies/applicator/not.js
 var require_not = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/not.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/not.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var util_1 = require_util();
@@ -5847,9 +5847,9 @@ var require_not = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/anyOf.js
+// node_modules/ajv/dist/vocabularies/applicator/anyOf.js
 var require_anyOf = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/anyOf.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/anyOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -5864,9 +5864,9 @@ var require_anyOf = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/oneOf.js
+// node_modules/ajv/dist/vocabularies/applicator/oneOf.js
 var require_oneOf = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/oneOf.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/oneOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5922,9 +5922,9 @@ var require_oneOf = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/allOf.js
+// node_modules/ajv/dist/vocabularies/applicator/allOf.js
 var require_allOf = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/allOf.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/allOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var util_1 = require_util();
@@ -5949,9 +5949,9 @@ var require_allOf = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/if.js
+// node_modules/ajv/dist/vocabularies/applicator/if.js
 var require_if = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/if.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/if.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -6018,9 +6018,9 @@ var require_if = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/thenElse.js
+// node_modules/ajv/dist/vocabularies/applicator/thenElse.js
 var require_thenElse = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/thenElse.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/thenElse.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var util_1 = require_util();
@@ -6036,9 +6036,9 @@ var require_thenElse = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/index.js
+// node_modules/ajv/dist/vocabularies/applicator/index.js
 var require_applicator = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/applicator/index.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var additionalItems_1 = require_additionalItems();
@@ -6084,9 +6084,9 @@ var require_applicator = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/format/format.js
+// node_modules/ajv/dist/vocabularies/format/format.js
 var require_format = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/format/format.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/format/format.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -6174,9 +6174,9 @@ var require_format = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/format/index.js
+// node_modules/ajv/dist/vocabularies/format/index.js
 var require_format2 = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/format/index.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/format/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var format_1 = require_format();
@@ -6185,9 +6185,9 @@ var require_format2 = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/metadata.js
+// node_modules/ajv/dist/vocabularies/metadata.js
 var require_metadata = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/metadata.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/metadata.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.contentVocabulary = exports.metadataVocabulary = void 0;
@@ -6208,9 +6208,9 @@ var require_metadata = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/draft7.js
+// node_modules/ajv/dist/vocabularies/draft7.js
 var require_draft7 = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/draft7.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/draft7.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var core_1 = require_core2();
@@ -6230,9 +6230,9 @@ var require_draft7 = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/discriminator/types.js
+// node_modules/ajv/dist/vocabularies/discriminator/types.js
 var require_types = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/discriminator/types.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/discriminator/types.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.DiscrError = void 0;
@@ -6244,9 +6244,9 @@ var require_types = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/vocabularies/discriminator/index.js
+// node_modules/ajv/dist/vocabularies/discriminator/index.js
 var require_discriminator = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/vocabularies/discriminator/index.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/discriminator/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -6349,9 +6349,9 @@ var require_discriminator = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/refs/json-schema-draft-07.json
+// node_modules/ajv/dist/refs/json-schema-draft-07.json
 var require_json_schema_draft_07 = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/refs/json-schema-draft-07.json"(exports, module) {
+  "node_modules/ajv/dist/refs/json-schema-draft-07.json"(exports, module) {
     module.exports = {
       $schema: "http://json-schema.org/draft-07/schema#",
       $id: "http://json-schema.org/draft-07/schema#",
@@ -6506,9 +6506,9 @@ var require_json_schema_draft_07 = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv/dist/ajv.js
+// node_modules/ajv/dist/ajv.js
 var require_ajv = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv/dist/ajv.js"(exports, module) {
+  "node_modules/ajv/dist/ajv.js"(exports, module) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.MissingRefError = exports.ValidationError = exports.CodeGen = exports.Name = exports.nil = exports.stringify = exports.str = exports._ = exports.KeywordCxt = exports.Ajv = void 0;
@@ -6576,9 +6576,9 @@ var require_ajv = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv-formats/dist/formats.js
+// node_modules/ajv-formats/dist/formats.js
 var require_formats = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv-formats/dist/formats.js"(exports) {
+  "node_modules/ajv-formats/dist/formats.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.formatNames = exports.fastFormats = exports.fullFormats = void 0;
@@ -6779,9 +6779,9 @@ var require_formats = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv-formats/dist/limit.js
+// node_modules/ajv-formats/dist/limit.js
 var require_limit = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv-formats/dist/limit.js"(exports) {
+  "node_modules/ajv-formats/dist/limit.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.formatLimitDefinition = void 0;
@@ -6851,9 +6851,9 @@ var require_limit = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/ajv-formats/dist/index.js
+// node_modules/ajv-formats/dist/index.js
 var require_dist = __commonJS({
-  "integrations/copilot-extension/node_modules/ajv-formats/dist/index.js"(exports, module) {
+  "node_modules/ajv-formats/dist/index.js"(exports, module) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var formats_1 = require_formats();
@@ -6893,9 +6893,9 @@ var require_dist = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/isexe/windows.js
+// node_modules/isexe/windows.js
 var require_windows = __commonJS({
-  "integrations/copilot-extension/node_modules/isexe/windows.js"(exports, module) {
+  "node_modules/isexe/windows.js"(exports, module) {
     module.exports = isexe;
     isexe.sync = sync;
     var fs = __require("fs");
@@ -6933,9 +6933,9 @@ var require_windows = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/isexe/mode.js
+// node_modules/isexe/mode.js
 var require_mode = __commonJS({
-  "integrations/copilot-extension/node_modules/isexe/mode.js"(exports, module) {
+  "node_modules/isexe/mode.js"(exports, module) {
     module.exports = isexe;
     isexe.sync = sync;
     var fs = __require("fs");
@@ -6966,9 +6966,9 @@ var require_mode = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/isexe/index.js
+// node_modules/isexe/index.js
 var require_isexe = __commonJS({
-  "integrations/copilot-extension/node_modules/isexe/index.js"(exports, module) {
+  "node_modules/isexe/index.js"(exports, module) {
     var fs = __require("fs");
     var core;
     if (process.platform === "win32" || global.TESTING_WINDOWS) {
@@ -7021,9 +7021,9 @@ var require_isexe = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/which/which.js
+// node_modules/which/which.js
 var require_which = __commonJS({
-  "integrations/copilot-extension/node_modules/which/which.js"(exports, module) {
+  "node_modules/which/which.js"(exports, module) {
     var isWindows = process.platform === "win32" || process.env.OSTYPE === "cygwin" || process.env.OSTYPE === "msys";
     var path = __require("path");
     var COLON = isWindows ? ";" : ":";
@@ -7117,9 +7117,9 @@ var require_which = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/path-key/index.js
+// node_modules/path-key/index.js
 var require_path_key = __commonJS({
-  "integrations/copilot-extension/node_modules/path-key/index.js"(exports, module) {
+  "node_modules/path-key/index.js"(exports, module) {
     "use strict";
     var pathKey = (options = {}) => {
       const environment = options.env || process.env;
@@ -7134,9 +7134,9 @@ var require_path_key = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cross-spawn/lib/util/resolveCommand.js
+// node_modules/cross-spawn/lib/util/resolveCommand.js
 var require_resolveCommand = __commonJS({
-  "integrations/copilot-extension/node_modules/cross-spawn/lib/util/resolveCommand.js"(exports, module) {
+  "node_modules/cross-spawn/lib/util/resolveCommand.js"(exports, module) {
     "use strict";
     var path = __require("path");
     var which = require_which();
@@ -7176,9 +7176,9 @@ var require_resolveCommand = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cross-spawn/lib/util/escape.js
+// node_modules/cross-spawn/lib/util/escape.js
 var require_escape = __commonJS({
-  "integrations/copilot-extension/node_modules/cross-spawn/lib/util/escape.js"(exports, module) {
+  "node_modules/cross-spawn/lib/util/escape.js"(exports, module) {
     "use strict";
     var metaCharsRegExp = /([()\][%!^"`<>&|;, *?])/g;
     function escapeCommand(arg) {
@@ -7201,17 +7201,17 @@ var require_escape = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/shebang-regex/index.js
+// node_modules/shebang-regex/index.js
 var require_shebang_regex = __commonJS({
-  "integrations/copilot-extension/node_modules/shebang-regex/index.js"(exports, module) {
+  "node_modules/shebang-regex/index.js"(exports, module) {
     "use strict";
     module.exports = /^#!(.*)/;
   }
 });
 
-// integrations/copilot-extension/node_modules/shebang-command/index.js
+// node_modules/shebang-command/index.js
 var require_shebang_command = __commonJS({
-  "integrations/copilot-extension/node_modules/shebang-command/index.js"(exports, module) {
+  "node_modules/shebang-command/index.js"(exports, module) {
     "use strict";
     var shebangRegex = require_shebang_regex();
     module.exports = (string4 = "") => {
@@ -7229,9 +7229,9 @@ var require_shebang_command = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cross-spawn/lib/util/readShebang.js
+// node_modules/cross-spawn/lib/util/readShebang.js
 var require_readShebang = __commonJS({
-  "integrations/copilot-extension/node_modules/cross-spawn/lib/util/readShebang.js"(exports, module) {
+  "node_modules/cross-spawn/lib/util/readShebang.js"(exports, module) {
     "use strict";
     var fs = __require("fs");
     var shebangCommand = require_shebang_command();
@@ -7251,9 +7251,9 @@ var require_readShebang = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cross-spawn/lib/parse.js
+// node_modules/cross-spawn/lib/parse.js
 var require_parse = __commonJS({
-  "integrations/copilot-extension/node_modules/cross-spawn/lib/parse.js"(exports, module) {
+  "node_modules/cross-spawn/lib/parse.js"(exports, module) {
     "use strict";
     var path = __require("path");
     var resolveCommand = require_resolveCommand();
@@ -7313,9 +7313,9 @@ var require_parse = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cross-spawn/lib/enoent.js
+// node_modules/cross-spawn/lib/enoent.js
 var require_enoent = __commonJS({
-  "integrations/copilot-extension/node_modules/cross-spawn/lib/enoent.js"(exports, module) {
+  "node_modules/cross-spawn/lib/enoent.js"(exports, module) {
     "use strict";
     var isWin = process.platform === "win32";
     function notFoundError(original, syscall) {
@@ -7363,9 +7363,9 @@ var require_enoent = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cross-spawn/index.js
+// node_modules/cross-spawn/index.js
 var require_cross_spawn = __commonJS({
-  "integrations/copilot-extension/node_modules/cross-spawn/index.js"(exports, module) {
+  "node_modules/cross-spawn/index.js"(exports, module) {
     "use strict";
     var cp = __require("child_process");
     var parse3 = require_parse();
@@ -7390,9 +7390,9 @@ var require_cross_spawn = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/backoff/ConstantBackoff.js
+// node_modules/cockatiel/dist/backoff/ConstantBackoff.js
 var require_ConstantBackoff = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/backoff/ConstantBackoff.js"(exports) {
+  "node_modules/cockatiel/dist/backoff/ConstantBackoff.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ConstantBackoff = void 0;
@@ -7420,9 +7420,9 @@ var require_ConstantBackoff = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/backoff/DelegateBackoff.js
+// node_modules/cockatiel/dist/backoff/DelegateBackoff.js
 var require_DelegateBackoff = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/backoff/DelegateBackoff.js"(exports) {
+  "node_modules/cockatiel/dist/backoff/DelegateBackoff.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.DelegateBackoff = void 0;
@@ -7453,9 +7453,9 @@ var require_DelegateBackoff = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/backoff/ExponentialBackoffGenerators.js
+// node_modules/cockatiel/dist/backoff/ExponentialBackoffGenerators.js
 var require_ExponentialBackoffGenerators = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/backoff/ExponentialBackoffGenerators.js"(exports) {
+  "node_modules/cockatiel/dist/backoff/ExponentialBackoffGenerators.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.decorrelatedJitterGenerator = exports.halfJitterGenerator = exports.fullJitterGenerator = exports.noJitterGenerator = void 0;
@@ -7490,9 +7490,9 @@ var require_ExponentialBackoffGenerators = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/backoff/ExponentialBackoff.js
+// node_modules/cockatiel/dist/backoff/ExponentialBackoff.js
 var require_ExponentialBackoff = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/backoff/ExponentialBackoff.js"(exports) {
+  "node_modules/cockatiel/dist/backoff/ExponentialBackoff.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ExponentialBackoff = void 0;
@@ -7525,9 +7525,9 @@ var require_ExponentialBackoff = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/backoff/IterableBackoff.js
+// node_modules/cockatiel/dist/backoff/IterableBackoff.js
 var require_IterableBackoff = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/backoff/IterableBackoff.js"(exports) {
+  "node_modules/cockatiel/dist/backoff/IterableBackoff.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.IterableBackoff = void 0;
@@ -7555,9 +7555,9 @@ var require_IterableBackoff = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/backoff/Backoff.js
+// node_modules/cockatiel/dist/backoff/Backoff.js
 var require_Backoff = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/backoff/Backoff.js"(exports) {
+  "node_modules/cockatiel/dist/backoff/Backoff.js"(exports) {
     "use strict";
     var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -7584,9 +7584,9 @@ var require_Backoff = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/breaker/ConsecutiveBreaker.js
+// node_modules/cockatiel/dist/breaker/ConsecutiveBreaker.js
 var require_ConsecutiveBreaker = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/breaker/ConsecutiveBreaker.js"(exports) {
+  "node_modules/cockatiel/dist/breaker/ConsecutiveBreaker.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ConsecutiveBreaker = void 0;
@@ -7616,9 +7616,9 @@ var require_ConsecutiveBreaker = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/errors/TaskCancelledError.js
+// node_modules/cockatiel/dist/errors/TaskCancelledError.js
 var require_TaskCancelledError = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/errors/TaskCancelledError.js"(exports) {
+  "node_modules/cockatiel/dist/errors/TaskCancelledError.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.TaskCancelledError = void 0;
@@ -7636,9 +7636,9 @@ var require_TaskCancelledError = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/common/Event.js
+// node_modules/cockatiel/dist/common/Event.js
 var require_Event = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/common/Event.js"(exports) {
+  "node_modules/cockatiel/dist/common/Event.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.MemorizingEventEmitter = exports.EventEmitter = exports.onAbort = exports.Event = exports.noopDisposable = void 0;
@@ -7814,9 +7814,9 @@ var require_Event = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/common/abort.js
+// node_modules/cockatiel/dist/common/abort.js
 var require_abort = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/common/abort.js"(exports) {
+  "node_modules/cockatiel/dist/common/abort.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.deriveAbortController = exports.abortedSignal = exports.neverAbortedSignal = void 0;
@@ -7846,9 +7846,9 @@ var require_abort = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/common/Executor.js
+// node_modules/cockatiel/dist/common/Executor.js
 var require_Executor = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/common/Executor.js"(exports) {
+  "node_modules/cockatiel/dist/common/Executor.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ExecuteWrapper = exports.returnOrThrow = void 0;
@@ -7915,9 +7915,9 @@ var require_Executor = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/errors/BrokenCircuitError.js
+// node_modules/cockatiel/dist/errors/BrokenCircuitError.js
 var require_BrokenCircuitError = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/errors/BrokenCircuitError.js"(exports) {
+  "node_modules/cockatiel/dist/errors/BrokenCircuitError.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.BrokenCircuitError = void 0;
@@ -7935,9 +7935,9 @@ var require_BrokenCircuitError = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/errors/BulkheadRejectedError.js
+// node_modules/cockatiel/dist/errors/BulkheadRejectedError.js
 var require_BulkheadRejectedError = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/errors/BulkheadRejectedError.js"(exports) {
+  "node_modules/cockatiel/dist/errors/BulkheadRejectedError.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.BulkheadRejectedError = void 0;
@@ -7951,9 +7951,9 @@ var require_BulkheadRejectedError = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/errors/HydratingCircuitError.js
+// node_modules/cockatiel/dist/errors/HydratingCircuitError.js
 var require_HydratingCircuitError = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/errors/HydratingCircuitError.js"(exports) {
+  "node_modules/cockatiel/dist/errors/HydratingCircuitError.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.HydratingCircuitError = void 0;
@@ -7971,9 +7971,9 @@ var require_HydratingCircuitError = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/errors/IsolatedCircuitError.js
+// node_modules/cockatiel/dist/errors/IsolatedCircuitError.js
 var require_IsolatedCircuitError = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/errors/IsolatedCircuitError.js"(exports) {
+  "node_modules/cockatiel/dist/errors/IsolatedCircuitError.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.IsolatedCircuitError = void 0;
@@ -7992,9 +7992,9 @@ var require_IsolatedCircuitError = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/errors/Errors.js
+// node_modules/cockatiel/dist/errors/Errors.js
 var require_Errors = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/errors/Errors.js"(exports) {
+  "node_modules/cockatiel/dist/errors/Errors.js"(exports) {
     "use strict";
     var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -8032,9 +8032,9 @@ var require_Errors = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/CircuitBreakerPolicy.js
+// node_modules/cockatiel/dist/CircuitBreakerPolicy.js
 var require_CircuitBreakerPolicy = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/CircuitBreakerPolicy.js"(exports) {
+  "node_modules/cockatiel/dist/CircuitBreakerPolicy.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.CircuitBreakerPolicy = exports.CircuitState = void 0;
@@ -8241,9 +8241,9 @@ var require_CircuitBreakerPolicy = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/breaker/CountBreaker.js
+// node_modules/cockatiel/dist/breaker/CountBreaker.js
 var require_CountBreaker = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/breaker/CountBreaker.js"(exports) {
+  "node_modules/cockatiel/dist/breaker/CountBreaker.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.CountBreaker = void 0;
@@ -8340,9 +8340,9 @@ var require_CountBreaker = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/breaker/SamplingBreaker.js
+// node_modules/cockatiel/dist/breaker/SamplingBreaker.js
 var require_SamplingBreaker = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/breaker/SamplingBreaker.js"(exports) {
+  "node_modules/cockatiel/dist/breaker/SamplingBreaker.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.SamplingBreaker = void 0;
@@ -8453,9 +8453,9 @@ var require_SamplingBreaker = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/breaker/Breaker.js
+// node_modules/cockatiel/dist/breaker/Breaker.js
 var require_Breaker = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/breaker/Breaker.js"(exports) {
+  "node_modules/cockatiel/dist/breaker/Breaker.js"(exports) {
     "use strict";
     var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -8480,9 +8480,9 @@ var require_Breaker = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/common/defer.js
+// node_modules/cockatiel/dist/common/defer.js
 var require_defer = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/common/defer.js"(exports) {
+  "node_modules/cockatiel/dist/common/defer.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.defer = void 0;
@@ -8499,9 +8499,9 @@ var require_defer = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/BulkheadPolicy.js
+// node_modules/cockatiel/dist/BulkheadPolicy.js
 var require_BulkheadPolicy = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/BulkheadPolicy.js"(exports) {
+  "node_modules/cockatiel/dist/BulkheadPolicy.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.BulkheadPolicy = void 0;
@@ -8576,9 +8576,9 @@ var require_BulkheadPolicy = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/FallbackPolicy.js
+// node_modules/cockatiel/dist/FallbackPolicy.js
 var require_FallbackPolicy = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/FallbackPolicy.js"(exports) {
+  "node_modules/cockatiel/dist/FallbackPolicy.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.FallbackPolicy = void 0;
@@ -8607,9 +8607,9 @@ var require_FallbackPolicy = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/NoopPolicy.js
+// node_modules/cockatiel/dist/NoopPolicy.js
 var require_NoopPolicy = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/NoopPolicy.js"(exports) {
+  "node_modules/cockatiel/dist/NoopPolicy.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.NoopPolicy = void 0;
@@ -8629,9 +8629,9 @@ var require_NoopPolicy = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/RetryPolicy.js
+// node_modules/cockatiel/dist/RetryPolicy.js
 var require_RetryPolicy = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/RetryPolicy.js"(exports) {
+  "node_modules/cockatiel/dist/RetryPolicy.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.RetryPolicy = void 0;
@@ -8698,9 +8698,9 @@ var require_RetryPolicy = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/TimeoutPolicy.js
+// node_modules/cockatiel/dist/TimeoutPolicy.js
 var require_TimeoutPolicy = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/TimeoutPolicy.js"(exports) {
+  "node_modules/cockatiel/dist/TimeoutPolicy.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.TimeoutPolicy = exports.TimeoutStrategy = void 0;
@@ -8774,9 +8774,9 @@ var require_TimeoutPolicy = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/Policy.js
+// node_modules/cockatiel/dist/Policy.js
 var require_Policy = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/Policy.js"(exports) {
+  "node_modules/cockatiel/dist/Policy.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.handleAll = exports.noop = exports.Policy = void 0;
@@ -8965,9 +8965,9 @@ var require_Policy = __commonJS({
   }
 });
 
-// integrations/copilot-extension/node_modules/cockatiel/dist/index.js
+// node_modules/cockatiel/dist/index.js
 var require_dist2 = __commonJS({
-  "integrations/copilot-extension/node_modules/cockatiel/dist/index.js"(exports) {
+  "node_modules/cockatiel/dist/index.js"(exports) {
     "use strict";
     var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -9007,15 +9007,15 @@ var require_dist2 = __commonJS({
   }
 });
 
-// integrations/copilot-extension/src/extension.ts
+// src/extension.ts
 import { joinSession, createCanvas } from "@github/copilot-sdk/extension";
 
-// integrations/copilot-extension/src/config.ts
+// src/config.ts
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { existsSync, mkdirSync as mkdirSync2, readFileSync, writeFileSync as writeFileSync2 } from "node:fs";
 
-// integrations/copilot-extension/src/atomic.ts
+// src/atomic.ts
 import { mkdirSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 function atomicWriteFileSync(path, contents, mode = 384) {
@@ -9045,7 +9045,7 @@ function atomicWriteFileSync(path, contents, mode = 384) {
   }
 }
 
-// integrations/copilot-extension/src/config.ts
+// src/config.ts
 var CONFIG_DIR = process.env.MCP_BRIDGE_CONFIG_DIR ? process.env.MCP_BRIDGE_CONFIG_DIR : join(homedir(), ".copilot", "mcp-bridge");
 var CONFIG_PATH = join(CONFIG_DIR, "config.json");
 var DEFAULT_CONFIG = {
@@ -9250,12 +9250,12 @@ function updateActiveProfile(name) {
   atomicWriteFileSync(CONFIG_PATH, JSON.stringify(raw, null, 2), 384);
 }
 
-// integrations/copilot-extension/src/oauth.ts
+// src/oauth.ts
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 
-// integrations/copilot-extension/node_modules/zod/v4/core/core.js
+// node_modules/zod/v4/core/core.js
 var _a;
 var NEVER = /* @__PURE__ */ Object.freeze({
   status: "aborted"
@@ -9332,7 +9332,7 @@ function config(newConfig) {
   return globalConfig;
 }
 
-// integrations/copilot-extension/node_modules/zod/v4/core/util.js
+// node_modules/zod/v4/core/util.js
 var util_exports = {};
 __export(util_exports, {
   BIGINT_FORMAT_RANGES: () => BIGINT_FORMAT_RANGES,
@@ -10028,7 +10028,7 @@ var Class = class {
   }
 };
 
-// integrations/copilot-extension/node_modules/zod/v4/core/errors.js
+// node_modules/zod/v4/core/errors.js
 var initializer = (inst, def) => {
   inst.name = "$ZodError";
   Object.defineProperty(inst, "_zod", {
@@ -10097,7 +10097,7 @@ function formatError(error2, mapper = (issue2) => issue2.message) {
   return fieldErrors;
 }
 
-// integrations/copilot-extension/node_modules/zod/v4/core/parse.js
+// node_modules/zod/v4/core/parse.js
 var _parse = (_Err) => (schema, value, _ctx, _params) => {
   const ctx = _ctx ? { ..._ctx, async: false } : { async: false };
   const result = schema._zod.run({ value, issues: [] }, ctx);
@@ -10175,7 +10175,7 @@ var _safeDecodeAsync = (_Err) => async (schema, value, _ctx) => {
   return _safeParseAsync(_Err)(schema, value, _ctx);
 };
 
-// integrations/copilot-extension/node_modules/zod/v4/core/regexes.js
+// node_modules/zod/v4/core/regexes.js
 var cuid = /^[cC][0-9a-z]{6,}$/;
 var cuid2 = /^[0-9a-z]+$/;
 var ulid = /^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$/;
@@ -10234,7 +10234,7 @@ var _null = /^null$/i;
 var lowercase = /^[^A-Z]*$/;
 var uppercase = /^[^a-z]*$/;
 
-// integrations/copilot-extension/node_modules/zod/v4/core/checks.js
+// node_modules/zod/v4/core/checks.js
 var $ZodCheck = /* @__PURE__ */ $constructor("$ZodCheck", (inst, def) => {
   var _a3;
   inst._zod ?? (inst._zod = {});
@@ -10624,7 +10624,7 @@ var $ZodCheckOverwrite = /* @__PURE__ */ $constructor("$ZodCheckOverwrite", (ins
   };
 });
 
-// integrations/copilot-extension/node_modules/zod/v4/core/doc.js
+// node_modules/zod/v4/core/doc.js
 var Doc = class {
   constructor(args = []) {
     this.content = [];
@@ -10660,14 +10660,14 @@ var Doc = class {
   }
 };
 
-// integrations/copilot-extension/node_modules/zod/v4/core/versions.js
+// node_modules/zod/v4/core/versions.js
 var version = {
   major: 4,
   minor: 4,
   patch: 3
 };
 
-// integrations/copilot-extension/node_modules/zod/v4/core/schemas.js
+// node_modules/zod/v4/core/schemas.js
 var $ZodType = /* @__PURE__ */ $constructor("$ZodType", (inst, def) => {
   var _a3;
   inst ?? (inst = {});
@@ -12195,7 +12195,7 @@ function handleRefineResult(result, payload, input, inst) {
   }
 }
 
-// integrations/copilot-extension/node_modules/zod/v4/locales/en.js
+// node_modules/zod/v4/locales/en.js
 var error = () => {
   const Sizable = {
     string: { unit: "characters", verb: "to have" },
@@ -12308,7 +12308,7 @@ function en_default() {
   };
 }
 
-// integrations/copilot-extension/node_modules/zod/v4/core/registries.js
+// node_modules/zod/v4/core/registries.js
 var _a2;
 var $output = Symbol("ZodOutput");
 var $input = Symbol("ZodInput");
@@ -12358,7 +12358,7 @@ function registry() {
 (_a2 = globalThis).__zod_globalRegistry ?? (_a2.__zod_globalRegistry = registry());
 var globalRegistry = globalThis.__zod_globalRegistry;
 
-// integrations/copilot-extension/node_modules/zod/v4/core/api.js
+// node_modules/zod/v4/core/api.js
 // @__NO_SIDE_EFFECTS__
 function _string(Class2, params) {
   return new Class2({
@@ -12933,7 +12933,7 @@ function _check(fn, params) {
   return ch;
 }
 
-// integrations/copilot-extension/node_modules/zod/v4/core/to-json-schema.js
+// node_modules/zod/v4/core/to-json-schema.js
 function initializeContext(params) {
   let target = params?.target ?? "draft-2020-12";
   if (target === "draft-4")
@@ -13292,7 +13292,7 @@ var createStandardJSONSchemaMethod = (schema, io, processors = {}) => (params) =
   return finalize(ctx, schema);
 };
 
-// integrations/copilot-extension/node_modules/zod/v4/core/json-schema-processors.js
+// node_modules/zod/v4/core/json-schema-processors.js
 var formatMap = {
   guid: "uuid",
   url: "uri",
@@ -13637,7 +13637,7 @@ var optionalProcessor = (schema, ctx, _json, params) => {
   seen.ref = def.innerType;
 };
 
-// integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
 function isZ4Schema(s) {
   const schema = s;
   return !!schema._zod;
@@ -13700,7 +13700,7 @@ function getLiteralValue(schema) {
   return void 0;
 }
 
-// integrations/copilot-extension/node_modules/zod/v4/classic/iso.js
+// node_modules/zod/v4/classic/iso.js
 var iso_exports = {};
 __export(iso_exports, {
   ZodISODate: () => ZodISODate,
@@ -13741,7 +13741,7 @@ function duration2(params) {
   return _isoDuration(ZodISODuration, params);
 }
 
-// integrations/copilot-extension/node_modules/zod/v4/classic/errors.js
+// node_modules/zod/v4/classic/errors.js
 var initializer2 = (inst, issues) => {
   $ZodError.init(inst, issues);
   inst.name = "ZodError";
@@ -13780,7 +13780,7 @@ var ZodRealError = /* @__PURE__ */ $constructor("ZodError", initializer2, {
   Parent: Error
 });
 
-// integrations/copilot-extension/node_modules/zod/v4/classic/parse.js
+// node_modules/zod/v4/classic/parse.js
 var parse2 = /* @__PURE__ */ _parse(ZodRealError);
 var parseAsync2 = /* @__PURE__ */ _parseAsync(ZodRealError);
 var safeParse3 = /* @__PURE__ */ _safeParse(ZodRealError);
@@ -13794,7 +13794,7 @@ var safeDecode2 = /* @__PURE__ */ _safeDecode(ZodRealError);
 var safeEncodeAsync2 = /* @__PURE__ */ _safeEncodeAsync(ZodRealError);
 var safeDecodeAsync2 = /* @__PURE__ */ _safeDecodeAsync(ZodRealError);
 
-// integrations/copilot-extension/node_modules/zod/v4/classic/schemas.js
+// node_modules/zod/v4/classic/schemas.js
 var _installedGroups = /* @__PURE__ */ new WeakMap();
 function _installLazyMethods(inst, group, methods) {
   const proto = Object.getPrototypeOf(inst);
@@ -14679,7 +14679,7 @@ function preprocess(fn, schema) {
   });
 }
 
-// integrations/copilot-extension/node_modules/zod/v4/classic/compat.js
+// node_modules/zod/v4/classic/compat.js
 var ZodIssueCode = {
   invalid_type: "invalid_type",
   too_big: "too_big",
@@ -14697,7 +14697,7 @@ var ZodFirstPartyTypeKind;
 /* @__PURE__ */ (function(ZodFirstPartyTypeKind2) {
 })(ZodFirstPartyTypeKind || (ZodFirstPartyTypeKind = {}));
 
-// integrations/copilot-extension/node_modules/zod/v4/classic/coerce.js
+// node_modules/zod/v4/classic/coerce.js
 var coerce_exports = {};
 __export(coerce_exports, {
   bigint: () => bigint2,
@@ -14722,10 +14722,10 @@ function date3(params) {
   return _coercedDate(ZodDate, params);
 }
 
-// integrations/copilot-extension/node_modules/zod/v4/classic/external.js
+// node_modules/zod/v4/classic/external.js
 config(en_default());
 
-// integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/types.js
 var LATEST_PROTOCOL_VERSION = "2025-11-25";
 var SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"];
 var RELATED_TASK_META_KEY = "io.modelcontextprotocol/related-task";
@@ -16245,18 +16245,18 @@ var UrlElicitationRequiredError = class extends McpError {
   }
 };
 
-// integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/interfaces.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/interfaces.js
 function isTerminal(status) {
   return status === "completed" || status === "failed" || status === "cancelled";
 }
 
-// integrations/copilot-extension/node_modules/zod-to-json-schema/dist/esm/Options.js
+// node_modules/zod-to-json-schema/dist/esm/Options.js
 var ignoreOverride = Symbol("Let zodToJsonSchema decide on which parser to use");
 
-// integrations/copilot-extension/node_modules/zod-to-json-schema/dist/esm/parsers/string.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/string.js
 var ALPHA_NUMERIC = new Set("ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvxyz0123456789");
 
-// integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-json-schema-compat.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-json-schema-compat.js
 function getMethodLiteral(schema) {
   const shape = getObjectShape(schema);
   const methodSchema = shape?.method;
@@ -16277,7 +16277,7 @@ function parseWithCompat(schema, data) {
   return result.data;
 }
 
-// integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js
 var DEFAULT_REQUEST_TIMEOUT_MSEC = 6e4;
 var Protocol = class {
   constructor(_options) {
@@ -17231,7 +17231,7 @@ function mergeCapabilities(base, additional) {
   return result;
 }
 
-// integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js
 var import_ajv = __toESM(require_ajv(), 1);
 var import_ajv_formats = __toESM(require_dist(), 1);
 function createDefaultAjvInstance() {
@@ -17299,7 +17299,7 @@ var AjvJsonSchemaValidator = class {
   }
 };
 
-// integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/client.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/client.js
 var ExperimentalClientTasks = class {
   constructor(_client) {
     this._client = _client;
@@ -17453,7 +17453,7 @@ var ExperimentalClientTasks = class {
   }
 };
 
-// integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js
 function assertToolsCallTaskCapability(requests, method, entityName) {
   if (!requests) {
     throw new Error(`${entityName} does not support task creation (required for ${method})`);
@@ -17488,7 +17488,7 @@ function assertClientRequestTaskCapability(requests, method, entityName) {
   }
 }
 
-// integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js
 function applyElicitationDefaults(schema, data) {
   if (!schema || data === null || typeof data !== "object")
     return;
@@ -18008,10 +18008,10 @@ var Client = class extends Protocol {
   }
 };
 
-// integrations/copilot-extension/src/version.ts
-var BRIDGE_VERSION = true ? "0.2.7" : "0.0.0-dev";
+// src/version.ts
+var BRIDGE_VERSION = true ? "0.2.8" : "0.0.0-dev";
 
-// integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/transport.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/shared/transport.js
 function normalizeHeaders(headers) {
   if (!headers)
     return {};
@@ -18038,7 +18038,7 @@ function createFetchWithInit(baseFetch = fetch, baseInit) {
   };
 }
 
-// integrations/copilot-extension/node_modules/pkce-challenge/dist/index.node.js
+// node_modules/pkce-challenge/dist/index.node.js
 var crypto;
 crypto = globalThis.crypto?.webcrypto ?? // Node.js [18-16] REPL
 globalThis.crypto ?? // Node.js >18
@@ -18051,8 +18051,8 @@ async function random(size) {
   const evenDistCutoff = Math.pow(2, 8) - Math.pow(2, 8) % mask.length;
   let result = "";
   while (result.length < size) {
-    const randomBytes2 = await getRandomValues(size - result.length);
-    for (const randomByte of randomBytes2) {
+    const randomBytes3 = await getRandomValues(size - result.length);
+    for (const randomByte of randomBytes3) {
       if (randomByte < evenDistCutoff) {
         result += mask[randomByte % mask.length];
       }
@@ -18081,7 +18081,7 @@ async function pkceChallenge(length) {
   };
 }
 
-// integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/auth.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/shared/auth.js
 var SafeUrlSchema = url().superRefine((val, ctx) => {
   if (!URL.canParse(val)) {
     ctx.addIssue({
@@ -18225,7 +18225,7 @@ var OAuthTokenRevocationRequestSchema = object2({
   token_type_hint: string2().optional()
 }).strip();
 
-// integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/auth-utils.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/shared/auth-utils.js
 function resourceUrlFromServerUrl(url2) {
   const resourceURL = typeof url2 === "string" ? new URL(url2) : new URL(url2.href);
   resourceURL.hash = "";
@@ -18245,7 +18245,7 @@ function checkResourceAllowed({ requestedResource, configuredResource }) {
   return requestedPath.startsWith(configuredPath);
 }
 
-// integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/server/auth/errors.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/server/auth/errors.js
 var OAuthError = class extends Error {
   constructor(message, errorUri) {
     super(message);
@@ -18340,7 +18340,7 @@ var OAUTH_ERRORS = {
   [InvalidTargetError.errorCode]: InvalidTargetError
 };
 
-// integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/client/auth.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/client/auth.js
 var UnauthorizedError = class extends Error {
   constructor(message) {
     super(message ?? "Unauthorized");
@@ -18881,7 +18881,7 @@ async function registerClient(authorizationServerUrl, { metadata, clientMetadata
   return OAuthClientInformationFullSchema.parse(await response.json());
 }
 
-// integrations/copilot-extension/node_modules/eventsource-parser/dist/index.js
+// node_modules/eventsource-parser/dist/index.js
 var ParseError = class extends Error {
   constructor(message, options) {
     super(message), this.name = "ParseError", this.type = options.type, this.field = options.field, this.value = options.value, this.line = options.line;
@@ -19057,7 +19057,7 @@ function isEventPrefix(chunk, i, firstCharCode) {
   return firstCharCode === 101 && chunk.charCodeAt(i + 1) === 118 && chunk.charCodeAt(i + 2) === 101 && chunk.charCodeAt(i + 3) === 110 && chunk.charCodeAt(i + 4) === 116 && chunk.charCodeAt(i + 5) === 58;
 }
 
-// integrations/copilot-extension/node_modules/eventsource-parser/dist/stream.js
+// node_modules/eventsource-parser/dist/stream.js
 var EventSourceParserStream = class extends TransformStream {
   constructor({ onError, onRetry, onComment, maxBufferSize } = {}) {
     let parser;
@@ -19082,7 +19082,7 @@ var EventSourceParserStream = class extends TransformStream {
   }
 };
 
-// integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/client/streamableHttp.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/client/streamableHttp.js
 var DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS = {
   initialReconnectionDelay: 1e3,
   maxReconnectionDelay: 3e4,
@@ -19478,7 +19478,7 @@ var StreamableHTTPClientTransport = class {
   }
 };
 
-// integrations/copilot-extension/node_modules/eventsource/dist/index.js
+// node_modules/eventsource/dist/index.js
 var ErrorEvent = class extends Event {
   /**
    * Constructs a new `ErrorEvent` instance. This is typically not called directly,
@@ -19775,7 +19775,7 @@ function getBaseURL() {
   return doc && typeof doc == "object" && "baseURI" in doc && typeof doc.baseURI == "string" ? doc.baseURI : void 0;
 }
 
-// integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/client/sse.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/client/sse.js
 var SseError = class extends Error {
   constructor(code, message, event) {
     super(`SSE error: ${message}`);
@@ -19966,7 +19966,7 @@ var SSEClientTransport = class {
   }
 };
 
-// integrations/copilot-extension/src/engine-ref.ts
+// src/engine-ref.ts
 import { homedir as homedir2 } from "node:os";
 import { join as join2 } from "node:path";
 import { readFileSync as readFileSync2 } from "node:fs";
@@ -20050,7 +20050,7 @@ async function engineDegradations(name, timeoutMs = 3e3) {
   }
 }
 
-// integrations/copilot-extension/src/oauth.store.ts
+// src/oauth.store.ts
 import { join as join3 } from "node:path";
 import { existsSync as existsSync2, readFileSync as readFileSync3, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -20119,7 +20119,7 @@ var OAuthStore = class {
   }
 };
 
-// integrations/copilot-extension/src/oauth.ts
+// src/oauth.ts
 function openBrowser(url2) {
   if (!/^https?:\/\//i.test(url2)) return;
   if (process.env.MCP_BRIDGE_OAUTH_AUTOFOLLOW === "1") {
@@ -20173,7 +20173,7 @@ var BridgeOAuthProvider = class {
     return this.opts.store.load().clientInformation;
   }
   saveClientInformation(info) {
-    this.opts.store.saveClientInformation(info);
+    if (this.opts.interactive) this.opts.store.saveClientInformation(info);
   }
   tokens() {
     return this.opts.store.load().tokens;
@@ -20182,7 +20182,7 @@ var BridgeOAuthProvider = class {
     this.opts.store.saveTokens(tokens);
   }
   saveCodeVerifier(verifier) {
-    this.opts.store.saveCodeVerifier(verifier);
+    if (this.opts.interactive) this.opts.store.saveCodeVerifier(verifier);
   }
   codeVerifier() {
     const v = this.opts.store.load().codeVerifier;
@@ -20246,8 +20246,7 @@ function makeAuthedTransport(config2, provider) {
   const requestInit = ep.headers ? { headers: ep.headers } : void 0;
   return config2.type === "http" ? new StreamableHTTPClientTransport(url2, { authProvider: provider, requestInit }) : new SSEClientTransport(url2, { authProvider: provider, requestInit });
 }
-async function runLoginFlow(server, config2, log, timeoutMs = 18e4) {
-  const store = new OAuthStore(server);
+async function runLoginFlow(server, config2, log, timeoutMs = 18e4, store = new OAuthStore(server)) {
   let cb;
   try {
     cb = await startCallbackServer();
@@ -20295,12 +20294,12 @@ ${u}`)
   }
 }
 
-// integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js
 var import_cross_spawn = __toESM(require_cross_spawn(), 1);
 import process3 from "node:process";
 import { PassThrough } from "node:stream";
 
-// integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
 var ReadBuffer = class {
   append(chunk) {
     this._buffer = this._buffer ? Buffer.concat([this._buffer, chunk]) : chunk;
@@ -20328,7 +20327,7 @@ function serializeMessage(message) {
   return JSON.stringify(message) + "\n";
 }
 
-// integrations/copilot-extension/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js
 var DEFAULT_INHERITED_ENV_VARS = process3.platform === "win32" ? [
   "APPDATA",
   "HOMEDRIVE",
@@ -20493,7 +20492,7 @@ var StdioClientTransport = class {
   }
 };
 
-// integrations/copilot-extension/src/mcp-client.ts
+// src/mcp-client.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
 function killProcessTree(pid) {
   if (process.platform === "win32") {
@@ -20543,6 +20542,7 @@ var ManagedServer = class _ManagedServer {
   client;
   transport;
   authProvider;
+  connectionGeneration = 0;
   constructor(config2, authProvider) {
     this.config = config2;
     this.name = config2.name;
@@ -20683,16 +20683,27 @@ var ManagedServer = class _ManagedServer {
   }
   async callTool(toolName, args, timeoutMs = 6e4) {
     if (!this.client) throw new Error(`servidor "${this.name}" n\xE3o conectado`);
+    const generation = this.connectionGeneration;
     try {
       return await this.chamar(toolName, args, timeoutMs);
     } catch (err) {
       if (!_ManagedServer.sessaoMorta(err)) {
         throw err;
       }
+      if (generation !== this.connectionGeneration) throw err;
       this.lastError = void 0;
       await this.connect(timeoutMs);
+      if (generation !== this.connectionGeneration) {
+        await this.close();
+        throw new Error(`reconex\xE3o de "${this.name}" cancelada por desconex\xE3o expl\xEDcita`);
+      }
       return await this.chamar(toolName, args, timeoutMs);
     }
+  }
+  /** Invalida uma eventual recuperação em voo e encerra a conexão sem reiniciar a extensão. */
+  async disconnect() {
+    this.connectionGeneration++;
+    await this.close();
   }
   async chamar(toolName, args, timeoutMs) {
     if (!this.client) throw new Error(`servidor "${this.name}" n\xE3o conectado`);
@@ -20743,7 +20754,7 @@ var ManagedServer = class _ManagedServer {
   }
 };
 
-// integrations/copilot-extension/src/result.ts
+// src/result.ts
 function convertMcpResult(res) {
   const parts = Array.isArray(res?.content) ? res.content : [];
   const texts = [];
@@ -20822,7 +20833,7 @@ ${c.text}`);
   };
 }
 
-// integrations/copilot-extension/src/resilience.ts
+// src/resilience.ts
 var import_cockatiel = __toESM(require_dist2(), 1);
 function isTransientError(err) {
   if (!(err instanceof Error)) return false;
@@ -20875,7 +20886,7 @@ var ResilienceFactory = class {
   }
 };
 
-// integrations/copilot-extension/src/health.ts
+// src/health.ts
 var WINDOW = 100;
 var HealthTracker = class {
   stats = /* @__PURE__ */ new Map();
@@ -20911,7 +20922,7 @@ var HealthTracker = class {
   }
 };
 
-// integrations/copilot-extension/src/audit.ts
+// src/audit.ts
 import { join as join4 } from "node:path";
 import { appendFileSync, existsSync as existsSync3, mkdirSync as mkdirSync3, readFileSync as readFileSync4, writeFileSync as writeFileSync3 } from "node:fs";
 var AUDIT_PATH = join4(CONFIG_DIR, "audit.jsonl");
@@ -20982,7 +20993,7 @@ var AuditLog = class {
   }
 };
 
-// integrations/copilot-extension/src/limiter.ts
+// src/limiter.ts
 function limitText(full, cfg, offset = 0) {
   const maxChars = Math.max(1, cfg.maxChars ?? 1e4);
   const totalChars = full.length;
@@ -21014,8 +21025,9 @@ function applyLimit(text, cfg) {
 ${limited.warning}` : limited.text;
 }
 
-// integrations/copilot-extension/src/dashboard.ts
+// src/dashboard.ts
 import { createServer as createServer2 } from "node:http";
+import { randomBytes as randomBytes2, timingSafeEqual } from "node:crypto";
 var PAGE = `<!doctype html>
 <html lang="pt-br"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -21036,25 +21048,49 @@ var PAGE = `<!doctype html>
   .disconnected { background:#57606a; color:#fff; }
   .mono { font-variant-numeric: tabular-nums; }
   .empty { opacity:.6; font-style:italic; }
+  button { font:inherit; margin:.1rem; padding:.2rem .45rem; cursor:pointer; }
+  #action-status { min-height:1.2rem; margin:.5rem 0; font-size:.82rem; }
 </style></head>
 <body>
   <h1>MCP Bridge \u2014 Dashboard</h1>
   <div class="meta" id="meta"></div>
   <h2>Servidores</h2>
-  <table><thead><tr><th>Servidor</th><th>Tipo</th><th>Status</th><th>Tools</th><th>Prompts</th><th>Resources</th><th>Chamadas</th><th>Erros</th><th>Lat\xEAncia</th></tr></thead>
+  <table><thead><tr><th>Servidor</th><th>Tipo</th><th>Status</th><th>Tools</th><th>Prompts</th><th>Resources</th><th>Chamadas</th><th>Erros</th><th>Lat\xEAncia</th><th>A\xE7\xF5es</th></tr></thead>
   <tbody id="servers"></tbody></table>
+  <div id="action-status" role="status"></div>
   <h2>Auditoria recente</h2>
   <table><thead><tr><th>Quando</th><th>Servidor/Tool</th><th>Status</th><th>Dura\xE7\xE3o</th></tr></thead>
   <tbody id="audit"></tbody></table>
 <script>
   function cell(text, cls) { var td = document.createElement('td'); if (cls) td.className = cls; td.textContent = text == null ? '' : String(text); return td; }
   function pill(status) { var td = document.createElement('td'); var s = document.createElement('span'); s.className = 'pill ' + status; s.textContent = status; td.appendChild(s); return td; }
+  var capability = window.location.hash.slice(1);
+  function setActionStatus(message) { document.getElementById('action-status').textContent = message; }
+  async function action(name, server, buttons) {
+    buttons.forEach(function(b) { b.disabled = true; });
+    setActionStatus('Executando ' + name + ' para ' + server + '...');
+    try {
+      var r = await fetch('action', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-mcp-bridge-capability': capability },
+        body: JSON.stringify({ action: name, server: server }),
+      });
+      var body = await r.json();
+      if (!r.ok) throw new Error(body.message || 'Falha na a\xE7\xE3o.');
+      setActionStatus(body.message || 'A\xE7\xE3o conclu\xEDda.');
+      await tick();
+    } catch (err) {
+      setActionStatus('Falha: ' + (err && err.message ? err.message : String(err)));
+    } finally {
+      buttons.forEach(function(b) { b.disabled = false; });
+    }
+  }
   async function tick() {
     try {
       var r = await fetch('data', { cache: 'no-store' }); var d = await r.json();
       document.getElementById('meta').textContent = 'config: ' + d.configPath + '  \xB7  perfil: ' + (d.activeProfile || '(nenhum)') + '  \xB7  atualizado ' + new Date().toLocaleTimeString();
       var sb = document.getElementById('servers'); sb.textContent = '';
-      if (!d.servers.length) { var tr = document.createElement('tr'); var td = cell('(nenhum servidor)', 'empty'); td.colSpan = 9; tr.appendChild(td); sb.appendChild(tr); }
+      if (!d.servers.length) { var tr = document.createElement('tr'); var td = cell('(nenhum servidor)', 'empty'); td.colSpan = 10; tr.appendChild(td); sb.appendChild(tr); }
       d.servers.forEach(function(s) {
         var tr = document.createElement('tr');
         tr.appendChild(cell(s.name)); tr.appendChild(cell(s.type)); tr.appendChild(pill(s.status));
@@ -21063,8 +21099,20 @@ var PAGE = `<!doctype html>
         tr.appendChild(cell(h.totalCalls != null ? h.totalCalls : '\u2014', 'mono'));
         tr.appendChild(cell(h.errorCount != null ? h.errorCount : '\u2014', 'mono'));
         tr.appendChild(cell(h.avgLatencyMs != null ? '~' + h.avgLatencyMs + 'ms' : '\u2014', 'mono'));
+        var actions = document.createElement('td');
+        if (s.oauthEligible) {
+          var clear = document.createElement('button'); clear.type = 'button'; clear.textContent = 'Limpar credenciais';
+          var reauth = document.createElement('button'); reauth.type = 'button'; reauth.textContent = 'Reautenticar';
+          var buttons = [clear, reauth];
+          clear.addEventListener('click', function() { void action('clear', s.name, buttons); });
+          reauth.addEventListener('click', function() { void action('reauth', s.name, buttons); });
+          actions.appendChild(clear); actions.appendChild(reauth);
+        } else {
+          actions.textContent = '\u2014';
+        }
+        tr.appendChild(actions);
         sb.appendChild(tr);
-        if (s.lastError) { var er = document.createElement('tr'); var etd = cell('\u26A0 ' + s.lastError, 'empty'); etd.colSpan = 9; er.appendChild(etd); sb.appendChild(er); }
+        if (s.lastError) { var er = document.createElement('tr'); var etd = cell('\u26A0 ' + s.lastError, 'empty'); etd.colSpan = 10; er.appendChild(etd); sb.appendChild(er); }
       });
       var ab = document.getElementById('audit'); ab.textContent = '';
       if (!d.audit.length) { var tr2 = document.createElement('tr'); var td2 = cell('(sem entradas)', 'empty'); td2.colSpan = 4; tr2.appendChild(td2); ab.appendChild(tr2); }
@@ -21080,39 +21128,81 @@ var PAGE = `<!doctype html>
   tick(); setInterval(tick, 2000);
 </script>
 </body></html>`;
-function startDashboard(getSnapshot) {
+function hasCapability(received, expected) {
+  if (!received) return false;
+  const a = Buffer.from(received);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+async function readAction(req) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += data.length;
+    if (size > 4096) throw new Error("corpo da a\xE7\xE3o excede o limite");
+    chunks.push(data);
+  }
+  const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return void 0;
+  const action = parsed.action;
+  const server = parsed.server;
+  if (action !== "clear" && action !== "reauth" || typeof server !== "string") return void 0;
+  return { action, server };
+}
+function startDashboard(getSnapshot, onAction) {
   return new Promise((resolve2, reject) => {
+    const capability = randomBytes2(32).toString("base64url");
     const server = createServer2((req, res) => {
-      try {
-        const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
-        if (path === "/" || path === "/index.html") {
-          res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-          res.end(PAGE);
-        } else if (path === "/data") {
-          res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-          res.end(JSON.stringify(getSnapshot()));
-        } else {
-          res.writeHead(404);
-          res.end();
-        }
-      } catch {
+      void (async () => {
         try {
-          if (!res.headersSent) res.statusCode = 500;
-          res.end();
+          const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+          if (path === "/" || path === "/index.html") {
+            res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+            res.end(PAGE);
+          } else if (path === "/data") {
+            res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+            res.end(JSON.stringify(getSnapshot()));
+          } else if (path === "/action" && req.method === "POST") {
+            const header = req.headers["x-mcp-bridge-capability"];
+            const presented = Array.isArray(header) ? void 0 : header;
+            if (!hasCapability(presented, capability)) {
+              res.writeHead(403, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+              res.end(JSON.stringify({ message: "A\xE7\xE3o n\xE3o autorizada." }));
+              return;
+            }
+            const action = await readAction(req);
+            if (!action) {
+              res.writeHead(400, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+              res.end(JSON.stringify({ message: "A\xE7\xE3o inv\xE1lida." }));
+              return;
+            }
+            const result = await onAction(action);
+            res.writeHead(result.ok ? 200 : 400, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+            res.end(JSON.stringify({ message: result.message }));
+          } else {
+            res.writeHead(404);
+            res.end();
+          }
         } catch {
+          try {
+            if (!res.headersSent) res.statusCode = 500;
+            res.end();
+          } catch {
+          }
         }
-      }
+      })();
     });
     server.on("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const addr = server.address();
       const port2 = addr && typeof addr === "object" ? addr.port : 0;
-      resolve2({ url: `http://127.0.0.1:${port2}/`, port: port2, close: () => server.close() });
+      resolve2({ url: `http://127.0.0.1:${port2}/#${capability}`, port: port2, close: () => server.close() });
     });
   });
 }
 
-// integrations/copilot-extension/src/extension.ts
+// src/extension.ts
 function sanitize(name) {
   return name.replace(/[^a-zA-Z0-9_]/g, "_");
 }
@@ -21209,13 +21299,25 @@ async function main() {
     (s) => s.enabled !== false && (!profileSet || profileSet.includes(s.name))
   );
   const servers = /* @__PURE__ */ new Map();
+  const oauthStores = /* @__PURE__ */ new Map();
+  const oauthStore = (name) => {
+    let store = oauthStores.get(name);
+    if (!store) {
+      store = new OAuthStore(name);
+      oauthStores.set(name, store);
+    }
+    return store;
+  };
+  const oauthServers = cfg.servers.filter(
+    (s) => (s.type === "http" || s.type === "sse") && s.auth?.type === "oauth"
+  );
   let dashboard;
   let dashboardStarting;
   for (const sc of enabled) {
     let authProvider;
     if ((sc.type === "http" || sc.type === "sse") && sc.auth?.type === "oauth") {
       authProvider = new BridgeOAuthProvider({
-        store: new OAuthStore(sc.name),
+        store: oauthStore(sc.name),
         redirectUrl: "http://127.0.0.1:0/callback",
         // placeholder no boot (refresh não redireciona)
         scopes: sc.auth.scopes,
@@ -21244,6 +21346,41 @@ async function main() {
   const health = new HealthTracker();
   const audit = new AuditLog(cfg.audit ?? {});
   const limiterCfg = cfg.responseLimit ?? {};
+  const clearOAuthServer = async (name) => {
+    if (!oauthServers.some((s) => s.name === name)) {
+      return { ok: false, message: `Servidor "${name}" n\xE3o \xE9 um servidor OAuth conhecido.` };
+    }
+    const srv = servers.get(name);
+    if (srv) {
+      await srv.disconnect();
+      srv.status = "needs-auth";
+      srv.lastError = "requer autentica\xE7\xE3o \u2014 use Reautenticar ou mcpbridge_login";
+    }
+    oauthStore(name).clear();
+    return { ok: true, message: `Tokens OAuth de "${name}" removidos e sess\xE3o desconectada.` };
+  };
+  const loginOAuthServer = async (name, log) => {
+    const config2 = oauthServers.find((s) => s.name === name);
+    if (!config2) return { ok: false, message: `Servidor "${name}" n\xE3o \xE9 um servidor OAuth conhecido.` };
+    const login = await runLoginFlow(name, config2, log, 12e4, oauthStore(name));
+    if (!login.ok) return login;
+    const srv = servers.get(name);
+    if (!srv) return login;
+    try {
+      await srv.connect(timeoutMs);
+      if (srv.status !== "connected") {
+        return { ok: false, message: `Login de "${name}" conclu\xEDdo, mas a reconex\xE3o n\xE3o foi autorizada.` };
+      }
+      return {
+        ok: true,
+        message: `Servidor "${name}" autenticado com sucesso e reconectado. Rode /clear somente para registrar tools que n\xE3o existiam nesta sess\xE3o.`
+      };
+    } catch (err) {
+      srv.status = "error";
+      srv.lastError = String(err?.message ?? err);
+      return { ok: false, message: `Login de "${name}" conclu\xEDdo, mas a reconex\xE3o falhou: ${srv.lastError}` };
+    }
+  };
   await Promise.allSettled(
     [...servers.values()].map(async (srv) => {
       try {
@@ -21426,9 +21563,6 @@ ${rows.join("\n")}`;
       return isClear ? "Perfil ativo limpo \u2014 todos os servidores habilitados ser\xE3o conectados no pr\xF3ximo /clear ou rein\xEDcio da sess\xE3o." : `Perfil ativo definido: "${p}" (${profiles[p].join(", ") || "vazio"}). Aplica no pr\xF3ximo /clear ou rein\xEDcio da sess\xE3o.`;
     }
   });
-  const oauthServers = cfg.servers.filter(
-    (s) => (s.type === "http" || s.type === "sse") && s.auth?.type === "oauth"
-  );
   if (oauthServers.length) {
     tools.push({
       name: "mcpbridge_login",
@@ -21453,7 +21587,7 @@ ${rows.join("\n")}`;
           );
         }
         const logs = [];
-        const res = await runLoginFlow(name, sc, (m) => logs.push(m), 12e4);
+        const res = await loginOAuthServer(name, (m) => logs.push(m));
         const body = logs.length ? `
 
 ${logs.join("\n")}` : "";
@@ -21477,8 +21611,8 @@ ${logs.join("\n")}` : "";
         if (!oauthServers.some((s) => s.name === name)) {
           return failResult(`Servidor "${name}" n\xE3o \xE9 um servidor OAuth conhecido.`);
         }
-        new OAuthStore(name).clear();
-        return `Tokens OAuth de "${name}" removidos. Rode /clear ou reinicie a sess\xE3o para desconectar.`;
+        const result = await clearOAuthServer(name);
+        return result.ok ? result.message : failResult(result.message);
       }
     });
   }
@@ -21543,6 +21677,7 @@ ${logs.join("\n")}` : "";
         prompts: s.prompts.length,
         resources: s.resources.length,
         templates: s.resourceTemplates.length,
+        oauthEligible: oauthServers.some((candidate) => candidate.name === s.name),
         health: h ? { totalCalls: h.totalCalls, errorCount: h.errorCount, avgLatencyMs: h.avgLatencyMs, lastLatencyMs: h.lastLatencyMs } : void 0
       };
     }),
@@ -21554,7 +21689,12 @@ ${logs.join("\n")}` : "";
     description: "Painel da ponte MCP: servidores, status de conex\xE3o, sa\xFAde (lat\xEAncia/erros) e auditoria recente.",
     open: async () => {
       if (!dashboard) {
-        dashboardStarting ??= startDashboard(snapshot);
+        dashboardStarting ??= startDashboard(snapshot, async ({ action, server }) => {
+          if (action === "clear") return clearOAuthServer(server);
+          const cleared = await clearOAuthServer(server);
+          if (!cleared.ok) return cleared;
+          return loginOAuthServer(server);
+        });
         dashboard = await dashboardStarting;
       }
       return { url: dashboard.url, title: "MCP Bridge \u2014 Dashboard", status: "ok" };
