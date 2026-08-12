@@ -10,6 +10,7 @@ import { setPriority, constants as osConstants, homedir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
 import shared from "./voice-shared.cjs";
+import offRedirect from "./voice-off-redirect.cjs";
 import { dbg, mkdirp, readJson, writeJsonAtomic, pidAlive, decideOrphanPanels } from "./voice-core.mjs";
 import { buildPythonCandidates, savePythonPath } from "./voice-python.mjs";
 import { cleanForSpeech, makeSpoken } from "./voice-text.mjs";
@@ -50,7 +51,7 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 
-export const CURRENT_VERSION = "2.3.16";
+export const CURRENT_VERSION = "2.3.17";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -65,7 +66,7 @@ const UPDATE_STATE_FILE = join(ARTIFACTS, "update-state.json");
 // NÃO é mais a allowlist do updater em runtime — a autorização do que se escreve é a ASSINATURA
 // Ed25519 do manifesto (ver checkForUpdate + updateNameSafe); senão install antigo nunca recebia
 // arquivo NOVO (ex.: vox_cli.py) e aplicava update PARCIAL = "motor de voz falhou" em loop.
-const UPDATABLE_FILES = new Set(["extension.mjs", "voice-shared.cjs", "voice-core.mjs", "voice-python.mjs", "voice-update.mjs", "voice-text.mjs", "voice-state.mjs", "voice-audio.mjs", "voice-worker.mjs", "voice-net.mjs", "voice_worker.py", "vox_sdk.py", "vox_cli.py", "voice-engine-bootstrap.mjs", "capture_port.py", "capture_session.py", "vox_capture_adapter.py", "iframe.html", "requirements.txt", "hooks.json", "voice-summary-stop.cjs", "voice-canvas-guard.cjs"]);
+const UPDATABLE_FILES = new Set(["extension.mjs", "voice-shared.cjs", "voice-core.mjs", "voice-python.mjs", "voice-update.mjs", "voice-text.mjs", "voice-state.mjs", "voice-audio.mjs", "voice-worker.mjs", "voice-net.mjs", "voice_worker.py", "vox_sdk.py", "vox_cli.py", "voice-engine-bootstrap.mjs", "capture_port.py", "capture_session.py", "vox_capture_adapter.py", "iframe.html", "requirements.txt", "hooks.json", "voice-summary-stop.cjs", "voice-canvas-guard.cjs", "voice-off-redirect.cjs"]);
 
 // Python interpreters are discovered dynamically (see buildPythonCandidates).
 export let session; 
@@ -239,13 +240,16 @@ export async function saveSettings() {
     }
 }
 
-// fullRead (modo Fala Completa / "Ler resposta completa") é POR SESSÃO — cada painel tem o seu
-// (modes/<sid>.json), ao contrário dos demais toggles (globais no settings.json). Ligar num painel
-// NÃO afeta as outras sessões. Wrappers sobre voice-shared (fonte ÚNICA do path, igual ao hook).
-// Exportados p/ o voice-net (endpoint /full-mode + o hello por-sid). TODO: GC de modes/*.json antigos
+// fullRead / voiceEnabled são POR SESSÃO — cada painel tem o seu (modes/<sid>.json), ao contrário
+// dos demais toggles (globais no settings.json). Ligar/desligar num painel NÃO afeta as outras
+// sessões. Wrappers sobre voice-shared (fonte ÚNICA do path, igual ao hook). Exportados p/ o
+// voice-net (endpoints /full-mode, /voice-mode + hello por-sid). TODO: GC de modes/*.json antigos
 // (mesma dívida de forks/ e hook-state-*).
 export function readSessionFullRead(sid) { return shared.readSessionFullRead(ARTIFACTS, sid); }
 export function writeSessionFullRead(sid, val) { return shared.writeSessionFullRead(ARTIFACTS, sid, val); }
+export function readSessionVoiceEnabled(sid) { return shared.readSessionVoiceEnabled(ARTIFACTS, sid); }
+export function writeSessionVoiceEnabled(sid, val) { return shared.writeSessionVoiceEnabled(ARTIFACTS, sid, val); }
+export function readSessionModeStrict(sid) { return shared.readSessionModeStrict(ARTIFACTS, sid); }
 
 const VOICE_STATE_TTL = 600000; 
 const VOICE_TURNS_FILE = join(ARTIFACTS, "voice-turns.json");
@@ -801,6 +805,11 @@ export async function drainAllPendingSpeak() {
 }
 
 export async function speakToCanvas(sid, spoken, full, cue) {
+    // Voz OFF nesta sessão: não sintetiza nem enfileira TTS (fail-loud p/ o chamador).
+    if (sid && !readSessionVoiceEnabled(sid)) {
+        dbg(`speakToCanvas skipped: voiceEnabled=false sid=${sid}`);
+        return false;
+    }
     if (cue) {
         // Progress cue text updates the UI immediately (silent); the AUDIO only
         // plays if this session is active, otherwise it joins the per-session FIFO
@@ -1066,8 +1075,13 @@ const falarTool = {
     skipPermission: true,
     handler: async (args, invocation) => {
         const sid = String((invocation && invocation.sessionId) || ownSid || mySid());
-        const text = cleanForSpeech(String((args && (args.texto ?? args.text)) || ""));
+        const text = extractFalarText(args);
         if (!text) return "Nada para falar: o texto veio vazio.";
+        // Voz OFF: sem áudio; devolve o texto p/ o modelo publicar no chat (defesa se PreToolUse não pegar).
+        if (sid && !readSessionVoiceEnabled(sid)) {
+            try { broadcastTo(sid, { type: "reply", spoken: text, full: text, voiceOff: true }); } catch { /* ignore */ }
+            return offRedirect.voiceOffRedirectMessage(text);
+        }
         const steer = readSessionFullRead(sid) ? FALAR_STEER_FULL : FALAR_STEER;   // completo (por-sessão) -> continue falando; resumo -> feche
         if (!workerReady) { writePendingSpeak(sid, text); ensureWorker(); return "🔊 Enfileirado para falar quando o motor de voz ligar: " + text.slice(0, 90) + steer; }
         let ok = false;
@@ -1078,6 +1092,12 @@ const falarTool = {
         return "🔊 Enfileirado (falha ao sintetizar agora, re-tenta quando o motor voltar): " + text.slice(0, 90) + steer;
     },
 };
+
+// Voz OFF + `falar`: PreToolUse pega o texto ANTES do handler e manda publicar no chat.
+// Lógica pura em voice-off-redirect.cjs (testável sem side-effects do joinSession).
+function extractFalarText(args) {
+    return cleanForSpeech(offRedirect.extractFalarText(args));
+}
 
 // REGISTER-FIRST (register-first, configure-later — igual ao activate() do VS Code): o canvas é o
 // CONTRATO com o host e PRECISA registrar ANTES de qualquer I/O interno. A causa-raiz do erro
@@ -1091,10 +1111,31 @@ const _joinCfg = {
         onUserPromptSubmitted: async (input) => {
             if (!voiceInstructionPending) return undefined;
             voiceInstructionPending = false;
+            // Voz OFF nesta sessão: não injeta diretriz de falar/checkpoints (sessão texto puro).
+            if (!readSessionVoiceEnabled(mySid())) return undefined;
             let ctx = "";
             if (settings.authorSummary !== false) ctx += readSessionFullRead(mySid()) ? VOICE_TOOL_INSTRUCTION_FULL : VOICE_TOOL_INSTRUCTION;
             if (settings.cueCheckpoints !== false) ctx += (ctx ? " " : "") + CHECKPOINT_INSTRUCTION;
             return ctx ? { additionalContext: ctx } : undefined;
+        },
+        onPreToolUse: async (input, invocation) => {
+            const sid = String((invocation && invocation.sessionId) || ownSid || mySid());
+            const enabled = !sid ? true : readSessionVoiceEnabled(sid);
+            // toolArgs pode vir string/envelope; se vazio, tenta o input inteiro.
+            const rawArgs = (input && (input.toolArgs ?? input.tool_input ?? input.arguments)) ?? input;
+            const d = offRedirect.decideFalarWhenVoiceOff(input && input.toolName, rawArgs, enabled ? true : false);
+            if (!d.intercept) return undefined;
+            // Sem texto no PreToolUse: NÃO deny (mensagem vazia é pior) — deixa o handler
+            // (que recebe args tipados) devolver o redirect com o texto.
+            if (!d.text) {
+                dbg("onPreToolUse falar+OFF sem texto no payload; defer ao handler. keys=" +
+                    (input && typeof input === "object" ? Object.keys(input).join(",") : typeof input));
+                return undefined;
+            }
+            if (sid && d.text) {
+                try { broadcastTo(sid, { type: "reply", spoken: d.text, full: d.text, voiceOff: true }); } catch { /* ignore */ }
+            }
+            return d.output;
         },
     },
 };

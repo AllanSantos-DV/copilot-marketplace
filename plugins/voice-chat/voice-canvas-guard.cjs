@@ -121,6 +121,14 @@ if (require.main === module) {
   process.stdin.on('end', () => {
     let p;
     try { p = JSON.parse(data); } catch { process.exit(0); }
+    // Voz OFF nesta sessão -> guard inerte (não injeta recovery de voice-chat).
+    try {
+      const sid = (p && (p.sessionId || p.session_id)) || '';
+      if (sid) {
+        const shared = require('./voice-shared.cjs');
+        if (!shared.readSessionVoiceEnabled(shared.resolveDataDir(), sid)) process.exit(0);
+      }
+    } catch { /* fail-open: segue o fluxo normal */ }
     const d = decideCanvasRecovery(extractToolName(p), extractBlob(p), detectPendingRestart());
     if (d.inject) emit(d.context);
     process.exit(0);
