@@ -199,14 +199,14 @@
         {
           "type": "note",
           "tone": "info",
-          "text": "Os fluxos de descoberta, entrada direta e gravação descritos nesta página requerem **Action 1.5.0 ou superior**. Atualize também o plugin e reinicie o Copilot para carregar a ponte instalada."
+          "text": "Use **Action 1.5.1 ou superior** para os fluxos de descoberta, entrada direta e gravação descritos nesta página. Atualize também o plugin e reinicie o Copilot para carregar a ponte instalada."
         }
       ]
     }
   ],
   "requirements": [
     "Windows 10/11 para o app Action",
-    "Action 1.5.0+ para os fluxos desta página",
+    "Action 1.5.1+ recomendado para estes fluxos",
     "Copilot com suporte a extensões e Node 18+",
     "Vox Engine daemon local para a transcrição padrão",
     "Servidor de memória compartilhado para correlações",
@@ -230,8 +230,8 @@
       "a": "A captura e a transcrição Vox são locais por padrão. Groq Whisper envia áudio à nuvem quando você o habilita. Transcrições enviadas ao agente seguem o provedor configurado na IDE."
     },
     {
-      "q": "Como atualizar uma instalação do Action 1.4?",
-      "a": "Feche as sessões da IDE conectadas ao Action antes de atualizar. Se o atualizador antigo usar o pacote completo e o app continuar na versão 1.4, extraia manualmente o ZIP da release na pasta de instalação do Action."
+      "q": "Como atualizar a partir do Action 1.4 ou 1.5.0?",
+      "a": "Feche as sessões da IDE conectadas ao Action antes de atualizar. Se o atualizador antigo deixar o app aberto na bandeja ou mantiver a versão anterior, encerre o Action e extraia manualmente o ZIP assinado da release na pasta de instalação do app."
     }
   ],
   "files": {
