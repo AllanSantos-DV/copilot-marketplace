@@ -72,8 +72,8 @@
       <article class="doc-body" id="doc-body">
         <section class="doc-section" id="entrar-na-reuniao">
           <h2 class="doc-h2"><a class="doc-anchor" href="#entrar-na-reuniao" aria-label="Link para A reunião já começou? Entre nela">#</a>A reunião já começou? Entre nela</h2>
-          <p>Abra o agente na pasta do projeto e peça para localizar a reunião. O MCP lista as sessões do painel web <code>/live</code> e as iniciadas pelo próprio MCP, com filtro por título ou projeto. Você não precisa informar um <code>project_id</code> para descobrir o que está acontecendo.</p>
-          <ol class="doc-steps"><li><h4>Encontre a sessão</h4><p>Diga o nome da reunião ou peça a lista. Se houver mais de uma correspondência, escolha a que quer acompanhar.</p></li><li><h4>Entre com contexto</h4><p>O agente recebe as falas anteriores e pode consultar o restante do histórico antes de acompanhar os próximos lotes.</p></li><li><h4>Acompanhe e saia pela conversa</h4><p>Os insights publicados aparecem no painel. Peça para sair quando terminar; sair do acompanhamento mantém a gravação ativa.</p></li></ol>
+          <p>Abra o agente na pasta do projeto e peça para localizar a reunião. O MCP lista as sessões iniciadas pela tela do Action, pelo painel web <code>/live</code> ou pelo próprio MCP, com filtro por título ou projeto. Você não precisa informar um <code>project_id</code> para descobrir o que está acontecendo.</p>
+          <ol class="doc-steps"><li><h4>Encontre a sessão</h4><p>Diga o nome da reunião ou peça a lista. Se houver mais de uma correspondência, escolha a que quer acompanhar.</p></li><li><h4>Entre com contexto</h4><p>O agente recebe as falas anteriores e pode consultar o restante do histórico antes de acompanhar os próximos lotes.</p></li><li><h4>Acompanhe e saia pela conversa</h4><p>Os insights aparecem na tela do Action e no painel web, e ficam na reunião salva. Peça para sair quando terminar; sair do acompanhamento mantém a gravação ativa.</p></li></ol>
           <p>Exemplo de pedido ao agente:</p>
           <div class="codeblock"><button class="copy copy--code" type="button" data-copy="Encontre a reunião Alpha.
 Entre nela, leia o contexto
@@ -95,18 +95,20 @@ Salve também o áudio em arquivo." aria-label="Copiar bloco de código">copiar<
 Quero gravar uma reunião sobre
 Alpha e que você participe.
 Salve também o áudio em arquivo.</code></pre></div>
-          <p>Você também pode começar pelo painel web <code>/live</code> do Action e convidar o agente depois. As gravações da interface desktop antiga não entram nesse acompanhamento. Para finalizar a captura, peça explicitamente <strong>encerrar a gravação</strong>. Esse comando é diferente de sair da reunião como agente.</p>
+          <p>Você também pode começar pela tela do Action ou pelo painel web <code>/live</code> e convidar o agente depois. Na tela, escolha ou crie o projeto, selecione os canais e decida se quer guardar o áudio. O agente pode entrar com o histórico já disponível e encerrar a captura quando você pedir.</p>
+          <p>Para finalizar a captura, peça explicitamente <strong>encerrar a gravação</strong>. Esse comando é diferente de sair da reunião como agente. O catálogo da tela reúne sessões ativas e reuniões salvas, inclusive as iniciadas pelas outras entradas.</p>
         </section>
 
         <section class="doc-section" id="historico-e-memoria">
           <h2 class="doc-h2"><a class="doc-anchor" href="#historico-e-memoria" aria-label="Link para Retome o que o projeto já discutiu">#</a>Retome o que o projeto já discutiu</h2>
           <p>As reuniões salvas continuam disponíveis para listar, buscar e ler a transcrição. Peça ao agente para recuperar decisões anteriores, comparar discussões ou organizar os próximos passos.</p>
-          <ul class="doc-list"><li><strong>Arquivo da reunião:</strong> transcrições e os áudios que você optar por salvar ficam em disco.</li><li><strong>Projetos e memória:</strong> o Action se integra ao daemon de memória compartilhado pelos seus plugins na máquina.</li><li><strong>Contexto da IDE:</strong> o agente pode combinar a reunião com os arquivos e as ferramentas de memória disponíveis na própria sessão.</li></ul>
+          <ul class="doc-list"><li><strong>Arquivo da reunião:</strong> transcrições e os áudios que você optar por salvar ficam em disco.</li><li><strong>Projetos e memória:</strong> o Action se integra ao daemon de memória compartilhado pelos seus plugins na máquina.</li><li><strong>Contexto da IDE:</strong> o agente pode combinar a reunião com os arquivos e as ferramentas de memória disponíveis na própria sessão.</li><li><strong>Entregas pendentes:</strong> se a conexão com a memória falhar, o Action mantém a captura e registra o envio para retentativa. Peça ao agente para consultar <code>index_queue_status</code> ou retentar com <code>index_pending</code>.</li></ul>
+          <p>O Action confirma a entrega do documento antes de limpar os blocos parciais. Registros sem transcrição recebem um diagnóstico e seus arquivos são preservados. Indexação, embeddings e busca semântica ficam no daemon de memória.</p>
         </section>
 
         <section class="doc-section" id="audio-e-privacidade">
           <h2 class="doc-h2"><a class="doc-anchor" href="#audio-e-privacidade" aria-label="Link para Escolha onde o áudio é processado">#</a>Escolha onde o áudio é processado</h2>
-          <p>A transcrição usa o <strong>Vox local por padrão</strong>, aproveitando o daemon da máquina. A opção de guardar áudio salva <code>mic.wav</code> e <code>system.wav</code> separadamente para consulta ou processamento posterior.</p>
+          <p>A transcrição usa o <strong>Vox local por padrão</strong>, aproveitando o daemon da máquina. O reconhecimento da fala e sua latência dependem do Vox; o Action captura, encaminha e exibe os resultados. A opção de guardar áudio salva <code>mic.wav</code> e <code>system.wav</code> separadamente para consulta ou processamento posterior.</p>
           <aside class="note note--warn"><span class="note__mark" aria-hidden="true">!</span><p><strong>Groq Whisper envia áudio à nuvem.</strong> Só é usado após habilitação explícita e consentimento. Configure <code>GROQ_API_KEY</code> ou <code>GROQ_API_KEYS</code>; com várias chaves, o Action pode alternar quando a cota diária for atingida.</p></aside>
           <p>O modelo que produz os insights é o da sua IDE. As transcrições entregues ao agente seguem a configuração e o provedor desse cliente, mesmo quando a transcrição do áudio é local.</p>
         </section>
@@ -114,8 +116,8 @@ Salve também o áudio em arquivo.</code></pre></div>
         <section class="doc-section" id="acompanhamento-do-agente">
           <h2 class="doc-h2"><a class="doc-anchor" href="#acompanhamento-do-agente" aria-label="Link para Como o agente continua acompanhando">#</a>Como o agente continua acompanhando</h2>
           <p>O Action entrega um lote de transcrições por chamada. O agente lê o lote, decide se há algo útil para comentar, publica o insight e chama a próxima leitura. Em silêncio, a espera pode retornar sem novas falas.</p>
-          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p><strong>Manter esse ciclo depende do cliente da IDE.</strong> Conectar o MCP não garante acompanhamento contínuo em todo host. O fluxo direto foi validado no Claude Code CLI com falas sintéticas. O Codex tem integração própria, descrita abaixo; a continuidade no Copilot e no Cursor ainda precisa de validação.</p></aside>
-          <p>Mantenha a sessão aberta e confira se o agente continua consultando a reunião. Os adaptadores experimentais que abrem sessões auxiliares não controlam automaticamente o chat já aberto na IDE.</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p><strong>Manter esse ciclo depende do cliente da IDE.</strong> Conectar o MCP não garante acompanhamento contínuo em todo host. As integrações diretas foram ensaiadas nas CLIs do Claude Code, Codex e Cursor com transcrições sintéticas. A continuidade no Copilot ainda precisa de validação.</p></aside>
+          <p>Mantenha a sessão aberta e confira se o agente continua consultando a reunião. Os setups incluídos para Claude Code, Codex e Cursor conectam o MCP à própria conversa. A revisão visual de Cursor Desktop, Claude Desktop em Code Local e Codex app/extensão ainda está pendente.</p>
         </section>
 
         <section class="doc-section" id="usar-no-codex">
@@ -129,11 +131,21 @@ Salve também o áudio em arquivo.</code></pre></div>
           <p>O ensaio usou transcrições sintéticas, sem captura de áudio; não valida a interface gráfica do app ou da extensão. Os hooks foram revisados e habilitados temporariamente para o teste. Na sua instalação, revise e confie neles em <code>/hooks</code>. O modelo e o provedor continuam sendo os configurados no seu Codex.</p>
         </section>
 
+        <section class="doc-section" id="usar-no-cursor">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#usar-no-cursor" aria-label="Link para Use o Action na conversa do Cursor">#</a>Use o Action na conversa do Cursor</h2>
+          <p>No PowerShell, dentro da pasta permanente do Action extraído, execute:</p>
+          <div class="codeblock"><button class="copy copy--code" type="button" data-copy=".\Cursor\setup.ps1" aria-label="Copiar bloco de código">copiar</button><pre><code>.\Cursor\setup.ps1</code></pre></div>
+          <p>O modo padrão <code>Files</code> configura o MCP, quatro skills e hooks no perfil pessoal. O setup preserva regras de negação existentes e guarda backups. O modo opcional <code>-Mode Plugin</code> depende de a conta ou equipe permitir plugins locais; escolha um modo por perfil.</p>
+          <ol class="doc-steps"><li><h4>Reabra o projeto</h4><p>Confira o MCP <code>action</code> e as skills na página Customize do Cursor. Aprove as ferramentas quando a política da conta solicitar.</p></li><li><h4>Peça para participar</h4><p>Use <code>/action-join revisão Alpha</code> ou <code>/action-record Alpha guardar áudio</code>. O agente descobre a reunião pelo nome e recebe o histórico. Também pode pedir em linguagem comum.</p></li><li><h4>Saia pela conversa</h4><p>Envie “Saia da reunião agora. Não encerre a gravação.” ou use <code>/action-leave</code>. Para finalizar a captura, use <code>/action-stop</code>. Interromper a geração desarma a continuação; depois, peça para retomar ou liberar o vínculo.</p></li></ol>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Os hooks <code>afterMCPExecution</code> e <code>stop</code> acompanham o vínculo e pedem a próxima leitura na <strong>mesma conversa</strong>. A continuação respeita saída, interrupção, erro e ausência de progresso. Ela exige Cursor aberto, modelo disponível e hooks habilitados.</p></aside>
+          <p><strong>Validado na CLI nativa do Cursor:</strong> descoberta pelo nome, três insights citados, espera durante silêncio, retomada pelo hook e saída mantendo a gravação. O ensaio usou transcrições sintéticas e o MCP diretamente, sem runner auxiliar. A revisão visual do Cursor Desktop segue pendente; modelo e credenciais continuam no Cursor.</p>
+        </section>
+
         <section class="doc-section" id="app-e-atualizacoes">
           <h2 class="doc-h2"><a class="doc-anchor" href="#app-e-atualizacoes" aria-label="Link para Instalação e atualização do Action">#</a>Instalação e atualização do Action</h2>
           <p>Se o Action ainda não estiver instalado, a ponte pode baixar o ZIP assinado da release pública e registrá-lo na máquina. A instalação inicial não usa um <code>Setup.exe</code> separado.</p>
           <p>O próprio Action consulta atualizações e pede confirmação para aplicar os pacotes incrementais assinados, com o pacote completo como alternativa. O agente também pode solicitar a atualização; ela não é aplicada durante uma gravação ativa.</p>
-          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Use <strong>Action 1.5.1 ou superior</strong> para os fluxos de descoberta, entrada direta e gravação descritos nesta página. Atualize também o plugin e reinicie o Copilot para carregar a ponte instalada.</p></aside>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Use <strong>Action 1.6.0 ou superior</strong> para os fluxos de descoberta, entrada direta e gravação descritos nesta página. Atualize também o plugin e reinicie o Copilot para carregar a ponte instalada.</p></aside>
         </section>
 
         <section class="doc-section" id="instalar">
@@ -193,11 +205,11 @@ Salve também o áudio em arquivo.</code></pre></div>
           <h2 class="doc-h2"><a class="doc-anchor" href="#faq" aria-label="Link para Perguntas frequentes">#</a>Perguntas frequentes</h2>
           <details class="faq">
             <summary>Preciso copiar um código para entrar?</summary>
-            <p>Não. Para reuniões do painel <code>/live</code> ou iniciadas pelo MCP, o agente consulta as sessões e usa o identificador retornado para entrar. Ele pode chegar depois do início e ler as transcrições anteriores.</p>
+            <p>Não. Para reuniões iniciadas pela tela do Action, pelo painel <code>/live</code> ou pelo MCP, o agente consulta as sessões e usa o identificador retornado para entrar. Ele pode chegar depois do início e ler as transcrições anteriores.</p>
           </details>
           <details class="faq">
             <summary>Preciso desta ponte no Claude Code, Codex ou Cursor?</summary>
-            <p>Esta ponte é para o Copilot. O pacote inclui <code>ClaudeCode/setup.ps1</code>, comandos e README para o Claude Code, com PowerShell 5.1/7 e sem Python. Para o Codex, use <code>Codex/setup.ps1</code>: modo Plugin no app/CLI ou Skills na extensão. No Cursor, configure o MCP pelo próprio cliente. A continuidade depende da integração de cada host.</p>
+            <p>Esta ponte é para o Copilot. O pacote inclui <code>ClaudeCode/setup.ps1</code>, comandos e README para o Claude Code, com PowerShell 5.1/7 e sem Python. Para o Codex, use <code>Codex/setup.ps1</code>: modo Plugin no app/CLI ou Skills na extensão. Para o Cursor, use <code>Cursor/setup.ps1</code>, com skills e hooks no modo Files. A continuidade depende da integração de cada host.</p>
           </details>
           <details class="faq">
             <summary>Sair do acompanhamento encerra a gravação?</summary>
@@ -224,6 +236,7 @@ Salve também o áudio em arquivo.</code></pre></div>
             <li><a href="#audio-e-privacidade">Escolha onde o áudio é processado</a></li>
             <li><a href="#acompanhamento-do-agente">Como o agente continua acompanhando</a></li>
             <li><a href="#usar-no-codex">Use o Action na conversa do Codex</a></li>
+            <li><a href="#usar-no-cursor">Use o Action na conversa do Cursor</a></li>
             <li><a href="#app-e-atualizacoes">Instalação e atualização do Action</a></li>
             <li><a href="#instalar">Instalar</a></li>
             <li><a href="#estrutura">Estrutura</a></li>
@@ -236,7 +249,7 @@ Salve também o áudio em arquivo.</code></pre></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
             <div class="meta__row"><dt>tipo</dt><dd><span class="pill">canvas</span> <span class="pill">hooks</span></dd></div>
-            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>Windows 10/11 para o app Action</li><li>Action 1.5.1+ recomendado para estes fluxos</li><li>Copilot com suporte a extensões e Node 18+</li><li>Vox Engine daemon local para a transcrição padrão</li><li>Servidor de memória compartilhado para correlações</li><li>Espaço em disco para gravações opcionais</li></ul></dd></div>
+            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>Windows 10/11 para o app Action</li><li>Action 1.6.0+ recomendado para estes fluxos</li><li>Copilot com suporte a extensões e Node 18+</li><li>Vox Engine daemon local para a transcrição padrão</li><li>Servidor de memória compartilhado para correlações</li><li>Espaço em disco para gravações opcionais</li></ul></dd></div>
             <div class="meta__row"><dt>tags</dt><dd><ul class="tags tags--meta"><li>action</li><li>meetings</li><li>transcription</li><li>mcp</li><li>memory</li><li>windows</li></ul></dd></div>
           </dl>
       </aside>
