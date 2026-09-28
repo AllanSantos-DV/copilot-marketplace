@@ -1,63 +1,241 @@
 {
-  "tagline": "Grave, transcreva e lembre suas reuniões — comandando o app Action pelo agente.",
-  "lede": "O **action-bridge** conecta o Copilot ao app **Action** (captura e memória de reuniões, 100% local no Windows). Pelo próprio agente você lista reuniões, lê transcrições, busca na memória semântica cruzada, cura decisões e ações e navega o grafo — e o Action se instala sozinho quando ainda não existe.",
+  "tagline": "Entre na reunião pelo agente, acompanhe a transcrição e consulte o histórico do projeto.",
+  "lede": "O **action-bridge** conecta o Copilot ao **Action** no Windows. Peça para encontrar uma reunião em andamento, iniciar uma gravação por projeto ou consultar o que já foi discutido. O Action entrega as transcrições; o agente da sua IDE usa esse contexto para publicar insights no painel.",
   "highlights": [
-    { "title": "Reuniões sob comando", "body": "Prepara a gravação, lista e abre reuniões e lê a transcrição diarizada — tudo por conversa." },
-    { "title": "Memória que conecta", "body": "Busca semântica em todo o histórico e sugere quais reuniões passadas se ligam à de agora." },
-    { "title": "Instala o Action sozinho", "body": "Se o app não existe, o bootstrap baixa a última release e registra — sem passo manual." }
+    {
+      "title": "Entre quando precisar",
+      "body": "Encontre a reunião pelo nome e receba também as falas anteriores, sem copiar código do painel."
+    },
+    {
+      "title": "Contexto por projeto",
+      "body": "Escolha um projeto existente ou crie pelo nome. Consulte reuniões salvas e a memória compartilhada."
+    },
+    {
+      "title": "Áudio sob seu controle",
+      "body": "Transcreva com o Vox local e, se quiser, guarde microfone e áudio do Windows em arquivos separados."
+    }
   ],
   "sections": [
     {
-      "id": "o-que-e",
-      "title": "O que é",
+      "id": "entrar-na-reuniao",
+      "title": "A reunião já começou? Entre nela",
       "blocks": [
-        { "type": "p", "text": "O action-bridge é uma ponte **MCP** entre o agente do Copilot e o app Action. Ele expõe ao agente as ferramentas do Action — reuniões, transcrição, memória, curadoria e grafo — para você operar tudo por linguagem natural, sem sair do terminal." },
-        { "type": "p", "text": "O Action guarda os dados **localmente** (áudio, transcrição e memória em DuckDB na sua máquina). Há um modo equipe opcional (Postgres + pgvector) que você liga explicitamente quando quer um acervo compartilhado." },
-        { "type": "note", "tone": "info", "text": "Registra um **canvas** e usa **hooks**; depois de instalar, reinicie o app uma vez para o painel e os hooks entrarem." }
-      ]
-    },
-    {
-      "id": "como-usar",
-      "title": "Como usar",
-      "blocks": [
+        {
+          "type": "p",
+          "text": "Abra o agente na pasta do projeto e peça para localizar a reunião. O MCP lista as sessões do painel web `/live` e as iniciadas pelo próprio MCP, com filtro por título ou projeto. Você não precisa informar um `project_id` para descobrir o que está acontecendo."
+        },
         {
           "type": "steps",
           "items": [
-            { "title": "Instale o plugin", "text": "Pelo marketplace (comando na seção Instalar)." },
-            { "title": "Deixe o Action se instalar", "text": "Na primeira tool que precisar dele, o bootstrap baixa e registra o app — você não faz nada." },
-            { "title": "Prepare uma gravação", "text": "Peça ao agente para preparar a reunião; o app abre pronto e você aperta Start (a captura é sempre uma ação sua)." },
-            { "title": "Depois, cure e busque", "text": "Peça o resumo, extraia decisões e to-dos, e busque na memória cruzada por assuntos." }
+            {
+              "title": "Encontre a sessão",
+              "text": "Diga o nome da reunião ou peça a lista. Se houver mais de uma correspondência, escolha a que quer acompanhar."
+            },
+            {
+              "title": "Entre com contexto",
+              "text": "O agente recebe as falas anteriores e pode consultar o restante do histórico antes de acompanhar os próximos lotes."
+            },
+            {
+              "title": "Acompanhe e saia pela conversa",
+              "text": "Os insights publicados aparecem no painel. Peça para sair quando terminar; sair do acompanhamento mantém a gravação ativa."
+            }
           ]
         },
-        { "type": "note", "tone": "warn", "text": "O app Action é **Windows-only**. A extensão orquestra tudo, mas a captura e a memória vivem no app local." }
+        {
+          "type": "p",
+          "text": "Exemplo de pedido ao agente:"
+        },
+        {
+          "type": "code",
+          "lang": "text",
+          "copy": true,
+          "code": "Encontre a reunião Alpha.\nEntre nela, leia o contexto\ne publique insights concisos\nenquanto eu acompanho."
+        },
+        {
+          "type": "note",
+          "tone": "info",
+          "text": "Mais de um agente pode entrar na mesma reunião. Cada um acompanha as transcrições no seu ritmo; a saída de um não desconecta os outros."
+        }
       ]
     },
     {
-      "id": "recursos",
-      "title": "O que dá para fazer",
+      "id": "iniciar-gravacao",
+      "title": "Comece uma reunião pelo agente",
       "blocks": [
+        {
+          "type": "p",
+          "text": "Peça a lista de projetos e escolha um. Se ele ainda não existir, informe um novo nome para criá-lo. Ao iniciar a gravação pelo MCP, o agente já recebe o vínculo para acompanhar a reunião."
+        },
+        {
+          "type": "code",
+          "lang": "text",
+          "copy": true,
+          "code": "Liste meus projetos.\nQuero gravar uma reunião sobre\nAlpha e que você participe.\nSalve também o áudio em arquivo."
+        },
+        {
+          "type": "p",
+          "text": "Você também pode começar pelo painel web `/live` do Action e convidar o agente depois. As gravações da interface desktop antiga não entram nesse acompanhamento. Para finalizar a captura, peça explicitamente **encerrar a gravação**. Esse comando é diferente de sair da reunião como agente."
+        }
+      ]
+    },
+    {
+      "id": "historico-e-memoria",
+      "title": "Retome o que o projeto já discutiu",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "As reuniões salvas continuam disponíveis para listar, buscar e ler a transcrição. Peça ao agente para recuperar decisões anteriores, comparar discussões ou organizar os próximos passos."
+        },
         {
           "type": "list",
           "items": [
-            "**Reuniões** — listar, abrir, atualizar metadados e renomear locutores.",
-            "**Transcrição** — ler segmentos diarizados de cada reunião.",
-            "**Memória semântica** — indexar e buscar em todo o histórico, com reuniões relacionadas.",
-            "**Curadoria** — salvar resumo, decisões e to-dos, materializados no grafo.",
-            "**Grafo** — criar entidades e relações e consultar com SQL de leitura.",
-            "**Modo equipe** — conectar a um Postgres + pgvector compartilhado (opcional)."
+            "**Arquivo da reunião:** transcrições e os áudios que você optar por salvar ficam em disco.",
+            "**Projetos e memória:** o Action se integra ao daemon de memória compartilhado pelos seus plugins na máquina.",
+            "**Contexto da IDE:** o agente pode combinar a reunião com os arquivos e as ferramentas de memória disponíveis na própria sessão."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "audio-e-privacidade",
+      "title": "Escolha onde o áudio é processado",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "A transcrição usa o **Vox local por padrão**, aproveitando o daemon da máquina. A opção de guardar áudio salva `mic.wav` e `system.wav` separadamente para consulta ou processamento posterior."
+        },
+        {
+          "type": "note",
+          "tone": "warn",
+          "text": "**Groq Whisper envia áudio à nuvem.** Só é usado após habilitação explícita e consentimento. Configure `GROQ_API_KEY` ou `GROQ_API_KEYS`; com várias chaves, o Action pode alternar quando a cota diária for atingida."
+        },
+        {
+          "type": "p",
+          "text": "O modelo que produz os insights é o da sua IDE. As transcrições entregues ao agente seguem a configuração e o provedor desse cliente, mesmo quando a transcrição do áudio é local."
+        }
+      ]
+    },
+    {
+      "id": "acompanhamento-do-agente",
+      "title": "Como o agente continua acompanhando",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "O Action entrega um lote de transcrições por chamada. O agente lê o lote, decide se há algo útil para comentar, publica o insight e chama a próxima leitura. Em silêncio, a espera pode retornar sem novas falas."
+        },
+        {
+          "type": "note",
+          "tone": "info",
+          "text": "**Manter esse ciclo depende do cliente da IDE.** Conectar o MCP não garante acompanhamento contínuo em todo host. O fluxo direto foi validado no Claude Code CLI com falas sintéticas. O Codex tem integração própria, descrita abaixo; a continuidade no Copilot e no Cursor ainda precisa de validação."
+        },
+        {
+          "type": "p",
+          "text": "Mantenha a sessão aberta e confira se o agente continua consultando a reunião. Os adaptadores experimentais que abrem sessões auxiliares não controlam automaticamente o chat já aberto na IDE."
+        }
+      ]
+    },
+    {
+      "id": "usar-no-codex",
+      "title": "Use o Action na conversa do Codex",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "O pacote do Action inclui o plugin **action-meeting** para o app e a CLI do Codex. Ele conecta o MCP à mesma conversa em que você trabalha no projeto. Tenha o **Codex CLI 0.158.0 ou posterior** instalado e autenticado; no PowerShell, dentro da pasta extraída do Action, execute:"
+        },
+        {
+          "type": "code",
+          "lang": "powershell",
+          "copy": true,
+          "code": ".\\Codex\\setup.ps1"
+        },
+        {
+          "type": "p",
+          "text": "O modo padrão é `Plugin`. Para a extensão Codex na IDE, que ainda não aceita plugins, execute o mesmo setup com `-Mode Skills`. Esse modo instala as quatro skills e os hooks no perfil pessoal. Escolha um modo por perfil para evitar duplicação."
+        },
+        {
+          "type": "steps",
+          "items": [
+            {
+              "title": "Abra uma nova sessão na pasta do projeto",
+              "text": "Confira o servidor em `/mcp` e os comandos em `/skills`. Em `/hooks`, revise e confie os hooks do Action antes de usá-los. Hooks alterados exigem nova revisão."
+            },
+            {
+              "title": "Peça para participar ou gravar",
+              "text": "Use `$action-join revisão Alpha` para entrar ou `$action-record Alpha guardar áudio` para iniciar. Também pode pedir em linguagem comum; o agente descobre a reunião e o projeto pelo MCP."
+            },
+            {
+              "title": "Encerre o acompanhamento quando quiser",
+              "text": "Use `$action-leave` para sair ou `$action-stop` para finalizar a gravação. Esc/Parar interrompe a tarefa e desarma a retomada; depois, peça explicitamente para retomar ou liberar o vínculo."
+            }
           ]
         },
-        { "type": "p", "text": "Tudo isso pensado com **LGPD** em mente: minimização, expurgo por retenção e remoção de perfis de voz quando você pede." }
+        {
+          "type": "note",
+          "tone": "info",
+          "text": "O hook `Stop` pede a próxima leitura na **mesma sessão** quando o agente tenta finalizar com vínculo ativo. A retomada depende de hooks habilitados e confiados, sessão aberta e progresso nas leituras. Na extensão da IDE, confira se a versão do host executa esses hooks."
+        },
+        {
+          "type": "p",
+          "text": "**Validado no Codex CLI interativo 0.158.0:** descoberta pelo nome, leitura do histórico e três insights com referências. Após 35 segundos de silêncio, o hook retomou a mesma sessão. Nesse ensaio, a saída por mensagem normal foi confirmada em 5,26 segundos e manteve a gravação ativa."
+        },
+        {
+          "type": "p",
+          "text": "O ensaio usou transcrições sintéticas, sem captura de áudio; não valida a interface gráfica do app ou da extensão. Os hooks foram revisados e habilitados temporariamente para o teste. Na sua instalação, revise e confie neles em `/hooks`. O modelo e o provedor continuam sendo os configurados no seu Codex."
+        }
+      ]
+    },
+    {
+      "id": "app-e-atualizacoes",
+      "title": "Instalação e atualização do Action",
+      "blocks": [
+        {
+          "type": "p",
+          "text": "Se o Action ainda não estiver instalado, a ponte pode baixar o ZIP assinado da release pública e registrá-lo na máquina. A instalação inicial não usa um `Setup.exe` separado."
+        },
+        {
+          "type": "p",
+          "text": "O próprio Action consulta atualizações e pede confirmação para aplicar os pacotes incrementais assinados, com o pacote completo como alternativa. O agente também pode solicitar a atualização; ela não é aplicada durante uma gravação ativa."
+        },
+        {
+          "type": "note",
+          "tone": "info",
+          "text": "Os fluxos de descoberta, entrada direta e gravação descritos nesta página requerem **Action 1.5.0 ou superior**. Atualize também o plugin e reinicie o Copilot para carregar a ponte instalada."
+        }
       ]
     }
   ],
   "requirements": [
-    "Windows (o app Action é Windows-only)",
-    "Espaço em disco para modelos de voz e embeddings",
-    "Node 18+ (runtime da extensão)"
+    "Windows 10/11 para o app Action",
+    "Action 1.5.0+ para os fluxos desta página",
+    "Copilot com suporte a extensões e Node 18+",
+    "Vox Engine daemon local para a transcrição padrão",
+    "Servidor de memória compartilhado para correlações",
+    "Espaço em disco para gravações opcionais"
   ],
   "faq": [
-    { "q": "Meus dados vão para a nuvem?", "a": "Não por padrão — o Action é 100% local e a memória fica em DuckDB na sua máquina. O modo equipe (Postgres+pgvector) é opcional e ligado por você." },
-    { "q": "Como instalo o app Action?", "a": "Você não precisa: na primeira vez que uma ferramenta o exige, o plugin baixa a última release e registra o app automaticamente." }
-  ]
+    {
+      "q": "Preciso copiar um código para entrar?",
+      "a": "Não. Para reuniões do painel `/live` ou iniciadas pelo MCP, o agente consulta as sessões e usa o identificador retornado para entrar. Ele pode chegar depois do início e ler as transcrições anteriores."
+    },
+    {
+      "q": "Preciso desta ponte no Claude Code, Codex ou Cursor?",
+      "a": "Esta ponte é para o Copilot. O pacote inclui `ClaudeCode/setup.ps1`, comandos e README para o Claude Code, com PowerShell 5.1/7 e sem Python. Para o Codex, use `Codex/setup.ps1`: modo Plugin no app/CLI ou Skills na extensão. No Cursor, configure o MCP pelo próprio cliente. A continuidade depende da integração de cada host."
+    },
+    {
+      "q": "Sair do acompanhamento encerra a gravação?",
+      "a": "Não. Sair remove o vínculo daquele agente. Para parar a captura, peça para encerrar a gravação ou use o controle no Action."
+    },
+    {
+      "q": "Tudo fica na minha máquina?",
+      "a": "A captura e a transcrição Vox são locais por padrão. Groq Whisper envia áudio à nuvem quando você o habilita. Transcrições enviadas ao agente seguem o provedor configurado na IDE."
+    },
+    {
+      "q": "Como atualizar uma instalação do Action 1.4?",
+      "a": "Feche as sessões da IDE conectadas ao Action antes de atualizar. Se o atualizador antigo usar o pacote completo e o app continuar na versão 1.4, extraia manualmente o ZIP da release na pasta de instalação do Action."
+    }
+  ],
+  "files": {
+    "extension.mjs": "Conecta as ferramentas do Action ao agente do Copilot.",
+    "boot.mjs": "Prepara o carregamento da extensão no Copilot."
+  }
 }

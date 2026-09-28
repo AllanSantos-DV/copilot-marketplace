@@ -4,12 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>action-bridge — copilot-marketplace</title>
-  <meta name="description" content="Grave, transcreva e lembre suas reuniões — comandando o app Action pelo agente." />
+  <meta name="description" content="Entre na reunião pelo agente, acompanhe a transcrição e consulte o histórico do projeto." />
   <meta name="color-scheme" content="dark" />
   <meta name="theme-color" content="#14121C" />
   <meta property="og:type" content="article" />
   <meta property="og:title" content="action-bridge — copilot-marketplace" />
-  <meta property="og:description" content="Grave, transcreva e lembre suas reuniões — comandando o app Action pelo agente." />
+  <meta property="og:description" content="Entre na reunião pelo agente, acompanhe a transcrição e consulte o histórico do projeto." />
   <meta property="og:url" content="https://allansantos-dv.github.io/copilot-marketplace/p/action-bridge/" />
   <link rel="canonical" href="https://allansantos-dv.github.io/copilot-marketplace/p/action-bridge/" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -39,9 +39,9 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">action-bridge</h1>
-        <span class="chip" title="versão publicada">v1.2.1</span>
+        <span class="chip" title="versão publicada">v1.3.0</span>
       </div>
-      <p class="doc-hero__lede">O <strong>action-bridge</strong> conecta o Copilot ao app <strong>Action</strong> (captura e memória de reuniões, 100% local no Windows). Pelo próprio agente você lista reuniões, lê transcrições, busca na memória semântica cruzada, cura decisões e ações e navega o grafo — e o Action se instala sozinho quando ainda não existe.</p>
+      <p class="doc-hero__lede">O <strong>action-bridge</strong> conecta o Copilot ao <strong>Action</strong> no Windows. Peça para encontrar uma reunião em andamento, iniciar uma gravação por projeto ou consultar o que já foi discutido. O Action entrega as transcrições; o agente da sua IDE usa esse contexto para publicar insights no painel.</p>
       <div class="doc-hero__cta">
         <div class="prompt prompt--sm" data-cmd="copilot plugin install action-bridge@copilot-marketplace">
         <span class="prompt__glyph" aria-hidden="true">⌁</span>
@@ -54,39 +54,86 @@
       </div>
       <ul class="hl" aria-label="Destaques">
         <li class="hl__item">
-          <h3 class="hl__title">Reuniões sob comando</h3>
-          <p class="hl__body">Prepara a gravação, lista e abre reuniões e lê a transcrição diarizada — tudo por conversa.</p>
+          <h3 class="hl__title">Entre quando precisar</h3>
+          <p class="hl__body">Encontre a reunião pelo nome e receba também as falas anteriores, sem copiar código do painel.</p>
         </li>
         <li class="hl__item">
-          <h3 class="hl__title">Memória que conecta</h3>
-          <p class="hl__body">Busca semântica em todo o histórico e sugere quais reuniões passadas se ligam à de agora.</p>
+          <h3 class="hl__title">Contexto por projeto</h3>
+          <p class="hl__body">Escolha um projeto existente ou crie pelo nome. Consulte reuniões salvas e a memória compartilhada.</p>
         </li>
         <li class="hl__item">
-          <h3 class="hl__title">Instala o Action sozinho</h3>
-          <p class="hl__body">Se o app não existe, o bootstrap baixa a última release e registra — sem passo manual.</p>
+          <h3 class="hl__title">Áudio sob seu controle</h3>
+          <p class="hl__body">Transcreva com o Vox local e, se quiser, guarde microfone e áudio do Windows em arquivos separados.</p>
         </li>
       </ul>
     </header>
 
     <div class="doc-grid">
       <article class="doc-body" id="doc-body">
-        <section class="doc-section" id="o-que-e">
-          <h2 class="doc-h2"><a class="doc-anchor" href="#o-que-e" aria-label="Link para O que é">#</a>O que é</h2>
-          <p>O action-bridge é uma ponte <strong>MCP</strong> entre o agente do Copilot e o app Action. Ele expõe ao agente as ferramentas do Action — reuniões, transcrição, memória, curadoria e grafo — para você operar tudo por linguagem natural, sem sair do terminal.</p>
-          <p>O Action guarda os dados <strong>localmente</strong> (áudio, transcrição e memória em DuckDB na sua máquina). Há um modo equipe opcional (Postgres + pgvector) que você liga explicitamente quando quer um acervo compartilhado.</p>
-          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Registra um <strong>canvas</strong> e usa <strong>hooks</strong>; depois de instalar, reinicie o app uma vez para o painel e os hooks entrarem.</p></aside>
+        <section class="doc-section" id="entrar-na-reuniao">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#entrar-na-reuniao" aria-label="Link para A reunião já começou? Entre nela">#</a>A reunião já começou? Entre nela</h2>
+          <p>Abra o agente na pasta do projeto e peça para localizar a reunião. O MCP lista as sessões do painel web <code>/live</code> e as iniciadas pelo próprio MCP, com filtro por título ou projeto. Você não precisa informar um <code>project_id</code> para descobrir o que está acontecendo.</p>
+          <ol class="doc-steps"><li><h4>Encontre a sessão</h4><p>Diga o nome da reunião ou peça a lista. Se houver mais de uma correspondência, escolha a que quer acompanhar.</p></li><li><h4>Entre com contexto</h4><p>O agente recebe as falas anteriores e pode consultar o restante do histórico antes de acompanhar os próximos lotes.</p></li><li><h4>Acompanhe e saia pela conversa</h4><p>Os insights publicados aparecem no painel. Peça para sair quando terminar; sair do acompanhamento mantém a gravação ativa.</p></li></ol>
+          <p>Exemplo de pedido ao agente:</p>
+          <div class="codeblock"><button class="copy copy--code" type="button" data-copy="Encontre a reunião Alpha.
+Entre nela, leia o contexto
+e publique insights concisos
+enquanto eu acompanho." aria-label="Copiar bloco de código">copiar</button><pre><code>Encontre a reunião Alpha.
+Entre nela, leia o contexto
+e publique insights concisos
+enquanto eu acompanho.</code></pre></div>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Mais de um agente pode entrar na mesma reunião. Cada um acompanha as transcrições no seu ritmo; a saída de um não desconecta os outros.</p></aside>
         </section>
 
-        <section class="doc-section" id="como-usar">
-          <h2 class="doc-h2"><a class="doc-anchor" href="#como-usar" aria-label="Link para Como usar">#</a>Como usar</h2>
-          <ol class="doc-steps"><li><h4>Instale o plugin</h4><p>Pelo marketplace (comando na seção Instalar).</p></li><li><h4>Deixe o Action se instalar</h4><p>Na primeira tool que precisar dele, o bootstrap baixa e registra o app — você não faz nada.</p></li><li><h4>Prepare uma gravação</h4><p>Peça ao agente para preparar a reunião; o app abre pronto e você aperta Start (a captura é sempre uma ação sua).</p></li><li><h4>Depois, cure e busque</h4><p>Peça o resumo, extraia decisões e to-dos, e busque na memória cruzada por assuntos.</p></li></ol>
-          <aside class="note note--warn"><span class="note__mark" aria-hidden="true">!</span><p>O app Action é <strong>Windows-only</strong>. A extensão orquestra tudo, mas a captura e a memória vivem no app local.</p></aside>
+        <section class="doc-section" id="iniciar-gravacao">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#iniciar-gravacao" aria-label="Link para Comece uma reunião pelo agente">#</a>Comece uma reunião pelo agente</h2>
+          <p>Peça a lista de projetos e escolha um. Se ele ainda não existir, informe um novo nome para criá-lo. Ao iniciar a gravação pelo MCP, o agente já recebe o vínculo para acompanhar a reunião.</p>
+          <div class="codeblock"><button class="copy copy--code" type="button" data-copy="Liste meus projetos.
+Quero gravar uma reunião sobre
+Alpha e que você participe.
+Salve também o áudio em arquivo." aria-label="Copiar bloco de código">copiar</button><pre><code>Liste meus projetos.
+Quero gravar uma reunião sobre
+Alpha e que você participe.
+Salve também o áudio em arquivo.</code></pre></div>
+          <p>Você também pode começar pelo painel web <code>/live</code> do Action e convidar o agente depois. As gravações da interface desktop antiga não entram nesse acompanhamento. Para finalizar a captura, peça explicitamente <strong>encerrar a gravação</strong>. Esse comando é diferente de sair da reunião como agente.</p>
         </section>
 
-        <section class="doc-section" id="recursos">
-          <h2 class="doc-h2"><a class="doc-anchor" href="#recursos" aria-label="Link para O que dá para fazer">#</a>O que dá para fazer</h2>
-          <ul class="doc-list"><li><strong>Reuniões</strong> — listar, abrir, atualizar metadados e renomear locutores.</li><li><strong>Transcrição</strong> — ler segmentos diarizados de cada reunião.</li><li><strong>Memória semântica</strong> — indexar e buscar em todo o histórico, com reuniões relacionadas.</li><li><strong>Curadoria</strong> — salvar resumo, decisões e to-dos, materializados no grafo.</li><li><strong>Grafo</strong> — criar entidades e relações e consultar com SQL de leitura.</li><li><strong>Modo equipe</strong> — conectar a um Postgres + pgvector compartilhado (opcional).</li></ul>
-          <p>Tudo isso pensado com <strong>LGPD</strong> em mente: minimização, expurgo por retenção e remoção de perfis de voz quando você pede.</p>
+        <section class="doc-section" id="historico-e-memoria">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#historico-e-memoria" aria-label="Link para Retome o que o projeto já discutiu">#</a>Retome o que o projeto já discutiu</h2>
+          <p>As reuniões salvas continuam disponíveis para listar, buscar e ler a transcrição. Peça ao agente para recuperar decisões anteriores, comparar discussões ou organizar os próximos passos.</p>
+          <ul class="doc-list"><li><strong>Arquivo da reunião:</strong> transcrições e os áudios que você optar por salvar ficam em disco.</li><li><strong>Projetos e memória:</strong> o Action se integra ao daemon de memória compartilhado pelos seus plugins na máquina.</li><li><strong>Contexto da IDE:</strong> o agente pode combinar a reunião com os arquivos e as ferramentas de memória disponíveis na própria sessão.</li></ul>
+        </section>
+
+        <section class="doc-section" id="audio-e-privacidade">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#audio-e-privacidade" aria-label="Link para Escolha onde o áudio é processado">#</a>Escolha onde o áudio é processado</h2>
+          <p>A transcrição usa o <strong>Vox local por padrão</strong>, aproveitando o daemon da máquina. A opção de guardar áudio salva <code>mic.wav</code> e <code>system.wav</code> separadamente para consulta ou processamento posterior.</p>
+          <aside class="note note--warn"><span class="note__mark" aria-hidden="true">!</span><p><strong>Groq Whisper envia áudio à nuvem.</strong> Só é usado após habilitação explícita e consentimento. Configure <code>GROQ_API_KEY</code> ou <code>GROQ_API_KEYS</code>; com várias chaves, o Action pode alternar quando a cota diária for atingida.</p></aside>
+          <p>O modelo que produz os insights é o da sua IDE. As transcrições entregues ao agente seguem a configuração e o provedor desse cliente, mesmo quando a transcrição do áudio é local.</p>
+        </section>
+
+        <section class="doc-section" id="acompanhamento-do-agente">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#acompanhamento-do-agente" aria-label="Link para Como o agente continua acompanhando">#</a>Como o agente continua acompanhando</h2>
+          <p>O Action entrega um lote de transcrições por chamada. O agente lê o lote, decide se há algo útil para comentar, publica o insight e chama a próxima leitura. Em silêncio, a espera pode retornar sem novas falas.</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p><strong>Manter esse ciclo depende do cliente da IDE.</strong> Conectar o MCP não garante acompanhamento contínuo em todo host. O fluxo direto foi validado no Claude Code CLI com falas sintéticas. O Codex tem integração própria, descrita abaixo; a continuidade no Copilot e no Cursor ainda precisa de validação.</p></aside>
+          <p>Mantenha a sessão aberta e confira se o agente continua consultando a reunião. Os adaptadores experimentais que abrem sessões auxiliares não controlam automaticamente o chat já aberto na IDE.</p>
+        </section>
+
+        <section class="doc-section" id="usar-no-codex">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#usar-no-codex" aria-label="Link para Use o Action na conversa do Codex">#</a>Use o Action na conversa do Codex</h2>
+          <p>O pacote do Action inclui o plugin <strong>action-meeting</strong> para o app e a CLI do Codex. Ele conecta o MCP à mesma conversa em que você trabalha no projeto. Tenha o <strong>Codex CLI 0.158.0 ou posterior</strong> instalado e autenticado; no PowerShell, dentro da pasta extraída do Action, execute:</p>
+          <div class="codeblock"><button class="copy copy--code" type="button" data-copy=".\Codex\setup.ps1" aria-label="Copiar bloco de código">copiar</button><pre><code>.\Codex\setup.ps1</code></pre></div>
+          <p>O modo padrão é <code>Plugin</code>. Para a extensão Codex na IDE, que ainda não aceita plugins, execute o mesmo setup com <code>-Mode Skills</code>. Esse modo instala as quatro skills e os hooks no perfil pessoal. Escolha um modo por perfil para evitar duplicação.</p>
+          <ol class="doc-steps"><li><h4>Abra uma nova sessão na pasta do projeto</h4><p>Confira o servidor em <code>/mcp</code> e os comandos em <code>/skills</code>. Em <code>/hooks</code>, revise e confie os hooks do Action antes de usá-los. Hooks alterados exigem nova revisão.</p></li><li><h4>Peça para participar ou gravar</h4><p>Use <code>$action-join revisão Alpha</code> para entrar ou <code>$action-record Alpha guardar áudio</code> para iniciar. Também pode pedir em linguagem comum; o agente descobre a reunião e o projeto pelo MCP.</p></li><li><h4>Encerre o acompanhamento quando quiser</h4><p>Use <code>$action-leave</code> para sair ou <code>$action-stop</code> para finalizar a gravação. Esc/Parar interrompe a tarefa e desarma a retomada; depois, peça explicitamente para retomar ou liberar o vínculo.</p></li></ol>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>O hook <code>Stop</code> pede a próxima leitura na <strong>mesma sessão</strong> quando o agente tenta finalizar com vínculo ativo. A retomada depende de hooks habilitados e confiados, sessão aberta e progresso nas leituras. Na extensão da IDE, confira se a versão do host executa esses hooks.</p></aside>
+          <p><strong>Validado no Codex CLI interativo 0.158.0:</strong> descoberta pelo nome, leitura do histórico e três insights com referências. Após 35 segundos de silêncio, o hook retomou a mesma sessão. Nesse ensaio, a saída por mensagem normal foi confirmada em 5,26 segundos e manteve a gravação ativa.</p>
+          <p>O ensaio usou transcrições sintéticas, sem captura de áudio; não valida a interface gráfica do app ou da extensão. Os hooks foram revisados e habilitados temporariamente para o teste. Na sua instalação, revise e confie neles em <code>/hooks</code>. O modelo e o provedor continuam sendo os configurados no seu Codex.</p>
+        </section>
+
+        <section class="doc-section" id="app-e-atualizacoes">
+          <h2 class="doc-h2"><a class="doc-anchor" href="#app-e-atualizacoes" aria-label="Link para Instalação e atualização do Action">#</a>Instalação e atualização do Action</h2>
+          <p>Se o Action ainda não estiver instalado, a ponte pode baixar o ZIP assinado da release pública e registrá-lo na máquina. A instalação inicial não usa um <code>Setup.exe</code> separado.</p>
+          <p>O próprio Action consulta atualizações e pede confirmação para aplicar os pacotes incrementais assinados, com o pacote completo como alternativa. O agente também pode solicitar a atualização; ela não é aplicada durante uma gravação ativa.</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Os fluxos de descoberta, entrada direta e gravação descritos nesta página requerem <strong>Action 1.5.0 ou superior</strong>. Atualize também o plugin e reinicie o Copilot para carregar a ponte instalada.</p></aside>
         </section>
 
         <section class="doc-section" id="instalar">
@@ -120,7 +167,7 @@
             <ul class="tree__list">
             <li class="tree__row">
               <code class="tree__name">boot.mjs</code>
-              <span class="tree__role">Bootstrap de SessionStart: baixa/garante o canvas-sync na máquina.</span>
+              <span class="tree__role">Prepara o carregamento da extensão no Copilot.</span>
               <span class="tree__size">7.1 KB</span>
             </li>
             <li class="tree__row">
@@ -130,13 +177,13 @@
             </li>
             <li class="tree__row">
               <code class="tree__name">extension.mjs</code>
-              <span class="tree__role">Extensão in-app: hooks e tools da sessão viva do agente.</span>
+              <span class="tree__role">Conecta as ferramentas do Action ao agente do Copilot.</span>
               <span class="tree__size">574 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
               <span class="tree__role">Metadados do plugin + marcadores (extensions / hooks).</span>
-              <span class="tree__size">782 B</span>
+              <span class="tree__size">774 B</span>
             </li>
             </ul>
           </div>
@@ -145,12 +192,24 @@
         <section class="doc-section" id="faq">
           <h2 class="doc-h2"><a class="doc-anchor" href="#faq" aria-label="Link para Perguntas frequentes">#</a>Perguntas frequentes</h2>
           <details class="faq">
-            <summary>Meus dados vão para a nuvem?</summary>
-            <p>Não por padrão — o Action é 100% local e a memória fica em DuckDB na sua máquina. O modo equipe (Postgres+pgvector) é opcional e ligado por você.</p>
+            <summary>Preciso copiar um código para entrar?</summary>
+            <p>Não. Para reuniões do painel <code>/live</code> ou iniciadas pelo MCP, o agente consulta as sessões e usa o identificador retornado para entrar. Ele pode chegar depois do início e ler as transcrições anteriores.</p>
           </details>
           <details class="faq">
-            <summary>Como instalo o app Action?</summary>
-            <p>Você não precisa: na primeira vez que uma ferramenta o exige, o plugin baixa a última release e registra o app automaticamente.</p>
+            <summary>Preciso desta ponte no Claude Code, Codex ou Cursor?</summary>
+            <p>Esta ponte é para o Copilot. O pacote inclui <code>ClaudeCode/setup.ps1</code>, comandos e README para o Claude Code, com PowerShell 5.1/7 e sem Python. Para o Codex, use <code>Codex/setup.ps1</code>: modo Plugin no app/CLI ou Skills na extensão. No Cursor, configure o MCP pelo próprio cliente. A continuidade depende da integração de cada host.</p>
+          </details>
+          <details class="faq">
+            <summary>Sair do acompanhamento encerra a gravação?</summary>
+            <p>Não. Sair remove o vínculo daquele agente. Para parar a captura, peça para encerrar a gravação ou use o controle no Action.</p>
+          </details>
+          <details class="faq">
+            <summary>Tudo fica na minha máquina?</summary>
+            <p>A captura e a transcrição Vox são locais por padrão. Groq Whisper envia áudio à nuvem quando você o habilita. Transcrições enviadas ao agente seguem o provedor configurado na IDE.</p>
+          </details>
+          <details class="faq">
+            <summary>Como atualizar uma instalação do Action 1.4?</summary>
+            <p>Feche as sessões da IDE conectadas ao Action antes de atualizar. Se o atualizador antigo usar o pacote completo e o app continuar na versão 1.4, extraia manualmente o ZIP da release na pasta de instalação do Action.</p>
           </details>
         </section>
       </article>
@@ -159,22 +218,26 @@
         <nav class="toc" aria-label="Índice">
           <p class="toc__label">nesta página</p>
           <ul class="toc__list">
-            <li><a href="#o-que-e">O que é</a></li>
-            <li><a href="#como-usar">Como usar</a></li>
-            <li><a href="#recursos">O que dá para fazer</a></li>
+            <li><a href="#entrar-na-reuniao">A reunião já começou? Entre nela</a></li>
+            <li><a href="#iniciar-gravacao">Comece uma reunião pelo agente</a></li>
+            <li><a href="#historico-e-memoria">Retome o que o projeto já discutiu</a></li>
+            <li><a href="#audio-e-privacidade">Escolha onde o áudio é processado</a></li>
+            <li><a href="#acompanhamento-do-agente">Como o agente continua acompanhando</a></li>
+            <li><a href="#usar-no-codex">Use o Action na conversa do Codex</a></li>
+            <li><a href="#app-e-atualizacoes">Instalação e atualização do Action</a></li>
             <li><a href="#instalar">Instalar</a></li>
             <li><a href="#estrutura">Estrutura</a></li>
             <li><a href="#faq">Perguntas frequentes</a></li>
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.2.1</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v1.3.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
             <div class="meta__row"><dt>tipo</dt><dd><span class="pill">canvas</span> <span class="pill">hooks</span></dd></div>
-            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>Windows (o app Action é Windows-only)</li><li>Espaço em disco para modelos de voz e embeddings</li><li>Node 18+ (runtime da extensão)</li></ul></dd></div>
-            <div class="meta__row"><dt>tags</dt><dd><ul class="tags tags--meta"><li>action</li><li>meetings</li><li>reunioes</li><li>transcription</li><li>mcp</li><li>memory</li></ul></dd></div>
+            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>Windows 10/11 para o app Action</li><li>Action 1.5.0+ para os fluxos desta página</li><li>Copilot com suporte a extensões e Node 18+</li><li>Vox Engine daemon local para a transcrição padrão</li><li>Servidor de memória compartilhado para correlações</li><li>Espaço em disco para gravações opcionais</li></ul></dd></div>
+            <div class="meta__row"><dt>tags</dt><dd><ul class="tags tags--meta"><li>action</li><li>meetings</li><li>transcription</li><li>mcp</li><li>memory</li><li>windows</li></ul></dd></div>
           </dl>
       </aside>
     </div>
