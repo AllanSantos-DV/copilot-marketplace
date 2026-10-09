@@ -133,9 +133,9 @@
           "type": "list",
           "items": [
             "**Pedido** — você descreve o assunto para o agente desenhista.",
-            "**Catálogo** — pelo MCP vxk (`vxk_guide`, `vxk_catalog`), o agente lê os componentes, os ícones e exemplos prontos: ele compõe a biblioteca, nunca desenha do zero.",
-            "**Spec + validação** — escreve a spec em JSON e a confere com `vxk_validate` (componente, ids, ícones) antes de gastar voz.",
-            "**Build** — `vxk_build` assa a narração pelo vox-engine e monta o HTML autocontido (job assíncrono; `vxk_build_result` acompanha).",
+            "**Catálogo** — pelo MCP vxk (`vxk_guide`, `vxk_catalog`), o agente lê os componentes e exemplos prontos e **acha o ícone de cada conceito** pela busca nos tags oficiais do Lucide: ele compõe a biblioteca, nunca desenha do zero.",
+            "**Spec + validação** — escreve a spec em JSON e a confere com `vxk_validate` (componente, ids, ícones e trecho sem narração) antes de gastar voz.",
+            "**Build** — `vxk_build` assa a narração pelo vox-engine e monta o HTML autocontido (job assíncrono; `vxk_build_result` acompanha). A spec fica salva ao lado do HTML, para ajustar e rebuildar sem reescrever tudo.",
             "**Abre** — `vxk_open` abre a página no navegador, com o controle único de reprodução, zoom e peças clicáveis."
           ]
         },
@@ -188,6 +188,10 @@
     {
       "q": "Dá para usar fora do Copilot?",
       "a": "Sim. O motor vxk é um servidor MCP comum: registre `node ~/.vxk/bin/vxk-mcp.mjs` no Claude Code, no Codex ou em qualquer cliente MCP e use as mesmas tools `vxk_*`."
+    },
+    {
+      "q": "Como o motor se atualiza?",
+      "a": "Sozinho. No Copilot, o arranque do plugin confere o engine-registry; em qualquer outro cliente MCP, o próprio servidor confere depois de subir e instala a versão nova (verificada por SHA-256 e assinatura), que vale no próximo arranque. `VXK_NO_AUTOUPDATE=1` desliga."
     }
   ],
   "files": {

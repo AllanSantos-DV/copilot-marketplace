@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">visual-explainer</h1>
-        <span class="chip" title="versão publicada">v0.5.0</span>
+        <span class="chip" title="versão publicada">v0.6.0</span>
       </div>
       <p class="doc-hero__lede">O <strong>visual-explainer</strong> transforma um pedido em texto — &quot;explica o ciclo da água&quot;, &quot;o motor 4 tempos&quot;, &quot;o fluxo HTTP&quot;, &quot;como funciona uma tecla mecânica&quot; — numa <strong>página HTML autocontida e offline</strong>, com <strong>narração por voz</strong>, câmera passo a passo, play/pause, zoom e peças clicáveis. Você não desenha nada: um <strong>agente desenhista</strong> escreve uma spec declarativa, o builder <strong>assa a voz pelo motor (vox-engine)</strong> e entrega o HTML pronto, aberto no navegador.</p>
       <div class="doc-hero__cta">
@@ -111,7 +111,7 @@
 
         <section class="doc-section" id="como-funciona">
           <h2 class="doc-h2"><a class="doc-anchor" href="#como-funciona" aria-label="Link para Como funciona">#</a>Como funciona</h2>
-          <ul class="doc-list"><li><strong>Pedido</strong> — você descreve o assunto para o agente desenhista.</li><li><strong>Catálogo</strong> — pelo MCP vxk (<code>vxk_guide</code>, <code>vxk_catalog</code>), o agente lê os componentes, os ícones e exemplos prontos: ele compõe a biblioteca, nunca desenha do zero.</li><li><strong>Spec + validação</strong> — escreve a spec em JSON e a confere com <code>vxk_validate</code> (componente, ids, ícones) antes de gastar voz.</li><li><strong>Build</strong> — <code>vxk_build</code> assa a narração pelo vox-engine e monta o HTML autocontido (job assíncrono; <code>vxk_build_result</code> acompanha).</li><li><strong>Abre</strong> — <code>vxk_open</code> abre a página no navegador, com o controle único de reprodução, zoom e peças clicáveis.</li></ul>
+          <ul class="doc-list"><li><strong>Pedido</strong> — você descreve o assunto para o agente desenhista.</li><li><strong>Catálogo</strong> — pelo MCP vxk (<code>vxk_guide</code>, <code>vxk_catalog</code>), o agente lê os componentes e exemplos prontos e <strong>acha o ícone de cada conceito</strong> pela busca nos tags oficiais do Lucide: ele compõe a biblioteca, nunca desenha do zero.</li><li><strong>Spec + validação</strong> — escreve a spec em JSON e a confere com <code>vxk_validate</code> (componente, ids, ícones e trecho sem narração) antes de gastar voz.</li><li><strong>Build</strong> — <code>vxk_build</code> assa a narração pelo vox-engine e monta o HTML autocontido (job assíncrono; <code>vxk_build_result</code> acompanha). A spec fica salva ao lado do HTML, para ajustar e rebuildar sem reescrever tudo.</li><li><strong>Abre</strong> — <code>vxk_open</code> abre a página no navegador, com o controle único de reprodução, zoom e peças clicáveis.</li></ul>
           <p>Como a saída é um HTML único e offline, você pode guardar, abrir de novo ou compartilhar a explicação sem depender de nada — nem do agente, nem da rede.</p>
         </section>
 
@@ -151,7 +151,7 @@
             <li class="tree__row">
               <code class="tree__name">boot.mjs</code>
               <span class="tree__role">Garante o motor vxk em ~/.vxk (engine-kit: SHA-256 + assinatura Ed25519) e instala o agente desenhista em ~/.copilot/agents.</span>
-              <span class="tree__size">3.3 KB</span>
+              <span class="tree__size">3.7 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">boot.neural-link.json</code>
@@ -255,6 +255,10 @@
             <summary>Dá para usar fora do Copilot?</summary>
             <p>Sim. O motor vxk é um servidor MCP comum: registre <code>node ~/.vxk/bin/vxk-mcp.mjs</code> no Claude Code, no Codex ou em qualquer cliente MCP e use as mesmas tools <code>vxk_*</code>.</p>
           </details>
+          <details class="faq">
+            <summary>Como o motor se atualiza?</summary>
+            <p>Sozinho. No Copilot, o arranque do plugin confere o engine-registry; em qualquer outro cliente MCP, o próprio servidor confere depois de subir e instala a versão nova (verificada por SHA-256 e assinatura), que vale no próximo arranque. <code>VXK_NO_AUTOUPDATE=1</code> desliga.</p>
+          </details>
         </section>
       </article>
 
@@ -273,7 +277,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.5.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.6.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>

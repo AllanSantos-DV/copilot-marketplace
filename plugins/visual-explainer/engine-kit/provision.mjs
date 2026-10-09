@@ -24,14 +24,26 @@ const LOCK_STALE_MS = 120000;
  * Se faltar, falha com razão EXPLÍCITA e acionável em vez de um erro cru de spawn — nunca
  * instala pela metade.
  */
+// No Windows, o tar NATIVO (bsdtar, System32) quando existir: um processo aberto a partir de um terminal
+// Git Bash herda o GNU tar do Git na frente do PATH, e o GNU tar lê "C:\..." como host remoto ("Cannot
+// connect to C: resolve failed") — a instalação de QUALQUER motor quebrava só por onde o host foi aberto.
+export function tarBinary({ platform = process.platform, systemRoot = process.env.SystemRoot || process.env.windir, exists = existsSync } = {}) {
+  if (platform === "win32" && systemRoot) {
+    const native = join(systemRoot, "System32", "tar.exe");
+    if (exists(native)) return native;
+  }
+  return "tar";
+}
+
 function extractTgz(tgz, dest) {
+  const tar = tarBinary();
   try {
-    execFileSync("tar", ["--version"], { stdio: "ignore" });
+    execFileSync(tar, ["--version"], { stdio: "ignore" });
   } catch {
     return { ok: false, reason: "`tar` não encontrado no PATH — necessário para extrair o artefato (Windows 10 1803+, macOS e Linux já trazem). Instale-o e tente de novo." };
   }
   try {
-    execFileSync("tar", ["-xzf", tgz, "-C", dest], { stdio: "ignore" });
+    execFileSync(tar, ["-xzf", tgz, "-C", dest], { stdio: "ignore" });
     return { ok: true };
   } catch (e) {
     return { ok: false, reason: `extração (tar) falhou: ${e?.message || e}` };
