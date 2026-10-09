@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "vxk": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/vxk-launch.mjs"]
+    }
+  }
+}

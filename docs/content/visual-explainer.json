@@ -41,6 +41,10 @@
           "text": "O truque é não desenhar na mão. O agente escreve uma **spec declarativa (JSON)** descrevendo o que mostrar, e um **builder** monta o HTML otimizado, inlinando o motor certo. O resultado é um arquivo único, offline, que abre no seu navegador."
         },
         {
+          "type": "p",
+          "text": "Por baixo, quem monta tudo é o **motor vxk**: um **servidor MCP** independente do Copilot, publicado no engine-registry e instalado uma vez por máquina em `~/.vxk`. O plugin só garante o motor, declara o servidor `vxk` e traz o agente — o mesmo motor serve Claude Code, Codex ou qualquer cliente MCP."
+        },
+        {
           "type": "note",
           "tone": "info",
           "text": "O agente é instalado no arranque. Depois de instalar o plugin, **reinicie o app uma vez** para o agente `visual-explainer` aparecer no seletor."
@@ -129,9 +133,10 @@
           "type": "list",
           "items": [
             "**Pedido** — você descreve o assunto para o agente desenhista.",
-            "**Spec** — o agente escolhe o motor e escreve uma spec declarativa em JSON, reusando os componentes do kit.",
-            "**Build** — o builder monta o HTML autocontido, inlinando o motor e otimizando para rodar leve.",
-            "**Abre** — a página abre no navegador, com play/pause, zoom, arrastar e peças clicáveis."
+            "**Catálogo** — pelo MCP vxk (`vxk_guide`, `vxk_catalog`), o agente lê os componentes, os ícones e exemplos prontos: ele compõe a biblioteca, nunca desenha do zero.",
+            "**Spec + validação** — escreve a spec em JSON e a confere com `vxk_validate` (componente, ids, ícones) antes de gastar voz.",
+            "**Build** — `vxk_build` assa a narração pelo vox-engine e monta o HTML autocontido (job assíncrono; `vxk_build_result` acompanha).",
+            "**Abre** — `vxk_open` abre a página no navegador, com o controle único de reprodução, zoom e peças clicáveis."
           ]
         },
         {
@@ -142,8 +147,8 @@
     }
   ],
   "requirements": [
-    "Copilot App (desktop) com o GitHub Copilot SDK",
-    "Node 18+ (runtime da extensão e do builder)",
+    "GitHub Copilot CLI / app",
+    "Node 18+ (motor e lançador do MCP)",
     "Motor de voz vox-engine instalado (para a narração assada)",
     "Um navegador para abrir as páginas geradas"
   ],
@@ -174,20 +179,25 @@
     },
     {
       "q": "Por que preciso reiniciar o app depois de instalar?",
-      "a": "No arranque, o plugin instala o kit e o agente desenhista em `~/.copilot` (idempotente, por versão). O reinício é para o app descobrir o agente `visual-explainer` no seletor."
+      "a": "No arranque, o plugin garante o motor vxk e instala o agente desenhista em `~/.copilot/agents` (idempotente, por versão). O reinício é para o app descobrir o agente `visual-explainer` no seletor; o servidor MCP `vxk` já vem declarado no plugin."
     },
     {
       "q": "Onde mora o código do plugin?",
-      "a": "O runtime completo (kit, builder, templates e o agente) é vendado nesta vitrine, em `plugins/visual-explainer/payload`. O `boot.mjs` instala esse payload em `~/.copilot` no primeiro arranque."
+      "a": "O motor (servidor MCP, builder, componentes e ícones) é publicado no engine-registry e instalado em `~/.vxk`, assinado e verificado. Este plugin é só o cliente fino do Copilot: garante o motor, declara o MCP `vxk` e traz o agente."
+    },
+    {
+      "q": "Dá para usar fora do Copilot?",
+      "a": "Sim. O motor vxk é um servidor MCP comum: registre `node ~/.vxk/bin/vxk-mcp.mjs` no Claude Code, no Codex ou em qualquer cliente MCP e use as mesmas tools `vxk_*`."
     }
   ],
   "files": {
-    "plugin.json": "Metadados do plugin + marcador de hooks.",
-    "hooks.json": "SessionStart → node boot.mjs.",
-    "boot.mjs": "Instala o kit e o agente desenhista em ~/.copilot (idempotente, por versão).",
-    "payload/kit/": "Motores (vxk + konva), o design system de componentes (`kit/CATALOG.md`) e a `lib/` (auto-layout, story, explode, tema, ícones, cliente de voz).",
-    "payload/build-artifact.mjs": "O builder (empacotado, roda standalone): transforma a spec em HTML autocontido e assa a narração pelo vox-engine.",
-    "payload/templates/": "Exemplos por tipo de visual (fluxo, onda, órbita, timeline, pêndulo).",
-    "payload/visual-explainer.agent.md": "O agente desenhista, instalado em ~/.copilot/agents."
+    "plugin.json": "Metadados do plugin.",
+    "boot.neural-link.json": "SessionStart pelo neural-link → node boot.mjs.",
+    "boot.mjs": "Garante o motor vxk em ~/.vxk (engine-kit: SHA-256 + assinatura Ed25519) e instala o agente desenhista em ~/.copilot/agents.",
+    ".mcp.json": "Declara o servidor MCP `vxk` do plugin.",
+    "vxk-launch.mjs": "Lançador do MCP: lê o ponteiro ~/.vxk/cli.json publicado pelo motor e repassa o stdio.",
+    "visual-explainer.agent.md": "O agente desenhista: compõe a biblioteca pelas tools vxk_*.",
+    "engine-kit/": "Cópia verificada do cliente do engine-registry (só módulos nativos do Node).",
+    "README.md": "Resumo do cliente fino."
   }
 }
