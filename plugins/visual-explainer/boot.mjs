@@ -9,7 +9,7 @@ import { join, sep, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-export const VXK_VERSION = "0.5.0";
+export const VXK_VERSION = "0.6.0";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ~/.copilot de forma portável: em hook de plugin, COPILOT_PLUGIN_ROOT = ...\.copilot\installed-plugins\<mp>\<plugin>
@@ -32,11 +32,20 @@ function installAgent(home) {
   return true;
 }
 
+/**
+ * Garante o motor vxk instalado/atualizado em ~/.vxk pelo engine-kit vendorizado (SHA-256 + assinatura Ed25519).
+ * @param {(msg:string)=>void} [log]
+ * @returns {Promise<{available:boolean, bin?:string, reason?:string}>}
+ */
 export async function ensureVxk(log = () => {}) {
   const kit = await import(pathToFileURL(join(__dirname, "engine-kit", "index.mjs")).href);
   return kit.ensureEngine("vxk", { allowNetwork: true, log });
 }
 
+/**
+ * Hook de SessionStart: instala o agente (stamp por versão), garante o motor e emite um "progress" quando algo mudou. Nunca lança.
+ * @returns {Promise<void>}
+ */
 export async function runAsHook() {
   const home = resolveCopilotHome();
   const out = { at: new Date().toISOString(), v: VXK_VERSION, agent: false, engine: null, err: null };

@@ -77,7 +77,7 @@
     {
       "name": "visual-explainer",
       "description": "Explicações visuais animadas, narradas por voz e interativas: peça um assunto e o agente desenhista monta UMA página HTML autocontida e offline compondo a biblioteca pronta do motor vxk — componentes, ícones e um controle único de reprodução com legenda, velocidade e atalhos — de diagramas de sequência e grafos que mostram o papel de cada nó a vistas explodidas. O motor é um servidor MCP independente do host, instalado uma vez por máquina; a narração é assada pelo vox-engine.",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "source": "./plugins/visual-explainer",
       "author": {
         "name": "Allan Santos"
