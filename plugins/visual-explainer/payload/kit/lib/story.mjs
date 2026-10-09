@@ -2,18 +2,8 @@
 // o build gera scenes[].steps[] — walk topológico, revela CUMULATIVO (build-up), foca cada nó,
 // e um passo final de recap. Roda DEPOIS do applyAutoLayout (precisa de x/y). Opt-in via spec.story.
 // Zero autoria de camera/reveal/focus pelo autor: ele escreve só conteúdo + narração por nó.
+import { topoOrder } from './topo.mjs';
 
-function topoOrder(ids, rels){
-  const indeg = new Map(ids.map(i=>[i,0]));
-  const adj = new Map(ids.map(i=>[i,[]]));
-  for(const r of rels){ if(adj.has(r.from) && indeg.has(r.to)){ adj.get(r.from).push(r.to); indeg.set(r.to, indeg.get(r.to)+1); } }
-  const q = ids.filter(i=>indeg.get(i)===0);
-  const order=[], seen=new Set();
-  while(q.length){ const n=q.shift(); if(seen.has(n)) continue; seen.add(n); order.push(n);
-    for(const m of adj.get(n)){ indeg.set(m, indeg.get(m)-1); if(indeg.get(m)===0) q.push(m); } }
-  for(const i of ids) if(!seen.has(i)) order.push(i);   // ciclos/restos: cai na ordem declarada
-  return order;
-}
 
 export function buildStorySteps(spec){
   if(!spec || !spec.story) return { applied:false };
@@ -27,6 +17,7 @@ export function buildStorySteps(spec){
   const focusZoom = cfg.focusZoom || 1.8;
   const accent = spec.accent || '#5b8cff';
   const eid = (a,b)=>'__edge_'+a+'_'+b;
+  const edgeById = new Map((spec.nodes||[]).filter(n=>n.id && (n.type==='arrow'||n.type==='edge'||n.type==='flowPipe')).map(n=>[n.id,n]));
 
   const revealed = new Set(), revEdges = new Set();
   const steps = [];
@@ -41,9 +32,13 @@ export function buildStorySteps(spec){
       narration: n.say || n.narration || '',
       camera: { cx: n.x||0, cy: n.y||0, zoom: focusZoom, duration: 0.55 },
       reveal: [id, ...newEdges],
-      focus: [id]
+      focus: [id, ...newEdges]                            // a ligação que chega no nó fica acesa junto (causa → efeito)
     };
     if(pop) step.animate = { [id]: { scale: 1 }, duration: 0.5 };   // pop 0.86 -> 1 ao entrar
+    if(cfg.writeOn !== false){                            // write-on: a aresta nova SE DESENHA da origem até o nó (Material: foco único, sem cena parada)
+      for(const k of newEdges){ const e = edgeById.get(k); if(e && e.prog==null){ e.prog = 0; (step.animate = step.animate || {})[k] = { prog: 1 }; } }
+      if(newEdges.length && step.animate) step.animate.duration = Math.max(step.animate.duration || 0, 0.8);
+    }
     if(n.tag) step.annotate = [{ target:id, text:n.tag, side: n.tagSide || cfg.annotSide || 'top', color: n.tagColor || accent }];
     steps.push(step);
   }

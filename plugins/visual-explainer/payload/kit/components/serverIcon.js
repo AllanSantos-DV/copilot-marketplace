@@ -43,10 +43,8 @@ VXK.register('serverIcon', {
     ctx.fillText(n.label||'Servidor', x, y+h/2+26*s);
     ctx.textBaseline='alphabetic';
   },
-  hit(_inst, n, wx, wy){
-    const x=Number.isFinite(n.x)?n.x:0, y=Number.isFinite(n.y)?n.y:0, s=n.scale||1;
-    const inside=wx>=x-56*s&&wx<=x+56*s&&wy>=y-69*s&&wy<=y+69*s;
-    return inside ? {label:n.label||'Servidor', info:n.info||'', color:n.color||'#263a5f'} : false;
+  hit(_inst, n, wx, wy, e){
+    return e.mat.rectHit(n, wx, wy, 56, 69, 69, { label:'Servidor', color:'#263a5f' });
   },
   pos(n){ return [Number.isFinite(n.x)?n.x:0, Number.isFinite(n.y)?n.y:0]; },
   parts(n){

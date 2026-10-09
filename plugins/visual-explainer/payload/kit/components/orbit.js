@@ -12,10 +12,12 @@ VXK.register('orbit', {
     const p=this.pos(n,e), x=p[0], y=p[1];
     const isStar = !n.orbitR;
     if(!e.lite) M.glow(ctx, x, y, r, color, isStar ? 3.6 : 1.7);
-    if(isStar){
-      const rgb=M.hex2rgb(color), g=ctx.createRadialGradient(x,y,0,x,y,r);
-      g.addColorStop(0, M.rgba(M.shade(rgb,0.72),1)); g.addColorStop(0.6, M.rgba(rgb,1)); g.addColorStop(1, M.rgba(M.shade(rgb,-0.12),1));
-      ctx.beginPath(); ctx.arc(x,y,r,0,6.2832); ctx.fillStyle=g; ctx.fill();
+    if(isStar){                                          // núcleo quente: gradiente cacheado na origem (não recria por quadro)
+      const sig=color+'|'+r;
+      if(inst.coreSig!==sig){ const rgb=M.hex2rgb(color), g=ctx.createRadialGradient(0,0,0,0,0,r);
+        g.addColorStop(0, M.rgba(M.shade(rgb,0.72),1)); g.addColorStop(0.6, M.rgba(rgb,1)); g.addColorStop(1, M.rgba(M.shade(rgb,-0.12),1));
+        inst.core=g; inst.coreSig=sig; }
+      ctx.save(); ctx.translate(x,y); ctx.beginPath(); ctx.arc(0,0,r,0,6.2832); ctx.fillStyle=inst.core; ctx.fill(); ctx.restore();
     } else {
       M.sphere(ctx, x, y, r, color, e);
     }

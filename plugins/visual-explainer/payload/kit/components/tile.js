@@ -16,13 +16,7 @@ VXK.register('tile', {
     const pruned=!!n.pruned, heat=(n.heat!=null?n.heat:0.5);
     ctx.save();
     // glow de seleção (gradiente cacheado)
-    if(selected && !e.lite){
-      const gsig=col+'|'+w+'|'+h;
-      if(inst.gsig!==gsig){ inst.gsig=gsig; const R=Math.max(w,h)*0.78;
-        const g=ctx.createRadialGradient(0,0,Math.min(w,h)*0.24, 0,0,R);
-        g.addColorStop(0,M.rgba(rgb,0.26)); g.addColorStop(1,M.rgba(rgb,0)); inst.glow=g; inst.glowR=R; }
-      ctx.save(); ctx.translate(x,y); ctx.beginPath(); ctx.arc(0,0,inst.glowR,0,6.2832); ctx.fillStyle=inst.glow; ctx.fill(); ctx.restore();
-    }
+    if(selected && !e.lite) M.selGlow(ctx, inst, x, y, w, h, rgb, 0.24, 0.78, 0.26);
     // preenchimento tingido (heat) ou apagado (pruned)
     M.roundRectPath(ctx,L,T,w,h,rad);
     ctx.fillStyle = pruned ? 'rgba(26,20,28,0.62)' : M.rgba(rgb, 0.10+0.30*heat);

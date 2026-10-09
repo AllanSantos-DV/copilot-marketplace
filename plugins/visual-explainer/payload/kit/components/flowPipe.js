@@ -1,7 +1,7 @@
 /* DESIGN SYSTEM · "flowPipe" — conector tubular FLAT com escrita progressiva e
-   pacotes direcionais em movimento. Decorativo (não clicável). params:
+   pacotes direcionais em movimento. Clicável só quando tem `label`/`info`. params:
    { x0,y0, x1,y1, curve, width, color, trackColor, flow, flowCount,
-     flowSpeed, tokenColor, arrow, dashed, prog, label } */
+     flowSpeed, tokenColor, arrow, dashed, prog, label, labelColor, info } */
 VXK.register('flowPipe', {
   create(n){ return { xs:[], ys:[], lens:[] }; },
   draw(ctx, inst, n, e, selected){
@@ -71,12 +71,27 @@ VXK.register('flowPipe', {
       ctx.lineTo(bx+uyEnd*headHalf,by-uxEnd*headHalf);
       ctx.closePath(); ctx.fillStyle=col; ctx.fill();
     }
-    if(n.label && prog>0.5){
-      const p=pointAt(paramAt(0.5));
-      ctx.fillStyle='#9aa7c2'; ctx.font=(((11/e.zoom)|0)||1)+'px Segoe UI'; ctx.textAlign='center';
-      ctx.fillText(n.label,p[0],p[1]-(width/2+7)*k);
+    if(n.label && prog>0.5){                                          // rótulo em pílula da cor do cano (lê a 1 olhar, não some no fundo)
+      const p=pointAt(paramAt(0.5)), fs=12*k, padX=8*k, h=20*k;
+      ctx.font='600 '+fs+'px "Segoe UI",system-ui,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      const w=ctx.measureText(n.label).width+padX*2, by=p[1]-(width/2)*k-h-4*k;
+      ctx.globalAlpha=Math.min(1,(prog-0.5)*4);
+      M.roundRectPath(ctx,p[0]-w/2,by,w,h,h/2); ctx.fillStyle='rgba(10,14,24,.92)'; ctx.fill();
+      M.roundRectPath(ctx,p[0]-w/2,by,w,h,h/2); ctx.strokeStyle=col; ctx.lineWidth=1.2*k; ctx.stroke();
+      ctx.fillStyle=n.labelColor||'#eef3ff'; ctx.fillText(n.label,p[0],by+h/2);
+      ctx.globalAlpha=1; ctx.textBaseline='alphabetic';
     }
     ctx.restore();
   },
-  hit(){ return false; }
+  // clicável quando tem rótulo/info (mensagem, conexão); cano de fundo sem rótulo segue decorativo
+  hit(inst, n, wx, wy, e){
+    if(!(n.label||n.info) || (n.prog!=null && n.prog<0.5) || !inst.xs.length) return false;
+    const tol=Math.max((n.width||6)/2, 9/((e&&e.zoom)||1));
+    for(let i=1;i<inst.xs.length;i++){
+      const ax=inst.xs[i-1], ay=inst.ys[i-1], bx=inst.xs[i], by=inst.ys[i], dx=bx-ax, dy=by-ay, L=dx*dx+dy*dy;
+      const t=L?Math.max(0,Math.min(1,((wx-ax)*dx+(wy-ay)*dy)/L)):0;
+      if(Math.hypot(wx-(ax+dx*t), wy-(ay+dy*t))<=tol) return { label:n.label||'', info:n.info||'', color:n.color||'#5b8cff' };
+    }
+    return false;
+  }
 });

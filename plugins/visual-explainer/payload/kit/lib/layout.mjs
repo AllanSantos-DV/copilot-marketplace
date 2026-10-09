@@ -2,6 +2,7 @@
 // calcula x/y (centro, convenção VXK) e as arestas viram geometria assada.
 // Zero bytes no HTML — roda no Node e some. Opt-in por spec.layout.
 import dagre from '@dagrejs/dagre';
+import { topoOrder } from './topo.mjs';
 
 // dimensões default por tipo (largura×altura em coords de mundo) p/ o dagre reservar espaço
 function dims(n){
@@ -30,16 +31,7 @@ function edgePoint(from, to, d){
   return [from[0]+dx*t, from[1]+dy*t];
 }
 
-// ordem topológica (chain) e detecção de fluxo quase-linear (path) p/ o modo wrap
-function topoIds(ids, rels){
-  const indeg=new Map(ids.map(i=>[i,0])), adj=new Map(ids.map(i=>[i,[]]));
-  for(const r of rels){ if(adj.has(r.from)&&indeg.has(r.to)){ adj.get(r.from).push(r.to); indeg.set(r.to, indeg.get(r.to)+1); } }
-  const q=ids.filter(i=>indeg.get(i)===0), order=[], seen=new Set();
-  while(q.length){ const n=q.shift(); if(seen.has(n))continue; seen.add(n); order.push(n);
-    for(const m of adj.get(n)){ indeg.set(m,indeg.get(m)-1); if(indeg.get(m)===0) q.push(m); } }
-  for(const i of ids) if(!seen.has(i)) order.push(i);
-  return order;
-}
+// detecção de fluxo quase-linear (path) p/ o modo wrap (ordem topológica: ./topo.mjs)
 function isLinear(parts, rels){
   const indeg={}, outdeg={};
   for(const n of parts){ indeg[n.id]=0; outdeg[n.id]=0; }
@@ -75,7 +67,7 @@ export function applyAutoLayout(spec){
   const wrap = cfg.wrap != null ? cfg.wrap : (parts.length >= 7 && isLinear(parts, rels));
   let gw, gh, placed = 0;
   if(wrap){
-    const order = topoIds(parts.map(n=>n.id), rels);
+    const order = topoOrder(parts.map(n=>n.id), rels);
     const cols = (typeof wrap === 'number' && wrap >= 2) ? wrap : Math.max(2, Math.min(5, Math.round(Math.sqrt(order.length * 1.3))));
     const colW = cfg.colW || 250, rowH = cfg.rowH || 165;
     order.forEach((id,i)=>{ const n=byId.get(id); const row=Math.floor(i/cols); let c=i%cols; if(row%2===1) c=cols-1-c; n.x=c*colW; n.y=row*rowH; });

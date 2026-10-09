@@ -47,10 +47,8 @@ VXK.register('browserIcon', {
     ctx.fillText(n.label||'Navegador', x, y+h/2+40*s);
     ctx.textBaseline='alphabetic';
   },
-  hit(_inst, n, wx, wy){
-    const x=Number.isFinite(n.x)?n.x:0, y=Number.isFinite(n.y)?n.y:0;
-    const s=n.scale||1, inside=wx>=x-70*s&&wx<=x+70*s&&wy>=y-46*s&&wy<=y+64*s;
-    return inside ? {label:n.label||'Navegador', info:n.info||'', color:n.color||'#4476d9'} : false;
+  hit(_inst, n, wx, wy, e){
+    return e.mat.rectHit(n, wx, wy, 70, 46, 64, { label:'Navegador', color:'#4476d9' });
   },
   pos(n){ return [Number.isFinite(n.x)?n.x:0, Number.isFinite(n.y)?n.y:0]; },
   parts(n){
