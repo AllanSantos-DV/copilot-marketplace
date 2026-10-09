@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">visual-explainer</h1>
-        <span class="chip" title="versão publicada">v0.4.0</span>
+        <span class="chip" title="versão publicada">v0.5.0</span>
       </div>
       <p class="doc-hero__lede">O <strong>visual-explainer</strong> transforma um pedido em texto — &quot;explica o ciclo da água&quot;, &quot;o motor 4 tempos&quot;, &quot;o fluxo HTTP&quot;, &quot;como funciona uma tecla mecânica&quot; — numa <strong>página HTML autocontida e offline</strong>, com <strong>narração por voz</strong>, câmera passo a passo, play/pause, zoom e peças clicáveis. Você não desenha nada: um <strong>agente desenhista</strong> escreve uma spec declarativa, o builder <strong>assa a voz pelo motor (vox-engine)</strong> e entrega o HTML pronto, aberto no navegador.</p>
       <div class="doc-hero__cta">
@@ -86,6 +86,7 @@
           <h2 class="doc-h2"><a class="doc-anchor" href="#o-que-e" aria-label="Link para O que é">#</a>O que é</h2>
           <p>O visual-explainer é um <strong>agente desenhista</strong> para o GitHub Copilot. Você pede uma explicação visual de um assunto e ele entrega uma <strong>página HTML autocontida</strong> que anima e deixa você interagir com o conceito — abrir, pausar, acelerar, dar zoom e clicar nas peças.</p>
           <p>O truque é não desenhar na mão. O agente escreve uma <strong>spec declarativa (JSON)</strong> descrevendo o que mostrar, e um <strong>builder</strong> monta o HTML otimizado, inlinando o motor certo. O resultado é um arquivo único, offline, que abre no seu navegador.</p>
+          <p>Por baixo, quem monta tudo é o <strong>motor vxk</strong>: um <strong>servidor MCP</strong> independente do Copilot, publicado no engine-registry e instalado uma vez por máquina em <code>~/.vxk</code>. O plugin só garante o motor, declara o servidor <code>vxk</code> e traz o agente — o mesmo motor serve Claude Code, Codex ou qualquer cliente MCP.</p>
           <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>O agente é instalado no arranque. Depois de instalar o plugin, <strong>reinicie o app uma vez</strong> para o agente <code>visual-explainer</code> aparecer no seletor.</p></aside>
         </section>
 
@@ -110,7 +111,7 @@
 
         <section class="doc-section" id="como-funciona">
           <h2 class="doc-h2"><a class="doc-anchor" href="#como-funciona" aria-label="Link para Como funciona">#</a>Como funciona</h2>
-          <ul class="doc-list"><li><strong>Pedido</strong> — você descreve o assunto para o agente desenhista.</li><li><strong>Spec</strong> — o agente escolhe o motor e escreve uma spec declarativa em JSON, reusando os componentes do kit.</li><li><strong>Build</strong> — o builder monta o HTML autocontido, inlinando o motor e otimizando para rodar leve.</li><li><strong>Abre</strong> — a página abre no navegador, com play/pause, zoom, arrastar e peças clicáveis.</li></ul>
+          <ul class="doc-list"><li><strong>Pedido</strong> — você descreve o assunto para o agente desenhista.</li><li><strong>Catálogo</strong> — pelo MCP vxk (<code>vxk_guide</code>, <code>vxk_catalog</code>), o agente lê os componentes, os ícones e exemplos prontos: ele compõe a biblioteca, nunca desenha do zero.</li><li><strong>Spec + validação</strong> — escreve a spec em JSON e a confere com <code>vxk_validate</code> (componente, ids, ícones) antes de gastar voz.</li><li><strong>Build</strong> — <code>vxk_build</code> assa a narração pelo vox-engine e monta o HTML autocontido (job assíncrono; <code>vxk_build_result</code> acompanha).</li><li><strong>Abre</strong> — <code>vxk_open</code> abre a página no navegador, com o controle único de reprodução, zoom e peças clicáveis.</li></ul>
           <p>Como a saída é um HTML único e offline, você pode guardar, abrir de novo ou compartilhar a explicação sem depender de nada — nem do agente, nem da rede.</p>
         </section>
 
@@ -143,359 +144,74 @@
             <div class="tree__head"><span class="prompt__glyph" aria-hidden="true">⌁</span> plugins/visual-explainer/</div>
             <ul class="tree__list">
             <li class="tree__row">
+              <code class="tree__name">.mcp.json</code>
+              <span class="tree__role">Declara o servidor MCP <code>vxk</code> do plugin.</span>
+              <span class="tree__size">141 B</span>
+            </li>
+            <li class="tree__row">
               <code class="tree__name">boot.mjs</code>
-              <span class="tree__role">Instala o kit e o agente desenhista em ~/.copilot (idempotente, por versão).</span>
-              <span class="tree__size">3.5 KB</span>
+              <span class="tree__role">Garante o motor vxk em ~/.vxk (engine-kit: SHA-256 + assinatura Ed25519) e instala o agente desenhista em ~/.copilot/agents.</span>
+              <span class="tree__size">3.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">boot.neural-link.json</code>
-              <span class="tree__role"></span>
+              <span class="tree__role">SessionStart pelo neural-link → node boot.mjs.</span>
               <span class="tree__size">359 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
-              <span class="tree__role">Metadados do plugin + marcador de hooks.</span>
-              <span class="tree__size">933 B</span>
+              <span class="tree__role">Metadados do plugin.</span>
+              <span class="tree__size">969 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">README.md</code>
-              <span class="tree__role">Documentação vinda do repositório de origem.</span>
-              <span class="tree__size">2.1 KB</span>
+              <span class="tree__role">Resumo do cliente fino.</span>
+              <span class="tree__size">1016 B</span>
             </li>
             <li class="tree__row">
-              <code class="tree__name">payload/build-artifact.mjs</code>
-              <span class="tree__role">O builder (empacotado, roda standalone): transforma a spec em HTML autocontido e assa a narração pelo vox-engine.</span>
-              <span class="tree__size">128 KB</span>
+              <code class="tree__name">visual-explainer.agent.md</code>
+              <span class="tree__role">O agente desenhista: compõe a biblioteca pelas tools vxk_*.</span>
+              <span class="tree__size">2.5 KB</span>
             </li>
             <li class="tree__row">
-              <code class="tree__name">payload/README.md</code>
-              <span class="tree__role">Documentação vinda do repositório de origem.</span>
-              <span class="tree__size">6.8 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/visual-explainer.agent.md</code>
-              <span class="tree__role">O agente desenhista, instalado em ~/.copilot/agents.</span>
-              <span class="tree__size">6.9 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/board.css</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">14 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/CATALOG.md</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">36 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/registry.json</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">12 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/vxk-core.css</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">5.7 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/vxk-core.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">51 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/arrow.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">2.1 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/banner.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">2.2 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/barArray.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">4.0 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/barMini.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">3.7 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/box.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">2.4 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/browserIcon.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">1.9 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/callout.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">1.9 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/card.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">4.4 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/chip.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">2.0 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/codeGrid.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">4.7 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/comparisonSplit.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">3.8 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/crossSection.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">3.6 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/dbIcon.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">1.8 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/deviceCard.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">3.8 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/dimensionLine.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">2.4 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/edge.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">3.5 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/engine.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">12 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/figure.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">6.2 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/flowPipe.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">5.0 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/frame.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">1.9 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/gauge.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">2.7 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/ghost.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">1.5 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/graphNode.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">3.4 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/httpMsg.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">4.5 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/layer.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">6.3 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/leaf.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">3.7 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/legend.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">4.3 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/lever.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">3.1 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/metric.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">3.7 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/orbit.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">2.2 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/part.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">5.3 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/particleStream.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">1.5 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/pathTrace.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">3.8 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/pendulum.js</code>
-              <span class="tree__role"></span>
+              <code class="tree__name">vxk-launch.mjs</code>
+              <span class="tree__role">Lançador do MCP: lê o ponteiro ~/.vxk/cli.json publicado pelo motor e repassa o stdio.</span>
               <span class="tree__size">1.7 KB</span>
             </li>
             <li class="tree__row">
-              <code class="tree__name">payload/kit/components/pulse.js</code>
+              <code class="tree__name">engine-kit/index.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">936 B</span>
+              <span class="tree__size">3.0 KB</span>
             </li>
             <li class="tree__row">
-              <code class="tree__name">payload/kit/components/serverIcon.js</code>
+              <code class="tree__name">engine-kit/keystore.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">1.9 KB</span>
+              <span class="tree__size">1.6 KB</span>
             </li>
             <li class="tree__row">
-              <code class="tree__name">payload/kit/components/shape.js</code>
+              <code class="tree__name">engine-kit/lifecycle.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">8.6 KB</span>
+              <span class="tree__size">7.4 KB</span>
             </li>
             <li class="tree__row">
-              <code class="tree__name">payload/kit/components/stat.js</code>
+              <code class="tree__name">engine-kit/provision.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">2.8 KB</span>
+              <span class="tree__size">16 KB</span>
             </li>
             <li class="tree__row">
-              <code class="tree__name">payload/kit/components/tile.js</code>
+              <code class="tree__name">engine-kit/resolve.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">2.8 KB</span>
+              <span class="tree__size">5.2 KB</span>
             </li>
             <li class="tree__row">
-              <code class="tree__name">payload/kit/components/timeline.js</code>
+              <code class="tree__name">engine-kit/signature.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">2.0 KB</span>
+              <span class="tree__size">5.9 KB</span>
             </li>
             <li class="tree__row">
-              <code class="tree__name">payload/kit/components/toggle.js</code>
+              <code class="tree__name">engine-kit/trust.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">3.3 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/watercycle.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">11 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/components/wave.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">1.2 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/konva/konva-adapter.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">13 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/konva/konva.min.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">171 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/lib/explode.mjs</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">5.8 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/lib/geom.mjs</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">3.8 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/lib/icons.js</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">27 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/lib/layout.mjs</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">7.5 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/lib/story.mjs</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">4.1 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/lib/theme-import.mjs</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">7.2 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/lib/topo.mjs</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">846 B</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/lib/tts_cache.mjs</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">3.5 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/kit/lib/vox_client.mjs</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">7.2 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/templates/bubble.json</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">453 B</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/templates/fluxo.json</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">1.2 KB</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/templates/linha-tempo.json</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">814 B</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/templates/onda.json</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">514 B</span>
-            </li>
-            <li class="tree__row">
-              <code class="tree__name">payload/templates/pendulo.json</code>
-              <span class="tree__role"></span>
-              <span class="tree__size">531 B</span>
+              <span class="tree__size">3.6 KB</span>
             </li>
             </ul>
           </div>
@@ -529,11 +245,15 @@
           </details>
           <details class="faq">
             <summary>Por que preciso reiniciar o app depois de instalar?</summary>
-            <p>No arranque, o plugin instala o kit e o agente desenhista em <code>~/.copilot</code> (idempotente, por versão). O reinício é para o app descobrir o agente <code>visual-explainer</code> no seletor.</p>
+            <p>No arranque, o plugin garante o motor vxk e instala o agente desenhista em <code>~/.copilot/agents</code> (idempotente, por versão). O reinício é para o app descobrir o agente <code>visual-explainer</code> no seletor; o servidor MCP <code>vxk</code> já vem declarado no plugin.</p>
           </details>
           <details class="faq">
             <summary>Onde mora o código do plugin?</summary>
-            <p>O runtime completo (kit, builder, templates e o agente) é vendado nesta vitrine, em <code>plugins/visual-explainer/payload</code>. O <code>boot.mjs</code> instala esse payload em <code>~/.copilot</code> no primeiro arranque.</p>
+            <p>O motor (servidor MCP, builder, componentes e ícones) é publicado no engine-registry e instalado em <code>~/.vxk</code>, assinado e verificado. Este plugin é só o cliente fino do Copilot: garante o motor, declara o MCP <code>vxk</code> e traz o agente.</p>
+          </details>
+          <details class="faq">
+            <summary>Dá para usar fora do Copilot?</summary>
+            <p>Sim. O motor vxk é um servidor MCP comum: registre <code>node ~/.vxk/bin/vxk-mcp.mjs</code> no Claude Code, no Codex ou em qualquer cliente MCP e use as mesmas tools <code>vxk_*</code>.</p>
           </details>
         </section>
       </article>
@@ -553,12 +273,12 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.4.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.5.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
             <div class="meta__row"><dt>tipo</dt><dd><span class="pill">hooks</span></dd></div>
-            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>Copilot App (desktop) com o GitHub Copilot SDK</li><li>Node 18+ (runtime da extensão e do builder)</li><li>Motor de voz vox-engine instalado (para a narração assada)</li><li>Um navegador para abrir as páginas geradas</li></ul></dd></div>
+            <div class="meta__row"><dt>requisitos</dt><dd><ul class="meta__reqs"><li>GitHub Copilot CLI / app</li><li>Node 18+ (motor e lançador do MCP)</li><li>Motor de voz vox-engine instalado (para a narração assada)</li><li>Um navegador para abrir as páginas geradas</li></ul></dd></div>
             <div class="meta__row"><dt>tags</dt><dd><ul class="tags tags--meta"><li>visual</li><li>explicacao</li><li>animacao</li><li>canvas</li><li>agente</li><li>pt-BR</li></ul></dd></div>
           </dl>
       </aside>
