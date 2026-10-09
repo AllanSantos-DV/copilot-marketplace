@@ -3,9 +3,10 @@
 // build-artifact.mjs
 import { readFileSync as readFileSync3, writeFileSync as writeFileSync2, existsSync as existsSync2, mkdirSync as mkdirSync2 } from "node:fs";
 import { join as join2, dirname, resolve, extname as extname2 } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import os2 from "node:os";
 import { spawn } from "node:child_process";
+import vm from "node:vm";
 
 // kit/lib/vox_client.mjs
 import net from "node:net";
@@ -1916,6 +1917,32 @@ function fe(e) {
 var sr = { graphlib: z, version: U, layout: he, debug: fe, util: { time: P, notime: M } };
 var To = sr;
 
+// kit/lib/topo.mjs
+function topoOrder(ids, rels) {
+  const indeg = new Map(ids.map((i2) => [i2, 0]));
+  const adj = new Map(ids.map((i2) => [i2, []]));
+  for (const r of rels) {
+    if (adj.has(r.from) && indeg.has(r.to)) {
+      adj.get(r.from).push(r.to);
+      indeg.set(r.to, indeg.get(r.to) + 1);
+    }
+  }
+  const q2 = ids.filter((i2) => indeg.get(i2) === 0);
+  const order = [], seen = /* @__PURE__ */ new Set();
+  while (q2.length) {
+    const n = q2.shift();
+    if (seen.has(n)) continue;
+    seen.add(n);
+    order.push(n);
+    for (const m of adj.get(n)) {
+      indeg.set(m, indeg.get(m) - 1);
+      if (indeg.get(m) === 0) q2.push(m);
+    }
+  }
+  for (const i2 of ids) if (!seen.has(i2)) order.push(i2);
+  return order;
+}
+
 // kit/lib/layout.mjs
 function dims(n) {
   if (n.w && n.h) return { w: n.w, h: n.h };
@@ -1953,28 +1980,6 @@ function edgePoint(from, to, d) {
   const t = Math.min(tx, ty);
   return [from[0] + dx * t, from[1] + dy * t];
 }
-function topoIds(ids, rels) {
-  const indeg = new Map(ids.map((i2) => [i2, 0])), adj = new Map(ids.map((i2) => [i2, []]));
-  for (const r of rels) {
-    if (adj.has(r.from) && indeg.has(r.to)) {
-      adj.get(r.from).push(r.to);
-      indeg.set(r.to, indeg.get(r.to) + 1);
-    }
-  }
-  const q2 = ids.filter((i2) => indeg.get(i2) === 0), order = [], seen = /* @__PURE__ */ new Set();
-  while (q2.length) {
-    const n = q2.shift();
-    if (seen.has(n)) continue;
-    seen.add(n);
-    order.push(n);
-    for (const m of adj.get(n)) {
-      indeg.set(m, indeg.get(m) - 1);
-      if (indeg.get(m) === 0) q2.push(m);
-    }
-  }
-  for (const i2 of ids) if (!seen.has(i2)) order.push(i2);
-  return order;
-}
 function isLinear(parts, rels) {
   const indeg = {}, outdeg = {};
   for (const n of parts) {
@@ -2010,7 +2015,7 @@ function applyAutoLayout(spec) {
   const wrap = cfg.wrap != null ? cfg.wrap : parts.length >= 7 && isLinear(parts, rels);
   let gw, gh, placed = 0;
   if (wrap) {
-    const order = topoIds(parts.map((n) => n.id), rels);
+    const order = topoOrder(parts.map((n) => n.id), rels);
     const cols = typeof wrap === "number" && wrap >= 2 ? wrap : Math.max(2, Math.min(5, Math.round(Math.sqrt(order.length * 1.3))));
     const colW = cfg.colW || 250, rowH = cfg.rowH || 165;
     order.forEach((id, i2) => {
@@ -2128,30 +2133,6 @@ function applyAutoLayout(spec) {
 }
 
 // kit/lib/story.mjs
-function topoOrder(ids, rels) {
-  const indeg = new Map(ids.map((i2) => [i2, 0]));
-  const adj = new Map(ids.map((i2) => [i2, []]));
-  for (const r of rels) {
-    if (adj.has(r.from) && indeg.has(r.to)) {
-      adj.get(r.from).push(r.to);
-      indeg.set(r.to, indeg.get(r.to) + 1);
-    }
-  }
-  const q2 = ids.filter((i2) => indeg.get(i2) === 0);
-  const order = [], seen = /* @__PURE__ */ new Set();
-  while (q2.length) {
-    const n = q2.shift();
-    if (seen.has(n)) continue;
-    seen.add(n);
-    order.push(n);
-    for (const m of adj.get(n)) {
-      indeg.set(m, indeg.get(m) - 1);
-      if (indeg.get(m) === 0) q2.push(m);
-    }
-  }
-  for (const i2 of ids) if (!seen.has(i2)) order.push(i2);
-  return order;
-}
 function buildStorySteps(spec) {
   if (!spec || !spec.story) return { applied: false };
   if (Array.isArray(spec.scenes) && spec.scenes.length) return { applied: false };
@@ -2164,6 +2145,7 @@ function buildStorySteps(spec) {
   const focusZoom = cfg.focusZoom || 1.8;
   const accent = spec.accent || "#5b8cff";
   const eid = (a, b) => "__edge_" + a + "_" + b;
+  const edgeById = new Map((spec.nodes || []).filter((n) => n.id && (n.type === "arrow" || n.type === "edge" || n.type === "flowPipe")).map((n) => [n.id, n]));
   const revealed = /* @__PURE__ */ new Set(), revEdges = /* @__PURE__ */ new Set();
   const steps = [];
   const pop = cfg.pop !== false;
@@ -2185,9 +2167,20 @@ function buildStorySteps(spec) {
       narration: n.say || n.narration || "",
       camera: { cx: n.x || 0, cy: n.y || 0, zoom: focusZoom, duration: 0.55 },
       reveal: [id, ...newEdges],
-      focus: [id]
+      focus: [id, ...newEdges]
+      // a ligação que chega no nó fica acesa junto (causa → efeito)
     };
     if (pop) step.animate = { [id]: { scale: 1 }, duration: 0.5 };
+    if (cfg.writeOn !== false) {
+      for (const k2 of newEdges) {
+        const e = edgeById.get(k2);
+        if (e && e.prog == null) {
+          e.prog = 0;
+          (step.animate = step.animate || {})[k2] = { prog: 1 };
+        }
+      }
+      if (newEdges.length && step.animate) step.animate.duration = Math.max(step.animate.duration || 0, 0.8);
+    }
     if (n.tag) step.annotate = [{ target: id, text: n.tag, side: n.tagSide || cfg.annotSide || "top", color: n.tagColor || accent }];
     steps.push(step);
   }
@@ -3345,8 +3338,22 @@ function buildKonva(spec) {
   const adapter = read(adapterPath);
   const css = read(join2(KIT, "vxk-core.css"));
   const head = "<style>" + css + (spec.css || "") + "</style>";
-  const scripts = "<script>" + konva + "</script>\n<script>" + adapter + "</script>\n<script>VXKKonva.mount(" + JSON.stringify(spec) + ', "#vxk-root");</script>';
+  const icons = existsSync2(join2(KIT, "lib", "icons.js")) ? "<script>" + read(join2(KIT, "lib", "icons.js")) + "</script>\n" : "";
+  const scripts = "<script>" + konva + "</script>\n" + icons + "<script>" + adapter + "</script>\n<script>VXKKonva.mount(" + JSON.stringify(spec) + ', "#vxk-root");</script>';
   return page(spec, head, scripts);
+}
+var _icons = null;
+function lucideIcons() {
+  if (_icons) return _icons;
+  const sb = { window: {} };
+  vm.runInNewContext(read(join2(KIT, "lib", "icons.js")), sb);
+  return _icons = sb.window.VXK.ICONS;
+}
+function boardIcon(v2) {
+  const ops = v2 && lucideIcons()[v2];
+  if (!ops) return escHtml(v2 == null ? "" : v2);
+  const el = ops.map((o) => o.p ? '<path d="' + o.p + '"/>' : o.c ? '<circle cx="' + o.c[0] + '" cy="' + o.c[1] + '" r="' + o.c[2] + '"/>' : o.e ? '<ellipse cx="' + o.e[0] + '" cy="' + o.e[1] + '" rx="' + o.e[2] + '" ry="' + o.e[3] + '"/>' : o.r ? '<rect x="' + o.r[0] + '" y="' + o.r[1] + '" width="' + o.r[2] + '" height="' + o.r[3] + '" rx="' + (o.r[4] || 0) + '"/>' : o.l ? '<line x1="' + o.l[0] + '" y1="' + o.l[1] + '" x2="' + o.l[2] + '" y2="' + o.l[3] + '"/>' : o.pl ? (o.closed ? "<polygon" : "<polyline") + ' points="' + o.pl.map((p2) => p2.join(",")).join(" ") + '"/>' : "").join("");
+  return '<svg class="bd-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + el + "</svg>";
 }
 function renderBoardBlock(b, i2) {
   b = b || {};
@@ -3362,7 +3369,7 @@ function renderBoardBlock(b, i2) {
       break;
     case "cards": {
       const cols = [2, 3, 4].includes(b.columns) ? b.columns : 3;
-      const items = (b.items || []).map((it2) => '<article class="bd-card">' + (it2.icon ? '<div class="bd-card-ic">' + H2(it2.icon) + "</div>" : "") + '<div class="bd-card-b"><h4 class="bd-card-t">' + H2(it2.title) + (it2.badge ? ' <span class="bd-chip">' + H2(it2.badge) + "</span>" : "") + '</h4><p class="bd-card-p">' + H2(it2.body) + "</p></div></article>").join("");
+      const items = (b.items || []).map((it2, k2) => '<article class="bd-card" style="--i:' + k2 + '">' + (it2.icon ? '<div class="bd-card-ic">' + boardIcon(it2.icon) + "</div>" : "") + '<div class="bd-card-b"><h4 class="bd-card-t">' + H2(it2.title) + (it2.badge ? ' <span class="bd-chip">' + H2(it2.badge) + "</span>" : "") + '</h4><p class="bd-card-p">' + H2(it2.body) + "</p></div></article>").join("");
       inner = titleH + '<div class="bd-cards" style="--cols:' + cols + '">' + items + "</div>";
       break;
     }
@@ -3392,12 +3399,12 @@ function renderBoardBlock(b, i2) {
       break;
     }
     case "steps": {
-      const items = (b.items || []).map((it2) => '<li class="bd-step"><div class="bd-step-n"></div><div class="bd-step-b"><h4 class="bd-step-t">' + H2(it2.title) + '</h4><p class="bd-step-p">' + H2(it2.body) + "</p></div></li>").join("");
+      const items = (b.items || []).map((it2, k2) => '<li class="bd-step" style="--i:' + k2 + '"><div class="bd-step-n"></div><div class="bd-step-b"><h4 class="bd-step-t">' + H2(it2.title) + '</h4><p class="bd-step-p">' + H2(it2.body) + "</p></div></li>").join("");
       inner = titleH + '<ol class="bd-steps">' + items + "</ol>";
       break;
     }
     case "stat": {
-      const items = (b.items || []).map((it2) => '<div class="bd-stat"><div class="bd-stat-v">' + H2(it2.value) + '</div><div class="bd-stat-l">' + H2(it2.label) + "</div>" + (it2.hint ? '<div class="bd-stat-h">' + H2(it2.hint) + "</div>" : "") + "</div>").join("");
+      const items = (b.items || []).map((it2, k2) => '<div class="bd-stat" style="--i:' + k2 + '"><div class="bd-stat-v">' + H2(it2.value) + '</div><div class="bd-stat-l">' + H2(it2.label) + "</div>" + (it2.hint ? '<div class="bd-stat-h">' + H2(it2.hint) + "</div>" : "") + "</div>").join("");
       inner = titleH + '<div class="bd-stats">' + items + "</div>";
       break;
     }
@@ -3420,7 +3427,10 @@ function renderBoardBlock(b, i2) {
   return '<section class="' + cls + '" id="' + id + '">' + inner + "</section>";
 }
 function boardRuntime() {
-  return 'function BOARD_NAR(NAR){\n  if(!NAR||!NAR.length) return;\n  var reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;\n  var au=new Audio(), idx=-1, playing=false;\n  var btn=document.querySelector(".bd-explain"), prev=document.querySelector(".bd-prev"),\n      next=document.querySelector(".bd-next"), cnt=document.querySelector(".bd-count");\n  function clear(){ var a=document.querySelectorAll(".active"); for(var i=0;i<a.length;i++) a[i].classList.remove("active"); }\n  function mark(i){ clear(); var el=document.getElementById(NAR[i].id);\n    if(el){ el.classList.add("active"); el.scrollIntoView({behavior:reduce?"auto":"smooth",block:"center"}); }\n    if(cnt) cnt.textContent=(i+1)+" / "+NAR.length; }\n  function setBtn(){ if(btn) btn.textContent=playing?"\u23F8 Pausar":(idx>=0?"\u{1F50A} Continuar":"\u{1F50A} Explicar"); }\n  function play(i){ if(i<0||i>=NAR.length) return; idx=i; mark(i); au.src=NAR[i].audio;\n    au.play().then(function(){ playing=true; setBtn(); }).catch(function(){ playing=false; setBtn(); }); }\n  function pause(){ au.pause(); playing=false; setBtn(); }\n  au.addEventListener("ended", function(){ if(idx+1<NAR.length) play(idx+1); else { playing=false; setBtn(); } });\n  if(btn) btn.addEventListener("click", function(){ if(playing) pause(); else play(idx<0?0:idx); });\n  if(prev) prev.addEventListener("click", function(){ pause(); play(Math.max(0,(idx<0?0:idx)-1)); });\n  if(next) next.addEventListener("click", function(){ pause(); play(Math.min(NAR.length-1,(idx<0?0:idx)+1)); });\n  if(cnt) cnt.textContent="1 / "+NAR.length;\n}';
+  return 'function BOARD_NAR(NAR){\n  if(!NAR||!NAR.length) return;\n  var reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;\n  var au=new Audio(), idx=-1, playing=false;\n  var btn=document.querySelector(".bd-explain"), prev=document.querySelector(".bd-prev"),\n      next=document.querySelector(".bd-next"), cnt=document.querySelector(".bd-count");\n  function clear(){ var a=document.querySelectorAll(".active"); for(var i=0;i<a.length;i++) a[i].classList.remove("active"); }\n  function mark(i){ clear(); var el=document.getElementById(NAR[i].id);\n    if(el){ el.classList.add("active"); el.scrollIntoView({behavior:reduce?"auto":"smooth",block:"center"}); }\n    if(cnt) cnt.textContent=(i+1)+" / "+NAR.length; }\n  function spot(){ document.body.classList.toggle("bd-narrating", playing); }\n  function setBtn(){ spot(); if(btn) btn.textContent=playing?"\u23F8 Pausar":(idx>=0?"\u{1F50A} Continuar":"\u{1F50A} Explicar"); }\n  function fail(e){ playing=false; spot(); console.error("[VXK board] \xE1udio da se\xE7\xE3o "+(idx+1)+" falhou", e); if(btn) btn.textContent="\u26A0 \xC1udio falhou"; }\n  function start(){ au.play().then(function(){ playing=true; setBtn(); }).catch(fail); }\n  function play(i){ if(i<0||i>=NAR.length) return; idx=i; mark(i); au.src=NAR[i].audio; start(); }\n  function pause(){ au.pause(); playing=false; setBtn(); }\n  au.addEventListener("ended", function(){ if(idx+1<NAR.length) play(idx+1); else { playing=false; setBtn(); } });\n  au.addEventListener("error", function(){ fail(au.error); });\n  // Continuar RETOMA o trecho na posi\xE7\xE3o em que pausou (antes: reiniciava a se\xE7\xE3o do zero)\n  if(btn) btn.addEventListener("click", function(){ if(playing) pause(); else if(idx>=0 && au.currentTime>0 && !au.ended) start(); else play(idx<0?0:idx); });\n  if(prev) prev.addEventListener("click", function(){ pause(); play(Math.max(0,(idx<0?0:idx)-1)); });\n  if(next) next.addEventListener("click", function(){ pause(); play(Math.min(NAR.length-1,(idx<0?0:idx)+1)); });\n  if(cnt) cnt.textContent="1 / "+NAR.length;\n  // velocidade: vale tamb\xE9m no trecho em curso e \xE9 lembrada entre explica\xE7\xF5es (mesma chave do vxk-core)\n  var spd=document.querySelector(".bd-spd"), spdv=document.querySelector(".bd-spdv"), rate=1;\n  function setRate(r,restore){ rate=Math.max(0.5,Math.min(2,Math.round(r*10)/10)); au.defaultPlaybackRate=rate; au.playbackRate=rate;\n    if(spd) spd.value=rate; if(spdv) spdv.textContent=rate.toFixed(1)+"\\u00d7"; if(!restore){ try{ localStorage.setItem("vxk.speed", rate); }catch(e){} } }\n  au.addEventListener("loadedmetadata", function(){ au.playbackRate=rate; });\n  if(spd) spd.addEventListener("input", function(){ setRate(+spd.value); });\n  var saved=null; try{ saved=+localStorage.getItem("vxk.speed"); }catch(e){} if(saved>0) setRate(saved, true);\n  // atalhos: Espa\\u00e7o = explicar/pausar \\u00b7 \\u2190/\\u2192 = se\\u00e7\\u00e3o \\u00b7 [ ] = velocidade\n  document.addEventListener("keydown", function(ev){ var tg=ev.target; if(tg && /INPUT|TEXTAREA|SELECT|BUTTON/.test(tg.tagName||"")) return;\n    if(ev.key===" "){ ev.preventDefault(); if(btn) btn.click(); }\n    else if(ev.key==="ArrowRight"){ ev.preventDefault(); if(next) next.click(); }\n    else if(ev.key==="ArrowLeft"){ ev.preventDefault(); if(prev) prev.click(); }\n    else if(ev.key==="["){ setRate(rate-0.1); } else if(ev.key==="]"){ setRate(rate+0.1); } });\n}';
+}
+function boardMotion() {
+  return '(function(){\n  if(matchMedia("(prefers-reduced-motion: reduce)").matches || !("IntersectionObserver" in window)) return;\n  document.documentElement.classList.add("bd-anim");\n  function count(el){ var m=/^(\\d{2,})$/.exec(el.textContent.trim()); if(!m) return; var to=+m[1], from=Math.max(0,Math.round(to*0.6)), t0=performance.now();\n    (function f(t){ var p=Math.min(1,(t-t0)/900), e=1-Math.pow(1-p,3); el.textContent=String(Math.round(from+(to-from)*e)); if(p<1) requestAnimationFrame(f); })(t0); }\n  var io=new IntersectionObserver(function(es){ es.forEach(function(e){ if(!e.isIntersecting) return; e.target.classList.add("in"); io.unobserve(e.target);\n    var v=e.target.querySelectorAll(".bd-stat-v"); for(var i=0;i<v.length;i++) count(v[i]); }); }, { threshold:0.15 });\n  var bl=document.querySelectorAll(".bd-block,.bd-lead"); for(var i=0;i<bl.length;i++) io.observe(bl[i]);\n})();';
 }
 function buildBoard(spec) {
   const css = read(join2(KIT, "board.css"));
@@ -3447,22 +3457,16 @@ function buildBoard(spec) {
   parts.push("</main>");
   parts.push('<footer class="bd-foot"><div class="bd-foot-in">');
   if (narrated) {
-    parts.push('<button class="bd-explain" type="button">\u{1F50A} Explicar</button><div class="bd-nav"><button class="bd-prev" type="button" aria-label="Se\xE7\xE3o anterior">\u25C0</button><span class="bd-count">1 / ' + nar.length + '</span><button class="bd-next" type="button" aria-label="Pr\xF3xima se\xE7\xE3o">\u25B6</button></div>');
+    parts.push('<button class="bd-explain" type="button">\u{1F50A} Explicar</button><div class="bd-nav"><button class="bd-prev" type="button" aria-label="Se\xE7\xE3o anterior">\u25C0</button><span class="bd-count">1 / ' + nar.length + '</span><button class="bd-next" type="button" aria-label="Pr\xF3xima se\xE7\xE3o">\u25B6</button></div><label class="bd-speed">Velocidade <input class="bd-spd" type="range" min="0.5" max="2" step="0.1" value="1"><span class="bd-spdv">1.0\xD7</span></label>');
   }
   parts.push('<span class="bd-sig">' + escHtml(spec.badge || spec.title || "") + "</span>");
   parts.push("</div></footer>");
   parts.push("</div>");
   const head = "<style>" + css + "</style>" + themeStyle(spec._theme) + "<style>:root{--accent:" + accent + ";--accent-2:" + accentLight(accent) + "}</style>" + (spec.css ? "<style>" + spec.css + "</style>" : "");
-  const scripts = narrated ? "<script>" + boardRuntime() + "\nBOARD_NAR(" + JSON.stringify(nar) + ");</script>" : "";
+  const scripts = "<script>" + boardMotion() + "</script>" + (narrated ? "\n<script>" + boardRuntime() + "\nBOARD_NAR(" + JSON.stringify(nar) + ");</script>" : "");
   return page(spec, head, parts.join("\n") + (scripts ? "\n" + scripts : ""));
 }
-async function main() {
-  const specPath = process.argv[2];
-  if (!specPath) {
-    console.error("uso: node build-artifact.mjs <spec.json> [saida.html]");
-    process.exit(1);
-  }
-  const spec = JSON.parse(read(resolve(specPath)));
+function prepareSpec(spec, specPath, log = console.log) {
   resolveTheme(spec, specPath);
   if (spec.story && !spec.layout) spec.layout = { rankdir: typeof spec.story === "object" && spec.story.rankdir || "LR" };
   if (spec.story) {
@@ -3476,13 +3480,25 @@ async function main() {
     }
   }
   const lay = applyAutoLayout(spec);
-  if (lay.applied) console.log("layout: dagre " + lay.rankdir + " -> " + lay.nodesPlaced + " n\xF3s posicionados, " + lay.edgesGenerated + " arestas geradas");
+  if (lay.applied) log("layout: dagre " + lay.rankdir + " -> " + lay.nodesPlaced + " n\xF3s posicionados, " + lay.edgesGenerated + " arestas geradas");
   const story = spec.explode ? { applied: false } : buildStorySteps(spec);
-  if (story.applied) console.log("story: coreografia gerada -> " + story.steps + " passos (build-up + recap)");
+  if (story.applied) log("story: coreografia gerada -> " + story.steps + " passos (build-up + recap)");
   const expl = buildExplodeScenes(spec);
-  if (expl.applied) console.log("explode: vista explodida -> " + expl.layers + " camadas, " + expl.steps + " passos (" + (expl.iso ? "iso" : "flat") + ")");
-  await synthNarration(spec);
+  if (expl.applied) log("explode: vista explodida -> " + expl.layers + " camadas, " + expl.steps + " passos (" + (expl.iso ? "iso" : "flat") + ")");
   const engine = spec.engine || "vxk";
+  if (engine === "konva" && spec.mode !== "board" && Array.isArray(spec.scenes) && spec.scenes.length)
+    throw new Error('engine "konva" n\xE3o suporta scenes/steps (a narra\xE7\xE3o por passo sairia muda). Use o engine vxk para coreografia de passos.');
+  return engine;
+}
+async function main() {
+  const specPath = process.argv[2];
+  if (!specPath) {
+    console.error("uso: node build-artifact.mjs <spec.json> [saida.html]");
+    process.exit(1);
+  }
+  const spec = JSON.parse(read(resolve(specPath)));
+  const engine = prepareSpec(spec, specPath);
+  await synthNarration(spec);
   let html;
   if (spec.mode === "board") {
     html = buildBoard(spec);
@@ -3490,7 +3506,6 @@ async function main() {
     html = engine === "konva" ? buildKonva(spec) : buildVxk(spec);
   }
   if (wantsNarration(spec) && process.env.VXK_ALLOW_SILENT !== "1") {
-    if (engine === "konva") throw new Error('gate de \xE1udio: narra\xE7\xE3o ainda N\xC3O \xE9 suportada no engine "konva" (o player konva n\xE3o reproduz os clipes). Use o engine vxk (padr\xE3o) ou VXK_ALLOW_SILENT=1.');
     const clips = collectAudioClips(spec._audio).filter(isRealAudioClip);
     if (clips.length === 0) throw new Error("gate de \xE1udio: a spec quer narra\xE7\xE3o mas NENHUM clipe real foi assado (data:audio vazio/ausente). Motor de voz falhou ou o pipeline n\xE3o assou. Mudo deliberado: VXK_ALLOW_SILENT=1.");
     if (!/data:audio\/(ogg|mpeg|wav);base64,[A-Za-z0-9+/]{100,}/.test(html)) throw new Error("gate de \xE1udio: clipes assados n\xE3o foram embutidos no HTML (regress\xE3o de build). Mudo deliberado: VXK_ALLOW_SILENT=1.");
@@ -3505,10 +3520,14 @@ async function main() {
   const tag = spec.mode === "board" ? "mode=board, blocos=" + (spec.blocks || []).length : "engine=" + engine + ", componentes=" + [...new Set((spec.nodes || []).map((n) => n.type))].join(",");
   console.log("OK  " + out + "  (" + Buffer.byteLength(html, "utf8") + " bytes, " + tag + (spec._audio ? ", narrado" : "") + ")");
 }
-main().catch((err2) => {
-  console.error("ERRO  " + (err2 && err2.message || err2));
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href)
+  main().catch((err2) => {
+    console.error("ERRO  " + (err2 && err2.message || err2));
+    process.exit(1);
+  });
+export {
+  prepareSpec
+};
 /*! Bundled license information:
 
 @dagrejs/dagre/dist/dagre.esm.js:

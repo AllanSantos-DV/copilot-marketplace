@@ -31,10 +31,44 @@ Ambos produzem **1 arquivo self-contained** (o builder inlina tudo) com a perfor
   "slug": "orbitas",           // nome do arquivo de saída
   "accent": "#5b8cff",         // cor de destaque
   "intro": "...",              // texto inicial do painel
-  "nodes": [ /* vxk: {type, ...params, label, info} | konva: {id,label,x?,y?,r?,color,info} */ ],
+  "narrate": true,             // OPCIONAL: liga a narração assada (voz) no build
+  "voice": "vits-piper-pt_BR-faber-medium", // OPCIONAL: voz do motor (default: a do motor)
+  "nodes": [ /* vxk: {type, ...params, label, info, narration?} | konva: {id,label,x?,y?,r?,color,info,narration?} */ ],
   "edges": [ /* só konva: {from, to, label?} */ ]
 }
 ```
+
+## Narração por voz (assada/offline)
+
+Se a spec tiver `"narrate": true` (ou um `"voice"`), o builder sintetiza a fala no **motor único
+de voz (vox-engine)** durante o build e **embute o áudio (opus, base64)** no próprio HTML — continua
+sendo **1 arquivo self-contained e offline**, que narra em qualquer lugar sem daemon.
+
+- **O que é falado:** o `intro` + a narração de cada nó, na ordem. Por nó, usa `node.narration` se
+  existir, senão cai para `node.info`.
+- **Voz:** o motor **já expõe o catálogo** (`info().tts_voices` + `default_voice`). Sem `voice`, usa a
+  padrão do motor. Se a `voice` pedida não estiver instalada, o builder avisa e usa a padrão.
+- **No HTML:** aparece o botão **🔊 Narrar** — um *tour guiado* que fala o intro e percorre cada nó
+  **destacando** e mostrando a info enquanto narra (avança sozinho ao fim de cada trecho). **Clicar**
+  num nó toca a narração dele.
+- **Sem daemon no build:** o builder **avisa e gera o HTML sem áudio** (o visual continua). Suba o
+  daemon `vox` e rebuilde para assar a narração.
+
+Requer o daemon vox no ar **no momento do build** (o `build-artifact.mjs` conecta no named pipe e
+chama `tts`). Ex.: `node build-artifact.mjs specs/orbitas-narrado.json`.
+
+## Controles no HTML
+
+- **Atalhos:** `Espaço` pausa/toca · `←`/`→` passo (ou seção, no board) · `Home`/`End` primeiro/último
+  passo · `[`/`]` velocidade · `C` legenda.
+- **Legenda (CC):** mostra o texto da narração junto com o áudio (nos passos sem áudio ele já aparece).
+- **Link para um passo:** `arquivo.html#passo=4` abre direto no passo 4; o endereço acompanha a navegação.
+- **Preferências:** velocidade e legenda ficam lembradas entre explicações (localStorage do navegador).
+- **Barra lateral:** acompanha o passo (título + texto narrado); clicar num nó/mensagem vai ao passo dele e toca o áudio.
+- **Konva:** com narração, o botão **🔊 Narrar** faz o tour (intro + cada nó) e clicar num nó toca a dele. Cada nó mostra o
+  papel (ícone + subtítulo), as arestas o que trafega, e a seleção acende os vizinhos e lista as conexões na lateral.
+  O konva não tem coreografia de passos: spec konva com `scenes` é recusada no build.
+- **Board:** ícones Lucide nos cards, seções entram ao rolar, números contam e a narração põe holofote na seção ativa.
 
 ## Rodar
 
@@ -43,6 +77,23 @@ node build-artifact.mjs specs/orbitas.json          # -> Desktop\visual-explanat
 node build-artifact.mjs specs/grafo.json            # motor konva
 node build-artifact.mjs specs/orbitas.json out.html # saída explícita
 ```
+
+## Validar e publicar (release)
+
+Este repositório é a **origem** do plugin `visual-explainer`; o `copilot-marketplace` só recebe a
+cópia empacotada. O release é um comando:
+
+```sh
+npm run smoke                      # create/draw/hit de todas as specs (offline, sem navegador)
+node tools/vend.mjs 0.3.2          # empacota e vende no ../copilot-marketplace (--marketplace <dir>, --dry-run)
+```
+
+O `vend` empacota o builder com esbuild (standalone), espelha `kit/`, `templates/`, este README e
+`agent/visual-explainer.agent.md` no payload, sobe a versão nos 3 lugares (`plugin.json`,
+`VXK_VERSION` do `boot.mjs`, `marketplace.json`), builda uma spec com o pacote vendado, regenera a
+vitrine e roda o `gate.mjs check`. **Não commita nem dá push**: depois dele, revise a página
+(agente `vitrine`), rode `node docs/gate.mjs mark visual-explainer` e commite no marketplace — o
+commit em `main` é a publicação.
 
 ## Crescer o design system (componentes VXK)
 

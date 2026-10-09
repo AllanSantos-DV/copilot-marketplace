@@ -16,13 +16,7 @@ VXK.register('stat', {
     const col=n.color||'#38bdf8', rgb=M.hex2rgb(col), L=x-w/2, T=y-h/2;
     ctx.save();
     // glow de seleção (gradiente cacheado)
-    if(selected && !e.lite){
-      const gsig=col+'|'+w+'|'+h;
-      if(inst.gsig!==gsig){ inst.gsig=gsig; const R=Math.max(w,h)*0.72;
-        const g=ctx.createRadialGradient(0,0,Math.min(w,h)*0.26, 0,0,R);
-        g.addColorStop(0,M.rgba(rgb,0.24)); g.addColorStop(1,M.rgba(rgb,0)); inst.glow=g; inst.glowR=R; }
-      ctx.save(); ctx.translate(x,y); ctx.beginPath(); ctx.arc(0,0,inst.glowR,0,6.2832); ctx.fillStyle=inst.glow; ctx.fill(); ctx.restore();
-    }
+    if(selected && !e.lite) M.selGlow(ctx, inst, x, y, w, h, rgb, 0.26, 0.72, 0.24);
     // painel + borda
     M.roundRectPath(ctx,L,T,w,h,rad); ctx.fillStyle='rgba(15,22,37,0.93)'; ctx.fill();
     M.roundRectPath(ctx,L,T,w,h,rad); ctx.strokeStyle=selected?'#ffffff':M.rgba(rgb,0.5); ctx.lineWidth=(selected?2.2:1.3)/z; ctx.stroke();

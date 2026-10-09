@@ -10,6 +10,11 @@
   function register(type, def){ registry[type] = def; }
 
   function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+  // preferências do leitor (velocidade, legenda) entre explicações; sem storage (modo privado/bloqueado) vira no-op
+  const store = {
+    get(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } },
+    set(k, v){ try{ localStorage.setItem(k, String(v)); }catch(e){} }
+  };
 
   /* =====================================================================
      Profundidade — cor + luz + MATERIAIS compartilhados (VXK.mat).
@@ -40,6 +45,7 @@
 
   function roundRectPath(ctx,L,T,w,h,r){ ctx.beginPath(); ctx.moveTo(L+r,T); ctx.arcTo(L+w,T,L+w,T+h,r); ctx.arcTo(L+w,T+h,L,T+h,r); ctx.arcTo(L,T+h,L,T,r); ctx.arcTo(L,T,L+w,T,r); ctx.closePath(); }
 
+  const GLOW = new WeakMap();                          // ctx -> Map(cor|raio -> gradiente) do mat.glow
   const mat = {
     light: LIGHT, hex2rgb, shade, rgba, hexLerp,
     // sombra de contato macia (elipse achatada) sob um objeto no "chão" da cena
@@ -52,10 +58,12 @@
       ctx.beginPath(); ctx.arc(x,y,r,0,6.2832); ctx.fillStyle=color; ctx.fill();
     },
     // halo emissivo (estrela, partícula quente)
-    glow(ctx, x, y, r, color, k){
-      const rgb=hex2rgb(color), R=r*(k||3);
-      const g=ctx.createRadialGradient(x,y,r*0.2,x,y,R); g.addColorStop(0,rgba(rgb,0.5)); g.addColorStop(0.4,rgba(rgb,0.16)); g.addColorStop(1,rgba(rgb,0));
-      ctx.beginPath(); ctx.arc(x,y,R,0,6.2832); ctx.fillStyle=g; ctx.fill();
+    glow(ctx, x, y, r, color, k){                         // gradiente na ORIGEM, cacheado por contexto+cor+raio; posição = translate
+      const R=r*(k||3), key=color+'|'+r+'|'+R;
+      let cache=GLOW.get(ctx); if(!cache){ cache=new Map(); GLOW.set(ctx,cache); }
+      let g=cache.get(key);
+      if(!g){ const rgb=hex2rgb(color); g=ctx.createRadialGradient(0,0,r*0.2,0,0,R); g.addColorStop(0,rgba(rgb,0.5)); g.addColorStop(0.4,rgba(rgb,0.16)); g.addColorStop(1,rgba(rgb,0)); cache.set(key,g); }
+      ctx.save(); ctx.translate(x,y); ctx.beginPath(); ctx.arc(0,0,R,0,6.2832); ctx.fillStyle=g; ctx.fill(); ctx.restore();
     },
     // slab CHAPADO: retângulo arredondado preenchido + borda fina (sem sombra/gradiente/realce)
     slab(ctx, x, y, w, h, r, color, e, selected){
@@ -99,6 +107,22 @@
       roundRectPath(ctx, cx-box/2, cy-box/2, box, box, r); ctx.fillStyle=rgba(rgb,0.15); ctx.fill();
       roundRectPath(ctx, cx-box/2, cy-box/2, box, box, r); ctx.strokeStyle=rgba(rgb,0.32); ctx.lineWidth=1*k; ctx.stroke();
       if(typeof VXK!=='undefined' && VXK.drawIcon && VXK.hasIcon && VXK.hasIcon(icon)) VXK.drawIcon(ctx, icon, cx, cy, size, accent, 1.5*k);
+    },
+    // GLOW de seleção atrás de um cartão: radialGradient CACHEADO no inst (recria só se cor/tamanho mudam)
+    // e desenhado por translate — sem shadowBlur, sem gradiente por frame. inner/outer = frações de min/max(w,h).
+    selGlow(ctx, inst, x, y, w, h, rgb, inner, outer, alpha){
+      const gsig=rgb.join(',')+'|'+w+'|'+h;
+      if(inst.gsig!==gsig){ inst.gsig=gsig; const R=Math.max(w,h)*outer;
+        const g=ctx.createRadialGradient(0,0,Math.min(w,h)*inner, 0,0,R);
+        g.addColorStop(0,rgba(rgb,alpha)); g.addColorStop(1,rgba(rgb,0)); inst.glow=g; inst.glowR=R; }
+      ctx.save(); ctx.translate(x,y); ctx.beginPath(); ctx.arc(0,0,inst.glowR,0,6.2832); ctx.fillStyle=inst.glow; ctx.fill(); ctx.restore();
+    },
+    // HIT retangular em torno do centro (x,y), escalado por n.scale: meia-largura `hw`, `top` acima e
+    // `bottom` abaixo. Acertou -> {label,info,color} do nó (com os defaults do componente); senão false.
+    rectHit(n, wx, wy, hw, top, bottom, def){
+      const x=Number.isFinite(n.x)?n.x:0, y=Number.isFinite(n.y)?n.y:0, s=n.scale||1;
+      const inside=wx>=x-hw*s && wx<=x+hw*s && wy>=y-top*s && wy<=y+bottom*s;
+      return inside ? { label:n.label||def.label, info:n.info||'', color:n.color||def.color } : false;
     },
     roundRectPath
   };
@@ -203,7 +227,7 @@
       const foc = step && step.focusSet ? step.focusSet() : null;
       const order = nodes.slice().reverse();
       if(foc && foc.size) order.sort((a,b)=> ((foc.has(b.id)?1:0)-(foc.has(a.id)?1:0)));
-      for(const n of order){ const c=registry[n.type]; if(!c || !c.hit) continue; if(step && step.opacityOf(n)<=0.02) continue; const hr=c.hit(n._inst, n, wx, wy, e); if(hr){ sel=n; showInfo(hr===true ? n : hr); if(narrate){ narrate.playNode(nodes.indexOf(n)); } return; } }
+      for(const n of order){ const c=registry[n.type]; if(!c || !c.hit) continue; if(step && step.opacityOf(n)<=0.02) continue; const hr=c.hit(n._inst, n, wx, wy, e); if(hr){ sel=n; showInfo(hr===true ? n : hr); if(step){ step.playNodeStep(n.id); } else if(narrate){ narrate.playNode(nodes.indexOf(n)); } return; } }   // com passos, o áudio do nó é o do passo que o foca (_audio.nodes fica vazio)
       drag={x:mx-panX,y:my-panY}; cv.setPointerCapture(ev.pointerId);
     });
     cv.addEventListener('pointermove', ev=>{ if(!drag) return; const r=cv.getBoundingClientRect(); panX=(ev.clientX-r.left)-drag.x; panY=(ev.clientY-r.top)-drag.y; });
@@ -212,12 +236,37 @@
       const r=cv.getBoundingClientRect(), mx=ev.clientX-r.left-cx, my=ev.clientY-r.top-cy;
       panX=mx-(mx-panX)*f; panY=my-(my-panY)*f; zoom=Math.max(.4,Math.min(3,zoom*f)); },{passive:false});
 
-    q('play').onclick=e=>{ playing=!playing; e.target.textContent=playing?'⏸ Pausar':'▶ Tocar'; };
+    // TRANSPORTE ÚNICO: Pausar/velocidade valem para TUDO que corre no tempo —
+    // relógio ambiente, transições/auto-avanço dos passos e o áudio da narração.
+    function setPlaying(p){
+      playing=!!p; const pb=q('play'); if(pb) pb.textContent=playing?'⏸ Pausar':'▶ Tocar';
+      if(step) step.onPlaying(playing); if(narrate) narrate.onPlaying(playing);
+    }
+    function setSpeed(s){
+      speed=Math.max(0.2, Math.min(3, Math.round(s*10)/10)); q('spd').value=speed; q('spdv').textContent=speed.toFixed(1)+'×';
+      if(step) step.onSpeed(speed); if(narrate) narrate.onSpeed(speed);
+      store.set('vxk.speed', speed);                    // a velocidade escolhida vale para as próximas explicações
+    }
+    // o load de um src novo volta playbackRate ao default → fixa os dois
+    function applyRate(au){ au.defaultPlaybackRate=speed; au.playbackRate=speed; }
+    // fail-loud: áudio que não toca é ERRO visível, nunca um passo pulado em silêncio
+    function audioError(where, err){
+      const msg='⚠ áudio '+where+' falhou: '+((err&&(err.message||err.name))||'erro de mídia');
+      console.error('[VXK] '+msg, err); return msg;
+    }
+    q('play').onclick=()=>setPlaying(!playing);
     q('reset').onclick=()=>{ t=0; sel=null; showInfo(null); if(step){ step.reset(); } else { zoom=1; panX=0; panY=0; rot=0; } };
-    q('spd').oninput=e=>{ speed=+e.target.value; q('spdv').textContent=speed.toFixed(1)+'×'; };
+    q('spd').oninput=e=>setSpeed(+e.target.value);
     q('zin').onclick=()=>{ zoom=Math.min(3,zoom*1.2); };
     q('zout').onclick=()=>{ zoom=Math.max(.4,zoom/1.2); };
     document.addEventListener('visibilitychange', ()=>{ last=0; acc=0; });
+    // atalhos do transporte: Espaço = pausar/tocar · [ ] = velocidade (←/→/Home/End ficam no step engine)
+    document.addEventListener('keydown', ev => {
+      const tg=ev.target; if(tg && /INPUT|TEXTAREA|SELECT|BUTTON/.test(tg.tagName||'')) return;   // botão focado já trata o Espaço
+      if(ev.key===' '){ ev.preventDefault(); setPlaying(!playing); }
+      else if(ev.key==='['){ setSpeed(speed-0.1); }
+      else if(ev.key===']'){ setSpeed(speed+0.1); }
+    });
 
     // ---- narração assada (spec._audio): tour guiado + clique-pra-ouvir ----
     // O áudio é embutido em base64 pelo builder (motor único vox-engine). O
@@ -228,19 +277,24 @@
     const A = spec._audio;
     if(A){
       const au = new Audio();
-      let touring = false;
+      let touring = false, clipActive = false;          // clipActive: há um trecho em curso (tocando OU pausado)
       const nbtn = () => q('narrate');
       const setBtn = txt => { const b=nbtn(); if(b) b.textContent=txt; };
-      function stopNarr(){ touring=false; au.onended=null; try{ au.pause(); }catch(e){} setBtn('🔊 Narrar'); }
+      function stopNarr(){ touring=false; clipActive=false; au.onended=null; au.onerror=null; try{ au.pause(); }catch(e){} setBtn('🔊 Narrar'); }
+      function failNarr(err){ const m=audioError('da narração', err); stopNarr(); iTxt.textContent=m; }
+      function startClip(uri){
+        clipActive=true; au.src=uri; applyRate(au);
+        au.onerror = () => failNarr(au.error);
+        const p=au.play(); if(p && p.catch) p.catch(failNarr);
+      }
       const playURI = uri => new Promise(res => {
         if(!uri){ res(); return; }
-        au.onended = () => res(); au.onerror = () => res();
-        au.src = uri; const p = au.play(); if(p && p.catch) p.catch(()=>res());
+        au.onended = () => { clipActive=false; res(); };
+        startClip(uri);                                 // pausado, o 'ended' só chega depois do resume
       });
       async function tourRun(){
         touring=true; setBtn('⏹ Parar');
-        playing=true;                                   // narrar toca a animação junto
-        { const pb=q('play'); if(pb) pb.textContent='⏸ Pausar'; }
+        setPlaying(true);                               // narrar toca a animação junto
         sel=null; showInfo(null);
         if(A.intro){ await playURI(A.intro); if(!touring) return; }
         for(let i=0;i<nodes.length;i++){
@@ -253,13 +307,17 @@
       }
       function playNode(i){
         const uri = A.nodes && A.nodes[i]; if(!uri) return false;
-        touring=false; au.onended=null;   // clique interrompe o tour
+        touring=false; au.onended=()=>{ clipActive=false; };   // clique interrompe o tour
         setBtn('🔊 Narrar');
-        au.src = uri; const p = au.play(); if(p && p.catch) p.catch(()=>{});
+        startClip(uri); setPlaying(true);
         return true;
       }
       const nb = nbtn(); if(nb) nb.onclick = () => { if(touring) stopNarr(); else tourRun(); };
-      narrate = { playNode };
+      narrate = {
+        playNode,
+        onPlaying(p){ if(!clipActive) return; if(p){ const r=au.play(); if(r && r.catch) r.catch(failNarr); } else au.pause(); },
+        onSpeed(){ applyRate(au); }
+      };
     }
 
     // =================================================================
@@ -337,9 +395,12 @@
       }
 
       const A = spec._audio, au = new Audio();
-      let explaining = false, advTimer = null;
-      let freeRun = null, frFrames = [], frIdx = 0, frDwell = 0.6, freeTimer = null, freeAudioDone = false;   // fluxo completo (loop sem pausas)
-      function clearFree(){ if(freeTimer){ clearTimeout(freeTimer); freeTimer=null; } }
+      let explaining = false, clipActive = false, pendingNarr = false, hearing = false, introPending = false;
+      // esperas VIRTUAIS (s de apresentação): correm no tick só com `playing`, escaladas por `speed`
+      // — é o que faz Pausar congelar o auto-avanço e a velocidade acelerá-lo (setTimeout ignorava os dois)
+      let advWait = null, freeWait = null;
+      let freeRun = null, frFrames = [], frIdx = 0, frDwell = 0.6, freeAudioDone = false;   // fluxo completo (loop sem pausas)
+      function clearFree(){ freeWait=null; }
 
       // ---------- HUD (DOM, estilizado como o rodapé) ----------
       const stage = root.querySelector('.vxk-stage'), footer = root.querySelector('.vxk-footer');
@@ -351,7 +412,14 @@
       const bPrev = document.createElement('button'); bPrev.className='ghost'; bPrev.textContent='◀'; bPrev.title='Passo anterior (←)';
       const cnt = document.createElement('span'); cnt.className='vxk-stepcount';
       const bNext = document.createElement('button'); bNext.className='ghost'; bNext.textContent='▶'; bNext.title='Próximo passo (→)';
-      nav.append(bExplain, bPrev, cnt, bNext);
+      const bHear = (A && A.steps) ? document.createElement('button') : null;   // áudio SÓ deste passo (sem avançar)
+      if(bHear){ bHear.className='ghost'; bHear.textContent='🔊 Ouvir passo'; bHear.title='Tocar a narração só deste passo'; }
+      // legenda junto com o áudio (sem áudio a narração já aparece sempre); lembrada entre explicações
+      let ccOn = store.get('vxk.cc')==='1';
+      const bCC = (A && A.steps) ? document.createElement('button') : null;
+      function setCC(on){ ccOn=on; store.set('vxk.cc', on?'1':'0'); if(bCC){ bCC.className=on?'':'ghost'; bCC.setAttribute('aria-pressed', on?'true':'false'); } updateHUD(); }
+      if(bCC){ bCC.textContent='CC'; bCC.title='Legenda da narração (C)'; bCC.onclick=()=>setCC(!ccOn); }
+      nav.append(bExplain, bPrev, cnt, bNext); if(bHear) nav.append(bHear); if(bCC) nav.append(bCC);
       if(footer) footer.insertBefore(nav, footer.firstChild);
 
       function firstLine(s){ const m=String(s||'').trim().split(/(?<=[.!?])\s|—|–|\n/)[0]; return (m||'').slice(0,80); }
@@ -361,9 +429,16 @@
         cnt.textContent = (cur+1)+' / '+N;
         if(stage && st.accent) stage.style.borderTopColor = st.accent;   // faixa de accent por seção (pesquisa)
         const hasAudio = !!(A && A.steps && A.steps[cur]);
-        if(st.narration && !hasAudio){ capEl.textContent = st.narration; capEl.style.display=''; }
+        // barra lateral = legenda do passo: título + o texto narrado (antes ficava parada na intro)
+        iTtl.textContent = titleEl.textContent;
+        iTxt.textContent = st.narration || st.info || spec.intro || '';
+        const fn = st.focus && st.focus[0] && byId[st.focus[0]];
+        sw.style.background = st.accent || (fn && (fn.accent || fn.iconColor || fn.color)) || 'var(--vxk-accent)';
+        if(st.narration && (!hasAudio || ccOn)){ capEl.textContent = st.narration; capEl.style.display=''; }
         else { capEl.style.display='none'; }
         bPrev.disabled = (cur<=0); bNext.disabled = (cur>=N-1);
+        if(bHear) bHear.disabled = !hasAudio;
+        if(N>1){ try{ history.replaceState(null, '', '#passo='+(cur+1)); }catch(e){} }   // link direto para este passo
       }
 
       // Entra num passo: fotografa o estado atual (from) e carrega o alvo (to);
@@ -442,12 +517,14 @@
         dimAlpha=dimTarget; annAlpha=1;
       }
 
+      function runWait(w, dt){ if(!w) return w; w.left -= dt; if(w.left<=0){ w.fn(); return null; } return w; }
       function tick(dt){
         uiClock += dt;                          // relógio de UI: avança SEMPRE (mesmo pausado) — pop de entrada nunca congela
+        if(playing){ const pd=dt*speed; advWait=runWait(advWait, pd); freeWait=runWait(freeWait, pd); }
         if(!transitioning) return;
-        elapsed += dt;
+        elapsed += dt*speed;                    // transições seguem a velocidade (e andam pausadas: ◀/▶ manual nunca trava no meio)
         if(elapsed >= maxDur){ elapsed=maxDur; transitioning=false; applyProgress(); commitProps();
-          if(freeRun){ clearFree(); if(explaining && !freeAudioDone){ playFree(); freeAudioDone=true; } freeTimer=setTimeout(freeStep, frDwell*1000); }
+          if(freeRun){ clearFree(); if(explaining && !freeAudioDone){ playFree(); freeAudioDone=true; } freeWait={ left:frDwell, fn:freeStep }; }
           else if(explaining) playThenAdvance();
         }
         else applyProgress();
@@ -466,27 +543,75 @@
       }
 
       // ---------- narração por passo / autoplay ----------
-      function stopAudio(){ try{ au.pause(); }catch(e){} au.onended=null; if(advTimer){ clearTimeout(advTimer); advTimer=null; } }
+      function stopAudio(){
+        try{ au.pause(); }catch(e){} au.onended=null; au.onerror=null;
+        clipActive=false; pendingNarr=false; advWait=null;
+        if(hearing){ hearing=false; if(bHear) bHear.textContent='🔊 Ouvir passo'; }
+      }
+      function failAudio(err){                  // fail-loud: para tudo e MOSTRA o erro (antes: pulava o passo calado)
+        const m=audioError('do passo '+(cur+1), err);
+        stopExplain(); capEl.textContent=m; capEl.style.display='';
+      }
+      function playClip(uri, onEnd){            // toca um clipe na velocidade atual; pausado, só arma (o resume dá o play)
+        clipActive=true; au.src=uri; applyRate(au);
+        au.onended=()=>{ au.onended=null; clipActive=false; if(onEnd) onEnd(); };
+        au.onerror=()=>failAudio(au.error);
+        if(playing){ const p=au.play(); if(p&&p.catch) p.catch(failAudio); }
+      }
       function playThenAdvance(){
         stopAudio();
+        if(!playing){ pendingNarr=true; return; }            // pausado ao chegar no passo: narra no resume
+        if(introPending && cur===0 && A && A.intro){          // explicação do começo: a intro abre, depois o passo 1
+          introPending=false;
+          iTtl.textContent=spec.title||''; iTxt.textContent=spec.intro||'';
+          if(ccOn && spec.intro){ capEl.textContent=spec.intro; capEl.style.display=''; }
+          playClip(A.intro, () => { if(!explaining) return; updateHUD(); playThenAdvance(); });
+          return;
+        }
+        introPending=false;
         const advance = () => { if(!explaining) return; if(cur < N-1) go(cur+1); else stopExplain(); };
         const uri = A && A.steps && A.steps[cur];
-        if(uri){ au.src=uri; au.onended=()=>{ au.onended=null; advance(); }; const p=au.play(); if(p&&p.catch) p.catch(()=>{ advTimer=setTimeout(advance,1300); }); }
-        else { const s=(steps[cur].autoAdvance!=null?steps[cur].autoAdvance:2.4); advTimer=setTimeout(advance, Math.max(300, s*1000*(reduce?0.6:1))); }
+        if(uri) playClip(uri, advance);
+        else { const s=(steps[cur].autoAdvance!=null?steps[cur].autoAdvance:2.4); advWait={ left:Math.max(0.3, s*(reduce?0.6:1)), fn:advance }; }
       }
-      function playFree(){ stopAudio(); const uri=A && A.steps && A.steps[cur]; if(uri){ au.src=uri; au.onended=null; const p=au.play(); if(p&&p.catch) p.catch(()=>{}); } }
-      function startExplain(){ explaining=true; playing=true; { const pb=q('play'); if(pb) pb.textContent='⏸ Pausar'; } bExplain.textContent='⏹ Parar'; if(cur!==0) go(0); else playThenAdvance(); }
-      function stopExplain(){ explaining=false; stopAudio(); bExplain.textContent=(A && A.steps)?'▶ Explicar':'▶ Reproduzir'; }
-      function go(i){ stopAudio(); beginTransition(i, false); }               // interno (mantém o autoplay)
-      function manualGo(i){ if(explaining) stopExplain(); go(i); }            // usuário (interrompe o autoplay)
+      function playFree(){ stopAudio(); const uri=A && A.steps && A.steps[cur]; if(uri) playClip(uri, null); }
+      function hearStep(){                      // 🔊 só a narração do passo atual, sem auto-avanço
+        if(hearing){ stopAudio(); return; }
+        const uri=A && A.steps && A.steps[cur]; if(!uri) return;
+        if(explaining) stopExplain();
+        stopAudio(); setPlaying(true);
+        hearing=true; bHear.textContent='⏹ Parar áudio';
+        playClip(uri, ()=>{ hearing=false; bHear.textContent='🔊 Ouvir passo'; });
+      }
+      function playNodeStep(id){                // clique num nó: vai ao passo que o FOCA e toca o áudio dele
+        const i = steps.findIndex(s => s.focus && s.focus.indexOf(id) >= 0);
+        if(i < 0) return false;
+        if(explaining) stopExplain();
+        go(i);
+        if(A && A.steps && A.steps[i]) hearStep();
+        return true;
+      }
+      function startExplain(){                 // explica A PARTIR do passo atual (no último, recomeça do início)
+        explaining=true; bExplain.textContent='⏹ Parar'; setPlaying(true);
+        introPending = (cur===0 || cur>=N-1);                  // começando (ou recomeçando) do início: a intro abre
+        if(cur>=N-1 && N>1) go(0);
+        else if(!transitioning) playThenAdvance();           // em transição, o fim dela já chama playThenAdvance
+      }
+      function stopExplain(){ explaining=false; introPending=false; stopAudio(); bExplain.textContent=(A && A.steps)?'▶ Explicar':'▶ Reproduzir'; }
+      function go(i){ stopAudio(); beginTransition(i, false); }               // mantém o autoplay: explicando, ◀/▶ narra o passo de destino
+      function manualGo(i){ go(i); }
 
       bPrev.onclick = () => manualGo(cur-1);
       bNext.onclick = () => manualGo(cur+1);
       bExplain.onclick = () => { if(explaining) stopExplain(); else startExplain(); };
+      if(bHear) bHear.onclick = hearStep;
       document.addEventListener('keydown', ev => {
         const tg=ev.target; if(tg && /INPUT|TEXTAREA|SELECT/.test(tg.tagName||'')) return;
         if(ev.key==='ArrowRight'){ ev.preventDefault(); manualGo(cur+1); }
         else if(ev.key==='ArrowLeft'){ ev.preventDefault(); manualGo(cur-1); }
+        else if(ev.key==='Home'){ ev.preventDefault(); manualGo(0); }
+        else if(ev.key==='End'){ ev.preventDefault(); manualGo(N-1); }
+        else if((ev.key==='c'||ev.key==='C') && bCC){ setCC(!ccOn); }
       });
 
       // ---------- overlay: dim + re-desenho de foco + anotações ----------
@@ -577,7 +702,9 @@
       }
 
       function reset(){ stopExplain(); beginTransition(0, true); }
-      beginTransition(0, true);                                                // arranca no passo 0 (imediato)
+      const linked = /(?:^|[#&])passo=(\d+)/.exec(location.hash||'');            // #passo=N (1-based) abre direto nesse passo
+      beginTransition(linked ? Math.min(N, Math.max(1, +linked[1]))-1 : 0, true);   // arranca imediato (passo 0 sem link)
+      if(bCC) setCC(ccOn);                                                     // aplica o estado lembrado ao botão
       const idle = tt => { if(reduce) return {z:1,x:0,y:0,r:0}; return {
         z: 1 + 0.006*Math.sin(tt*0.5),
         x: 2.6*Math.sin(tt*0.31),
@@ -588,11 +715,18 @@
         entryScaleOf: n => (n.id!=null ? entryScaleOf(n.id) : 1),
         focusSet: () => activeFocus,
         drawOverlay, tick, reset, idle,
-        forward: () => manualGo(cur+1), back: () => manualGo(cur-1), jumpTo: manualGo
+        onPlaying(p){                                          // Pausar/Tocar: congela/retoma o clipe NA POSIÇÃO (não reinicia)
+          if(p){ if(pendingNarr && explaining){ pendingNarr=false; playThenAdvance(); }
+                 else if(clipActive){ const r=au.play(); if(r&&r.catch) r.catch(failAudio); } }
+          else if(clipActive) au.pause();
+        },
+        onSpeed(){ applyRate(au); },
+        forward: () => manualGo(cur+1), back: () => manualGo(cur-1), jumpTo: manualGo, playNodeStep
       };
     }
     if(spec.scenes && spec.scenes.length) step = mountStepEngine();
-    draw();                                                     // primeiro paint imediato — não depende do 1º quadro do rAF (evita tela vazia)
+    { const s=+store.get('vxk.speed'); if(s>=0.2 && s<=3 && s!==1) setSpeed(s); }   // velocidade lembrada (depois do step/narração: propaga aos dois)
+    draw();                                                    // primeiro paint imediato — não depende do 1º quadro do rAF (evita tela vazia)
 
     return { get selection(){ return sel; }, get time(){ return t; } };
   }

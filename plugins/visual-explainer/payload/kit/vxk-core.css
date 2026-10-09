@@ -63,5 +63,13 @@ html,body{margin:0;height:100%;color:var(--vxk-txt);font-family:"Segoe UI",syste
   border-radius:10px;box-shadow:var(--vxk-shadow);pointer-events:none;z-index:3}
 .vxk-stepnav{gap:7px}
 .vxk-stepcount{display:inline-block;min-width:54px;text-align:center;font-variant-numeric:tabular-nums;color:var(--vxk-muted)}
+/* lateral do grafo: com quem o nó selecionado fala (clicável) */
+.vxk-links{margin-top:14px;display:flex;flex-direction:column;gap:6px}
+.vxk-links-h{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--vxk-muted);margin-bottom:2px}
+.vxk-link{all:unset;cursor:pointer;display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:9px;font-size:13px;color:var(--vxk-txt);
+  border:1px solid var(--vxk-line);background:rgba(255,255,255,.02);transition:background .14s,border-color .14s}
+.vxk-link:hover{background:color-mix(in srgb,var(--vxk-accent) 14%, transparent);border-color:color-mix(in srgb,var(--vxk-accent) 45%, var(--vxk-line))}
+.vxk-link:focus-visible{outline:2px solid var(--vxk-accent-2);outline-offset:2px}
+.vxk-link-dot{width:9px;height:9px;border-radius:50%;flex:none}
 
 @media (max-width:720px){ .vxk-aside{display:none} }

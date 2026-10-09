@@ -43,10 +43,8 @@ VXK.register('dbIcon', {
     ctx.fillText(n.label||'Banco de Dados', x, y+h/2+42*s);
     ctx.textBaseline='alphabetic';
   },
-  hit(_inst, n, wx, wy){
-    const x=Number.isFinite(n.x)?n.x:0, y=Number.isFinite(n.y)?n.y:0, s=n.scale||1;
-    const inside=wx>=x-66*s&&wx<=x+66*s&&wy>=y-75*s&&wy<=y+75*s;
-    return inside ? {label:n.label||'Banco de Dados', info:n.info||'', color:n.color||'#2f9d7e'} : false;
+  hit(_inst, n, wx, wy, e){
+    return e.mat.rectHit(n, wx, wy, 66, 75, 75, { label:'Banco de Dados', color:'#2f9d7e' });
   },
   pos(n){ return [Number.isFinite(n.x)?n.x:0, Number.isFinite(n.y)?n.y:0]; },
   parts(n){

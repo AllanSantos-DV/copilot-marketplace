@@ -1,7 +1,8 @@
 /* DESIGN SYSTEM · "card" — cartão de texto rico (kicker + título + corpo + badge).
    params: { x,y (centro), w,h, kicker, title, body, color, badge, icon, tone, info, label }
      body  = texto; aceita "\n" p/ quebras/bullets · tone:'solid' = painel tingido
-     badge = pílula no canto superior direito · icon = glifo curto (emoji/char)
+     badge = pílula no canto superior direito · icon = nome Lucide (glifo) ou emoji/char
+     scale = escala em torno do centro (fit-scaling do auto-layout / pop)
    O texto é mundo-fixo (escala com o zoom da cena) e a quebra de linha é CACHEADA
    no inst (só recalcula se body/w/fonte mudarem). Sem shadowBlur; glow de seleção
    é radialGradient CACHEADO (origem + translate). Clicável -> painel lateral. */
@@ -27,13 +28,11 @@ VXK.register('card', {
   draw(ctx, inst, n, e, selected){
     const M=e.mat, w=n.w||300, h=n.h||170, x=n.x||0, y=n.y||0, rad=14, z=e.zoom;
     const col=n.color||'#38bdf8', rgb=M.hex2rgb(col), L=x-w/2, T=y-h/2, pad=16, solid=n.tone==='solid';
+    const sc=(n.scale!=null?n.scale:1);                  // fit-scaling do auto-layout / pop de entrada: escala em torno do centro
     ctx.save();
+    if(sc!==1){ ctx.translate(x,y); ctx.scale(sc,sc); ctx.translate(-x,-y); }
     // glow de seleção (gradiente cacheado)
-    if(selected && !e.lite){ const gsig=col+'|'+w+'|'+h;
-      if(inst.gsig!==gsig){ inst.gsig=gsig; const R=Math.max(w,h)*0.72;
-        const g=ctx.createRadialGradient(0,0,Math.min(w,h)*0.28, 0,0,R);
-        g.addColorStop(0,M.rgba(rgb,0.22)); g.addColorStop(1,M.rgba(rgb,0)); inst.glow=g; inst.glowR=R; }
-      ctx.save(); ctx.translate(x,y); ctx.beginPath(); ctx.arc(0,0,inst.glowR,0,6.2832); ctx.fillStyle=inst.glow; ctx.fill(); ctx.restore(); }
+    if(selected && !e.lite) M.selGlow(ctx, inst, x, y, w, h, rgb, 0.28, 0.72, 0.22);
     // painel + borda
     M.roundRectPath(ctx,L,T,w,h,rad); ctx.fillStyle=solid?M.rgba(M.shade(rgb,-0.52),0.94):'rgba(15,22,37,0.93)'; ctx.fill();
     M.roundRectPath(ctx,L,T,w,h,rad); ctx.strokeStyle=selected?'#ffffff':M.rgba(rgb,solid?0.85:0.5); ctx.lineWidth=(selected?2.2:1.3)/z; ctx.stroke();
@@ -42,7 +41,9 @@ VXK.register('card', {
     // conteúdo
     ctx.textAlign='left'; ctx.textBaseline='top';
     let ty=T+pad-1; const cx0=L+pad;
-    if(n.icon){ ctx.font='700 19px "Segoe UI",system-ui,sans-serif'; ctx.fillStyle=M.rgba(rgb,1); ctx.fillText(n.icon, cx0, ty-2); }
+    if(n.icon){                                           // nome Lucide -> glifo do design system; emoji/char segue como texto
+      if(typeof VXK!=='undefined' && VXK.hasIcon && VXK.hasIcon(n.icon)) VXK.drawIcon(ctx, n.icon, cx0+10, ty+8, 20, M.rgba(rgb,1), 1.8);
+      else { ctx.font='700 19px "Segoe UI",system-ui,sans-serif'; ctx.fillStyle=M.rgba(rgb,1); ctx.fillText(n.icon, cx0, ty-2); } }
     if(n.kicker){ ctx.font='800 11px "Segoe UI",system-ui,sans-serif'; ctx.fillStyle=M.rgba(M.shade(rgb,0.4),1);
       ctx.fillText(String(n.kicker).toUpperCase(), cx0+(n.icon?28:0), ty+2); ty+=19; }
     if(n.title){ ctx.font='800 16px "Segoe UI",system-ui,sans-serif'; ctx.fillStyle=solid?'#ffffff':'#eaf1ff';
@@ -55,5 +56,5 @@ VXK.register('card', {
       ctx.fillStyle='#0a0e18'; ctx.textBaseline='middle'; ctx.fillText(n.badge, bx+7, by+10); }
     ctx.textBaseline='alphabetic'; ctx.restore();
   },
-  hit(_i, n, wx, wy){ const w=n.w||300,h=n.h||170,x=n.x||0,y=n.y||0; return wx>=x-w/2&&wx<=x+w/2&&wy>=y-h/2&&wy<=y+h/2; }
+  hit(_i, n, wx, wy){ const sc=(n.scale!=null?n.scale:1), w=(n.w||300)*sc,h=(n.h||170)*sc,x=n.x||0,y=n.y||0; return wx>=x-w/2&&wx<=x+w/2&&wy>=y-h/2&&wy<=y+h/2; }
 });

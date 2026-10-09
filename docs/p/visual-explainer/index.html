@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">visual-explainer</h1>
-        <span class="chip" title="versão publicada">v0.3.0</span>
+        <span class="chip" title="versão publicada">v0.4.0</span>
       </div>
       <p class="doc-hero__lede">O <strong>visual-explainer</strong> transforma um pedido em texto — &quot;explica o ciclo da água&quot;, &quot;o motor 4 tempos&quot;, &quot;o fluxo HTTP&quot;, &quot;como funciona uma tecla mecânica&quot; — numa <strong>página HTML autocontida e offline</strong>, com <strong>narração por voz</strong>, câmera passo a passo, play/pause, zoom e peças clicáveis. Você não desenha nada: um <strong>agente desenhista</strong> escreve uma spec declarativa, o builder <strong>assa a voz pelo motor (vox-engine)</strong> e entrega o HTML pronto, aberto no navegador.</p>
       <div class="doc-hero__cta">
@@ -58,6 +58,10 @@
           <p class="hl__body">Cada explicação nasce com <strong>áudio</strong>: o builder assa a narração pelo vox-engine e embute no HTML. Nada de voz robótica do navegador — a página fala ao abrir e conta o passo a passo. O build <strong>garante o áudio</strong>: se a síntese falhar, ele para em vez de entregar a página muda.</p>
         </li>
         <li class="hl__item">
+          <h3 class="hl__title">Ouça e leia</h3>
+          <p class="hl__body">A narração vem com <strong>legenda</strong> (CC) e a barra lateral acompanha cada passo com o texto falado. A intro abre a explicação e cada passo tem seu próprio áudio, que você pode reouvir.</p>
+        </li>
+        <li class="hl__item">
           <h3 class="hl__title">Do pedido à página, sem desenhar</h3>
           <p class="hl__body">Você descreve o assunto; o agente escolhe o motor, escreve a spec em JSON e o builder monta o HTML. Nada de arrastar formas na mão.</p>
         </li>
@@ -67,7 +71,7 @@
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Animada e interativa</h3>
-          <p class="hl__body">As páginas têm play/pause, controle de velocidade, zoom, arrastar e peças clicáveis — não é uma imagem estática, é uma explicação que você explora.</p>
+          <p class="hl__body">Play/pause que retoma de onde parou, velocidade, zoom e peças clicáveis — clicar numa peça toca a explicação dela. Atalhos de teclado (Espaço, setas, <code>[</code> <code>]</code>), link direto para um passo e preferências lembradas.</p>
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Autocontida e offline</h3>
@@ -93,14 +97,14 @@
         <section class="doc-section" id="os-motores">
           <h2 class="doc-h2"><a class="doc-anchor" href="#os-motores" aria-label="Link para Dois motores para dois tipos de arte">#</a>Dois motores para dois tipos de arte</h2>
           <p>Nem toda explicação pede o mesmo motor. O builder inlina o certo para o caso, e o agente raramente desenha do zero — um design system de componentes reutilizáveis cresce a cada arte.</p>
-          <ul class="doc-list"><li><strong>Motor <code>vxk</code></strong> (leve, próprio) — para as explicações comuns: órbitas, física, fluxo, algoritmos, linhas do tempo. É o caminho padrão.</li><li><strong>Motor <code>konva</code></strong> (vendorizado) — para grafos e redes: nós arrastáveis e interação mais pesada, quando a explicação é uma estrutura de ligações.</li></ul>
+          <ul class="doc-list"><li><strong>Motor <code>vxk</code></strong> (leve, próprio) — para as explicações comuns: órbitas, física, fluxo, algoritmos, linhas do tempo. É o caminho padrão.</li><li><strong>Motor <code>konva</code></strong> (vendorizado) — para grafos e redes: cada nó mostra o <strong>papel</strong> (ícone + subtítulo) e cada ligação <strong>o que trafega</strong>; ao clicar, o nó e os vizinhos acendem, a lateral lista com quem ele fala e a narração daquele nó toca.</li></ul>
           <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Performance vem embutida: ~30 FPS, DPR limitado a 1.5 e pausa automática quando a aba fica oculta. Tudo offline e num único arquivo.</p></aside>
         </section>
 
         <section class="doc-section" id="voz-e-camera">
           <h2 class="doc-h2"><a class="doc-anchor" href="#voz-e-camera" aria-label="Link para Narração por voz, câmera e vista explodida">#</a>Narração por voz, câmera e vista explodida</h2>
           <p>As explicações não são só desenho: elas <strong>falam</strong>. O builder assa a narração de cada passo pela voz do motor <strong>vox-engine</strong> e embute o áudio no próprio HTML — a página conta a história enquanto anima.</p>
-          <ul class="doc-list"><li><strong>Narração assada</strong> — a página nasce com voz; se o motor não estiver disponível, o build falha em vez de entregar mudo.</li><li><strong>Câmera passo a passo</strong> — a câmera navega, dá zoom e foca uma ideia por vez, com auto-enquadramento que preenche a tela.</li><li><strong>Vista explodida</strong> — para aparelhos: o objeto se desmonta em camadas e a câmera explica cada uma. Conceitos abstratos viram placas; objetos físicos ganham a silhueta real da peça.</li><li><strong>Design system rico</strong> — cards com ícone, chips, medidores, conectores com fluxo e um catálogo de componentes que cresce a cada arte.</li></ul>
+          <ul class="doc-list"><li><strong>Narração assada</strong> — a página nasce com voz; se o motor não estiver disponível, o build falha em vez de entregar mudo.</li><li><strong>Legenda e lateral</strong> — o texto de cada passo aparece na barra lateral e, com CC ligado, como legenda junto do áudio.</li><li><strong>Câmera passo a passo</strong> — a câmera navega, dá zoom e foca uma ideia por vez, com auto-enquadramento que preenche a tela.</li><li><strong>Vista explodida</strong> — para aparelhos: o objeto se desmonta em camadas e a câmera explica cada uma. Conceitos abstratos viram placas; objetos físicos ganham a silhueta real da peça.</li><li><strong>Design system rico</strong> — cards com ícone Lucide, diagramas de sequência com mensagens que viajam entre os lados, conectores que se desenham, medidores e um catálogo que cresce a cada arte.</li></ul>
           <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p>Requer o motor de voz <strong>vox-engine</strong> instalado (o mesmo do plugin de voz). O áudio é assado no build e fica embutido — a página toca offline.</p></aside>
         </section>
 
@@ -151,7 +155,7 @@
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
               <span class="tree__role">Metadados do plugin + marcador de hooks.</span>
-              <span class="tree__size">875 B</span>
+              <span class="tree__size">933 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">README.md</code>
@@ -161,12 +165,12 @@
             <li class="tree__row">
               <code class="tree__name">payload/build-artifact.mjs</code>
               <span class="tree__role">O builder (empacotado, roda standalone): transforma a spec em HTML autocontido e assa a narração pelo vox-engine.</span>
-              <span class="tree__size">123 KB</span>
+              <span class="tree__size">128 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/README.md</code>
               <span class="tree__role">Documentação vinda do repositório de origem.</span>
-              <span class="tree__size">3.3 KB</span>
+              <span class="tree__size">6.8 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/visual-explainer.agent.md</code>
@@ -176,27 +180,27 @@
             <li class="tree__row">
               <code class="tree__name">payload/kit/board.css</code>
               <span class="tree__role"></span>
-              <span class="tree__size">12 KB</span>
+              <span class="tree__size">14 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/CATALOG.md</code>
               <span class="tree__role"></span>
-              <span class="tree__size">35 KB</span>
+              <span class="tree__size">36 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/registry.json</code>
               <span class="tree__role"></span>
-              <span class="tree__size">11 KB</span>
+              <span class="tree__size">12 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/vxk-core.css</code>
               <span class="tree__role"></span>
-              <span class="tree__size">4.8 KB</span>
+              <span class="tree__size">5.7 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/vxk-core.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">41 KB</span>
+              <span class="tree__size">51 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/arrow.js</code>
@@ -211,12 +215,12 @@
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/barArray.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">3.9 KB</span>
+              <span class="tree__size">4.0 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/barMini.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">3.6 KB</span>
+              <span class="tree__size">3.7 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/box.js</code>
@@ -226,7 +230,7 @@
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/browserIcon.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">2.0 KB</span>
+              <span class="tree__size">1.9 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/callout.js</code>
@@ -236,7 +240,7 @@
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/card.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">4.1 KB</span>
+              <span class="tree__size">4.4 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/chip.js</code>
@@ -246,22 +250,22 @@
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/codeGrid.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">4.6 KB</span>
+              <span class="tree__size">4.7 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/comparisonSplit.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">3.7 KB</span>
+              <span class="tree__size">3.8 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/crossSection.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">3.5 KB</span>
+              <span class="tree__size">3.6 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/dbIcon.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">1.9 KB</span>
+              <span class="tree__size">1.8 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/deviceCard.js</code>
@@ -271,12 +275,12 @@
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/dimensionLine.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">2.3 KB</span>
+              <span class="tree__size">2.4 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/edge.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">3.1 KB</span>
+              <span class="tree__size">3.5 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/engine.js</code>
@@ -286,12 +290,12 @@
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/figure.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">6.1 KB</span>
+              <span class="tree__size">6.2 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/flowPipe.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">3.7 KB</span>
+              <span class="tree__size">5.0 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/frame.js</code>
@@ -301,37 +305,37 @@
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/gauge.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">2.6 KB</span>
+              <span class="tree__size">2.7 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/ghost.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">1.4 KB</span>
+              <span class="tree__size">1.5 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/graphNode.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">3.3 KB</span>
+              <span class="tree__size">3.4 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/httpMsg.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">4.4 KB</span>
+              <span class="tree__size">4.5 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/layer.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">6.2 KB</span>
+              <span class="tree__size">6.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/leaf.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">3.6 KB</span>
+              <span class="tree__size">3.7 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/legend.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">4.2 KB</span>
+              <span class="tree__size">4.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/lever.js</code>
@@ -341,17 +345,17 @@
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/metric.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">3.6 KB</span>
+              <span class="tree__size">3.7 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/orbit.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">1.9 KB</span>
+              <span class="tree__size">2.2 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/part.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">5.2 KB</span>
+              <span class="tree__size">5.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/particleStream.js</code>
@@ -361,37 +365,37 @@
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/pathTrace.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">3.7 KB</span>
+              <span class="tree__size">3.8 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/pendulum.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">1.6 KB</span>
+              <span class="tree__size">1.7 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/pulse.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">914 B</span>
+              <span class="tree__size">936 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/serverIcon.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">2.0 KB</span>
+              <span class="tree__size">1.9 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/shape.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">8.4 KB</span>
+              <span class="tree__size">8.6 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/stat.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">3.1 KB</span>
+              <span class="tree__size">2.8 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/tile.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">3.1 KB</span>
+              <span class="tree__size">2.8 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/timeline.js</code>
@@ -401,7 +405,7 @@
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/toggle.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">3.2 KB</span>
+              <span class="tree__size">3.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/components/watercycle.js</code>
@@ -416,7 +420,7 @@
             <li class="tree__row">
               <code class="tree__name">payload/kit/konva/konva-adapter.js</code>
               <span class="tree__role"></span>
-              <span class="tree__size">6.3 KB</span>
+              <span class="tree__size">13 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/konva/konva.min.js</code>
@@ -426,7 +430,7 @@
             <li class="tree__row">
               <code class="tree__name">payload/kit/lib/explode.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">5.7 KB</span>
+              <span class="tree__size">5.8 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/lib/geom.mjs</code>
@@ -441,32 +445,37 @@
             <li class="tree__row">
               <code class="tree__name">payload/kit/lib/layout.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">7.9 KB</span>
+              <span class="tree__size">7.5 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/lib/story.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">4.0 KB</span>
+              <span class="tree__size">4.1 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/lib/theme-import.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">7.1 KB</span>
+              <span class="tree__size">7.2 KB</span>
+            </li>
+            <li class="tree__row">
+              <code class="tree__name">payload/kit/lib/topo.mjs</code>
+              <span class="tree__role"></span>
+              <span class="tree__size">846 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/lib/tts_cache.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">3.4 KB</span>
+              <span class="tree__size">3.5 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/kit/lib/vox_client.mjs</code>
               <span class="tree__role"></span>
-              <span class="tree__size">7.0 KB</span>
+              <span class="tree__size">7.2 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/templates/bubble.json</code>
               <span class="tree__role"></span>
-              <span class="tree__size">442 B</span>
+              <span class="tree__size">453 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/templates/fluxo.json</code>
@@ -476,17 +485,17 @@
             <li class="tree__row">
               <code class="tree__name">payload/templates/linha-tempo.json</code>
               <span class="tree__role"></span>
-              <span class="tree__size">798 B</span>
+              <span class="tree__size">814 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/templates/onda.json</code>
               <span class="tree__role"></span>
-              <span class="tree__size">503 B</span>
+              <span class="tree__size">514 B</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">payload/templates/pendulo.json</code>
               <span class="tree__role"></span>
-              <span class="tree__size">520 B</span>
+              <span class="tree__size">531 B</span>
             </li>
             </ul>
           </div>
@@ -512,7 +521,7 @@
           </details>
           <details class="faq">
             <summary>Qual a diferença entre os motores vxk e konva?</summary>
-            <p>O <code>vxk</code> é o motor leve próprio, para explicações comuns (órbitas, física, fluxo, algoritmos, timelines). O <code>konva</code> é para grafos e redes, com nós arrastáveis e interação mais pesada. O agente escolhe o motor pelo tipo de assunto.</p>
+            <p>O <code>vxk</code> é o motor leve próprio, para explicações em passos (órbitas, física, fluxos, protocolos, algoritmos). O <code>konva</code> é para grafos e redes: nós com o papel de cada um, ligações rotuladas e destaque dos vizinhos ao clicar. Os dois narram; só o <code>vxk</code> tem coreografia de passos.</p>
           </details>
           <details class="faq">
             <summary>Onde ficam as páginas geradas?</summary>
@@ -544,7 +553,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.3.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.4.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
