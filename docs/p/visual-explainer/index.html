@@ -39,7 +39,7 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">visual-explainer</h1>
-        <span class="chip" title="versão publicada">v0.7.0</span>
+        <span class="chip" title="versão publicada">v0.8.0</span>
       </div>
       <p class="doc-hero__lede">O <strong>visual-explainer</strong> transforma um pedido em texto — &quot;explica o ciclo da água&quot;, &quot;o motor 4 tempos&quot;, &quot;o fluxo HTTP&quot;, &quot;como funciona uma tecla mecânica&quot; — numa <strong>página HTML autocontida e offline</strong>, com <strong>narração por voz</strong>, câmera passo a passo, play/pause, zoom e peças clicáveis. Você não desenha nada: um <strong>agente desenhista</strong> escreve uma spec declarativa, o builder <strong>assa a voz pelo motor (vox-engine)</strong> e entrega o HTML pronto, aberto no navegador — ou, se você pedir, um <strong>vídeo MP4</strong> com a mesma voz e legendas.</p>
       <div class="doc-hero__cta">
@@ -64,7 +64,7 @@
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Também em vídeo MP4</h3>
-          <p class="hl__body">Peça um vídeo e a mesma explicação sai como <strong>MP4</strong>: uma trilha única com as falas do vox-engine, legendas e cada passo durando o tempo da sua narração. A renderização é determinística (o mesmo pedido gera o mesmo vídeo) e leva alguns minutos, com o progresso visível no build.</p>
+          <p class="hl__body">Peça um vídeo e a mesma explicação sai como <strong>MP4</strong>: uma trilha única com as falas do vox-engine, legendas e cada passo durando o tempo da sua narração. A renderização é determinística (o mesmo pedido gera o mesmo vídeo) e leva alguns minutos, com o progresso visível no build. Para vídeos de produto, <strong>presets prontos</strong> fixam cenas, layout e tempo: você só preenche textos curtos.</p>
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Do pedido à página, sem desenhar</h3>
@@ -119,6 +119,13 @@
           <ul class="doc-list"><li><strong>Pedido</strong> — você descreve o assunto para o agente desenhista.</li><li><strong>Catálogo</strong> — pelo MCP vxk (<code>vxk_guide</code>, <code>vxk_catalog</code>), o agente lê os componentes e exemplos prontos e <strong>acha o ícone de cada conceito</strong> pela busca nos tags oficiais do Lucide: ele compõe a biblioteca, nunca desenha do zero.</li><li><strong>Spec + validação</strong> — escreve a spec em JSON e a confere com <code>vxk_validate</code> (componente, ids, ícones e trecho sem narração) antes de gastar voz.</li><li><strong>Build</strong> — <code>vxk_build</code> assa a narração pelo vox-engine e monta o HTML autocontido (job assíncrono; <code>vxk_build_result</code> acompanha). A spec fica salva ao lado do HTML, para ajustar e rebuildar sem reescrever tudo.</li><li><strong>Abre</strong> — <code>vxk_open</code> abre a página no navegador, com o controle único de reprodução, zoom e peças clicáveis.</li></ul>
           <p>Como a saída é um HTML único e offline, você pode guardar, abrir de novo ou compartilhar a explicação sem depender de nada — nem do agente, nem da rede.</p>
           <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p><strong>Vídeo:</strong> peça &quot;em vídeo&quot; ou &quot;em MP4&quot; e o agente usa o mesmo fluxo com <code>vxk_build</code> + <code>target:&quot;mp4&quot;</code> (motor <code>vxk</code>, explicações em passos). O MP4 sai com a mesma voz e legendas; <code>vxk_build_result</code> mostra o progresso da renderização e <code>vxk_open</code> abre o arquivo.</p></aside>
+          <p><strong>Vídeo por preset:</strong> para apresentar uma funcionalidade ou um produto, há vídeos prontos — <code>funcionalidade</code>, <code>tour-produto</code>, <code>antes-depois</code>, <code>passo-a-passo</code> e <code>resumo-executivo</code>. O preset já decidiu cenas, layout, voz, legendas e o tempo de cada cena; você só escreve textos curtos e uma fala por cena num JSON. A entrada é validada antes de gastar voz, com todos os problemas de uma vez.</p>
+          <div class="codeblock"><button class="copy copy--code" type="button" data-copy="vxk presets                         # lista os presets
+vxk presets passo-a-passo           # campos, limites e um exemplo completo
+vxk video --preset passo-a-passo --input dados.json" aria-label="Copiar bloco de código">copiar</button><pre><code>vxk presets                         # lista os presets
+vxk presets passo-a-passo           # campos, limites e um exemplo completo
+vxk video --preset passo-a-passo --input dados.json</code></pre></div>
+          <p>Pelo MCP, as mesmas operações são <code>vxk_presets</code> (lista ou detalhe) e <code>vxk_video</code> (<code>preset</code> + <code>input</code>), acompanhadas por <code>vxk_build_result</code>.</p>
         </section>
 
         <section class="doc-section" id="instalar">
@@ -167,7 +174,7 @@
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
               <span class="tree__role">Metadados do plugin.</span>
-              <span class="tree__size">1022 B</span>
+              <span class="tree__size">1.1 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">README.md</code>
@@ -234,6 +241,10 @@
             <p>Sim. Peça em vídeo/MP4: a explicação em passos é renderizada como MP4 com a mesma narração do vox-engine e legendas, cada passo durando o tempo da sua fala. Leva alguns minutos; o progresso aparece no build. Grafos (motor konva) e boards continuam só como página.</p>
           </details>
           <details class="faq">
+            <summary>O que é um preset de vídeo?</summary>
+            <p>Um vídeo pronto para apresentar uma funcionalidade, um produto, um antes e depois, um passo a passo ou um resumo executivo. Cenas, layout, voz, legendas e duração já estão fixos: você preenche só textos curtos num JSON e o render sai sem o agente desenhar nada — por isso é o caminho mais barato para um MP4.</p>
+          </details>
+          <details class="faq">
             <summary>Dá para explicar como um aparelho é montado?</summary>
             <p>Sim, com a vista explodida: o objeto se desmonta em camadas e a câmera explica cada peça, remontando no fim. Conceitos abstratos (como uma pilha de protocolos) viram placas; objetos com forma física (uma tecla, um aparelho) ganham a silhueta real de cada peça.</p>
           </details>
@@ -287,7 +298,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.7.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.8.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
