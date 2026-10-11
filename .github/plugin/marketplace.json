@@ -76,8 +76,8 @@
     },
     {
       "name": "visual-explainer",
-      "description": "Explicações visuais animadas, narradas por voz e interativas: peça um assunto e o agente desenhista monta UMA página HTML autocontida e offline — ou um vídeo MP4 com a mesma narração e legendas — compondo a biblioteca pronta do motor vxk: componentes, ícones e um controle único de reprodução com legenda, velocidade e atalhos — de diagramas de sequência e grafos que mostram o papel de cada nó a vistas explodidas. Para vídeo MP4 de produto há presets prontos (funcionalidade, tour, antes e depois, passo a passo, resumo executivo): basta preencher textos curtos. O motor é um servidor MCP independente do host, instalado uma vez por máquina; a narração é assada pelo vox-engine.",
-      "version": "0.8.0",
+      "description": "Explicações visuais animadas, narradas por voz e interativas: peça um assunto e o agente desenhista monta UMA página HTML autocontida e offline — ou um vídeo MP4 com a mesma narração e legendas — compondo a biblioteca pronta do motor vxk: componentes, ícones e um controle único de reprodução, de diagramas de sequência e grafos a vistas explodidas. Para vídeo de apresentação há presets prontos (funcionalidade, tour, antes e depois, passo a passo, resumo executivo): basta preencher textos curtos. A apresentação por vídeo real filma o seu app rodando de verdade, com cursor, cliques, voz e legendas, a partir de um roteiro curto de passos. O motor é um servidor MCP independente do host, instalado uma vez por máquina; a narração é assada pelo vox-engine.",
+      "version": "0.9.0",
       "source": "./plugins/visual-explainer",
       "author": {
         "name": "Allan Santos"

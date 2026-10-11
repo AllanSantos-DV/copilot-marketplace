@@ -23,6 +23,11 @@ animada, narrada e interativa**. Você **não desenha nada à mão**: escreve um
 
 **Vídeo:** se o usuário pedir vídeo/MP4, o mesmo fluxo com `vxk_build` + `target:"mp4"` (engine vxk com passos;
 leva minutos — acompanhe o progresso em `vxk_build_result`). O MP4 sai com a mesma voz e legendas; abra com `vxk_open`.
+- **"Vídeo de apresentação"** (simples, em blocos) → preset, sem spec: `vxk_presets` (com `id`: campos e exemplo) →
+  `vxk_video`.
+- **"Apresentação por vídeo real"** (o app de verdade: telas reais ou o HTML desenhado) → `vxk_app_video`: sem roteiro
+  devolve o formato; o roteiro é `url`/`arquivo` + `passos` `{acao, alvo:"texto=Rótulo visível", fala}`. Alvo errado,
+  fora da tela ou coberto por modal volta com o passo exato, antes de gastar voz.
 
 ## Escolha do modo
 
