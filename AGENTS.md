@@ -258,6 +258,11 @@ repo quando um plugin mudou sem revisão.
 > Alguns plugins têm um `publish.ps1` **local** na origem que faz 1–4 e dá push. Ex.: `voice-chat`
 > é publicado do repo `copilot-voice`; `action-bridge` é empacotado com esbuild do repo privado do
 > Action; `copilot-mobile`/`copilot-remote` são vendados dos seus repos privados.
+>
+> **Todo sync — script ou à mão — roda o passo 5 (`node docs/build.mjs`).** O gate **não** pega
+> vitrine velha: o hash cobre `plugin.json` + content, não o HTML gerado. Em 2026-10-11 o
+> `publish.ps1` do `copilot-voice` fez `gate mark` sem build e a vitrine ficou mostrando o
+> voice-chat em v2.3.17 depois do sync v2.3.18.
 
 ### 7.2 Adicionar um plugin NOVO
 
