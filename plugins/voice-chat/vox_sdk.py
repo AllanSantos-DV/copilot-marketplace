@@ -42,7 +42,7 @@ from typing import Literal
 # ---------------------------------------------------------------------------
 # CONFIG canônica — fonte única (os MESMOS valores no SDK Node irmão).
 # ---------------------------------------------------------------------------
-SDK_VERSION = "2.0.1"
+SDK_VERSION = "2.2.0"
 
 DEFAULT_PIPE = r"\\.\pipe\vox"
 
@@ -66,9 +66,9 @@ AudioFormat = Literal["pcm", "wav", "opus", "vorbis", "mp3"]
 PROFILES: tuple[str, ...] = ("dictation", "translator", "transcription", "transcription_hq")
 PROFILE_PURPOSE: dict[str, str] = {
     "dictation": "ditado / trecho curto — velocidade (streaming)",
-    "translator": "tradução em tempo real — único perfil com large-v3 (GPU)",
-    "transcription": "arquivo completo — rápido (padrão; mesmo motor do ditado)",
-    "transcription_hq": "arquivo completo — turbo (large-v3 é reservado à tradução)",
+    "translator": "tradução em tempo real — large-v3 na GPU, turbo na CPU",
+    "transcription": "arquivo completo — seleção por CPU/GPU e memória",
+    "transcription_hq": "arquivo completo — alias de transcription",
 }
 MODELS: tuple[str, ...] = ("base", "small", "turbo", "large-v3")
 PRIORITIES: tuple[str, ...] = ("interactive", "batch")
@@ -93,7 +93,7 @@ class Capabilities:
                  models_resident=None, models_allowed=None, models_known=MODELS,
                  audio_formats_available=None, audio_formats_known=AUDIO_FORMATS,
                  priorities=PRIORITIES, voices=None, supported_voices=None,
-                 default_voice=None):
+                 default_voice=None, transcription_contract=None):
         self.version = version
         self.provider = provider
         self.hardware = hardware
@@ -108,6 +108,8 @@ class Capabilities:
         self.voices = voices if voices is not None else []
         self.supported_voices = supported_voices if supported_voices is not None else []
         self.default_voice = default_voice
+        self.transcription_contract = (transcription_contract
+                                       if isinstance(transcription_contract, dict) else None)
 
     def __repr__(self) -> str:
         return (f"Capabilities(version={self.version!r}, provider={self.provider!r}, "
@@ -121,8 +123,20 @@ __all__ = [
     "ProfileName", "ModelName", "Priority", "AudioFormat",
     "VoxClient", "VoxEngineError", "ProtocolError",
     "CaptureError", "CaptureHandle",
-    "encode_message", "read_message", "make_recv_exact",
+    "encode_message", "read_message", "make_recv_exact", "format_subtitles",
 ]
+
+
+def format_subtitles(timeline, fmt: str = "srt", **limits) -> str:
+    """Arquivo de legenda (``"srt"``/``"vtt"``) a partir de uma linha do tempo
+    [{start_ms, end_ms, text}] — sem motor. Para quem junta as linhas do tempo de vários pedaços
+    (somando o início de cada um) e formata UMA vez. Requer ``vox_subtitles.py`` vendorizado."""
+    try:
+        from vox_subtitles import format_subtitles as _format
+    except ImportError as _e:
+        raise ImportError("format_subtitles requires vox_subtitles.py vendored alongside "
+                          "vox_sdk.py") from _e
+    return _format(timeline, fmt, **limits)
 
 
 # Retrocompat LOUD (PEP 562): os símbolos de ciclo de vida saíram para vox_lifecycle
@@ -954,7 +968,7 @@ class VoxClient:
         """Retrato TIPADO das capacidades desta máquina (uma chamada → cliente sabe tudo).
 
         Faz o handshake ``info`` e devolve um :class:`Capabilities`: perfis já resolvidos
-        pro hardware (``transcription``/``transcription_hq``→turbo; ``translator``→large-v3
+        pro hardware (``transcription``/``transcription_hq``→modelo por capacidade; ``translator``→large-v3
         na GPU — único perfil com large), modelos residentes/permitidos, formatos de áudio
         servíveis + as listas estáticas conhecidas.
         É a forma nativa de descoberta — o cliente não hardcoda nem lê o código-fonte."""
@@ -977,58 +991,81 @@ class VoxClient:
             voices=_l(h.get("tts_voices")),
             supported_voices=_l(h.get("supported_voices")),
             default_voice=h.get("default_voice"),
+            transcription_contract=h.get("transcription_contract"),
         )
 
     def transcribe(self, audio, lang: str = "", session: str = "default",
                    priority: str = "interactive", profile: "str | None" = None,
-                   model: "str | None" = None, timeout: float = 120.0) -> str:
+                   model: "str | None" = None, timeout: float = 120.0, *,
+                   return_metadata: bool = False, req_id: "str | None" = None) -> "str | dict":
         """Transcreve ``audio`` (float32 16k mono: bytes, ndarray ou iterável) e
         devolve o texto. Levanta :class:`VoxEngineError` se o motor não retornar
         ``result``.
+
+        Motores com ``info.transcription_contract.version >= 1`` segmentam uma
+        entrada longa automaticamente. Para gravações prontas e compatibilidade
+        com motores anteriores, prefira :meth:`transcribe_file`.
+        ``return_metadata=True`` devolve o header completo (inclusive em daemon
+        antigo, sem inventar campos ausentes). Motores com
+        ``language_mode='per_request'`` aplicam ``lang``; vazio usa autodetecção.
 
         ``profile`` ('dictation'|'translator') deixa o daemon escolher o modelo pelo
         hardware — ``translator`` usa large-v3 na GPU (turbo no CPU) para tradução de
         qualidade; ``dictation`` (default do daemon) usa turbo. ``model`` força um
         modelo específico (ex.: 'large-v3'), tendo precedência sobre o profile."""
         pcm = _to_pcm_bytes(audio)
-        header: dict = {"cmd": "transcribe", "req_id": self._next_rid(),
+        header: dict = {"cmd": "transcribe", "req_id": req_id or self._next_rid(),
                         "session": session, "lang": lang or "",
-                        "priority": priority}
+                        "priority": priority, "timeout_ms": timeout * 1000}
         if profile is not None:
             header["profile"] = profile
         if model is not None:
             header["model"] = model
         h, _ = self._request(header, pcm, timeout=timeout)
         if h.get("event") == "result":
-            return (h.get("text") or "").strip()
+            return h if return_metadata else (h.get("text") or "").strip()
         raise VoxEngineError(
             f"motor retornou {h.get('event')}/{h.get('code')}: {h.get('message') or ''}")
 
     def transcribe_file(self, audio, lang: str = "", session: str = "default",
                         priority: str = "interactive", profile: "str | None" = None,
-                        model: "str | None" = None, timeout: float = 300.0) -> str:
+                        model: "str | None" = None, timeout: float = 300.0, *,
+                        return_metadata: bool = False, req_id: "str | None" = None,
+                        timestamps: bool = False, subtitles: "str | None" = None
+                        ) -> "str | dict":
         """Transcreve um áudio COMPLETO (gravação inteira) e devolve o texto TODO.
 
-        Diferente de :meth:`transcribe` (que assume um trecho curto <30s, o caso do
-        ditado streaming), esta trilha manda o áudio inteiro e o motor SEGMENTA no
-        servidor (VAD nos vales de silêncio / janela fixa), transcrevendo tudo sem o teto
-        de ~30s do Whisper. É o caso "gateway com o áudio pronto" (batch/arquivo).
+        Esta trilha manda o áudio inteiro e o motor SEGMENTA no servidor (VAD /
+        janela fixa). É o caso "gateway com o áudio pronto" (batch/arquivo),
+        inclusive em motores anteriores ao contrato v1, nos quais ``transcribe``
+        ainda era limitado a uma janela curta de ditado.
 
         ``timeout`` é maior (batch). Sem ``model``/``profile``, usa o profile
-        ``transcription`` = **turbo** (rápido, mesmo motor do ditado, zero VRAM nova).
-        Por política do motor, o ``large-v3`` é reservado à tradução em tempo real:
-        arquivo (inclusive ``profile='transcription_hq'``) NUNCA sobe large — fica em turbo.
+        ``transcription`` resolvido pela capacidade do hardware.
+        ``transcription_hq`` é alias de arquivo e adapta o modelo ao hardware. Modelo explícito ou herdado da
+        sessão tem precedência. ``return_metadata=True`` preserva o header completo.
+
+        ``timestamps=True`` pede a linha do tempo (``timeline``: [{start_ms, end_ms, text}]) e
+        ``subtitles="srt"|"vtt"`` pede também o arquivo de legenda (``subtitles``). Com qualquer
+        um dos dois o retorno é o HEADER (dict), porque o texto sozinho perderia o pedido.
+        Motores com suporte anunciam ``transcription_contract.timestamps``.
         Levanta :class:`VoxEngineError` se o motor não retornar ``result``."""
         pcm = _to_pcm_bytes(audio)
-        header: dict = {"cmd": "transcribe_file", "req_id": self._next_rid(),
+        header: dict = {"cmd": "transcribe_file", "req_id": req_id or self._next_rid(),
                         "session": session, "lang": lang or "",
-                        "priority": priority}
+                        "priority": priority, "timeout_ms": timeout * 1000}
         if profile is not None:
             header["profile"] = profile
         if model is not None:
             header["model"] = model
+        if timestamps:
+            header["timestamps"] = "segment"
+        if subtitles is not None:
+            header["subtitles"] = subtitles
         h, _ = self._request(header, pcm, timeout=timeout)
         if h.get("event") == "result":
+            if return_metadata or timestamps or subtitles is not None:
+                return h
             return (h.get("text") or "").strip()
         raise VoxEngineError(
             f"motor retornou {h.get('event')}/{h.get('code')}: {h.get('message') or ''}")
