@@ -39,9 +39,9 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">visual-explainer</h1>
-        <span class="chip" title="versão publicada">v0.6.0</span>
+        <span class="chip" title="versão publicada">v0.7.0</span>
       </div>
-      <p class="doc-hero__lede">O <strong>visual-explainer</strong> transforma um pedido em texto — &quot;explica o ciclo da água&quot;, &quot;o motor 4 tempos&quot;, &quot;o fluxo HTTP&quot;, &quot;como funciona uma tecla mecânica&quot; — numa <strong>página HTML autocontida e offline</strong>, com <strong>narração por voz</strong>, câmera passo a passo, play/pause, zoom e peças clicáveis. Você não desenha nada: um <strong>agente desenhista</strong> escreve uma spec declarativa, o builder <strong>assa a voz pelo motor (vox-engine)</strong> e entrega o HTML pronto, aberto no navegador.</p>
+      <p class="doc-hero__lede">O <strong>visual-explainer</strong> transforma um pedido em texto — &quot;explica o ciclo da água&quot;, &quot;o motor 4 tempos&quot;, &quot;o fluxo HTTP&quot;, &quot;como funciona uma tecla mecânica&quot; — numa <strong>página HTML autocontida e offline</strong>, com <strong>narração por voz</strong>, câmera passo a passo, play/pause, zoom e peças clicáveis. Você não desenha nada: um <strong>agente desenhista</strong> escreve uma spec declarativa, o builder <strong>assa a voz pelo motor (vox-engine)</strong> e entrega o HTML pronto, aberto no navegador — ou, se você pedir, um <strong>vídeo MP4</strong> com a mesma voz e legendas.</p>
       <div class="doc-hero__cta">
         <div class="prompt prompt--sm" data-cmd="copilot plugin install visual-explainer@copilot-marketplace">
         <span class="prompt__glyph" aria-hidden="true">⌁</span>
@@ -60,6 +60,10 @@
         <li class="hl__item">
           <h3 class="hl__title">Ouça e leia</h3>
           <p class="hl__body">A narração vem com <strong>legenda</strong> (CC) e a barra lateral acompanha cada passo com o texto falado. A intro abre a explicação e cada passo tem seu próprio áudio, que você pode reouvir.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Também em vídeo MP4</h3>
+          <p class="hl__body">Peça um vídeo e a mesma explicação sai como <strong>MP4</strong>: uma trilha única com as falas do vox-engine, legendas e cada passo durando o tempo da sua narração. A renderização é determinística (o mesmo pedido gera o mesmo vídeo) e leva alguns minutos, com o progresso visível no build.</p>
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Do pedido à página, sem desenhar</h3>
@@ -113,6 +117,7 @@
           <h2 class="doc-h2"><a class="doc-anchor" href="#como-funciona" aria-label="Link para Como funciona">#</a>Como funciona</h2>
           <ul class="doc-list"><li><strong>Pedido</strong> — você descreve o assunto para o agente desenhista.</li><li><strong>Catálogo</strong> — pelo MCP vxk (<code>vxk_guide</code>, <code>vxk_catalog</code>), o agente lê os componentes e exemplos prontos e <strong>acha o ícone de cada conceito</strong> pela busca nos tags oficiais do Lucide: ele compõe a biblioteca, nunca desenha do zero.</li><li><strong>Spec + validação</strong> — escreve a spec em JSON e a confere com <code>vxk_validate</code> (componente, ids, ícones e trecho sem narração) antes de gastar voz.</li><li><strong>Build</strong> — <code>vxk_build</code> assa a narração pelo vox-engine e monta o HTML autocontido (job assíncrono; <code>vxk_build_result</code> acompanha). A spec fica salva ao lado do HTML, para ajustar e rebuildar sem reescrever tudo.</li><li><strong>Abre</strong> — <code>vxk_open</code> abre a página no navegador, com o controle único de reprodução, zoom e peças clicáveis.</li></ul>
           <p>Como a saída é um HTML único e offline, você pode guardar, abrir de novo ou compartilhar a explicação sem depender de nada — nem do agente, nem da rede.</p>
+          <aside class="note note--info"><span class="note__mark" aria-hidden="true">i</span><p><strong>Vídeo:</strong> peça &quot;em vídeo&quot; ou &quot;em MP4&quot; e o agente usa o mesmo fluxo com <code>vxk_build</code> + <code>target:&quot;mp4&quot;</code> (motor <code>vxk</code>, explicações em passos). O MP4 sai com a mesma voz e legendas; <code>vxk_build_result</code> mostra o progresso da renderização e <code>vxk_open</code> abre o arquivo.</p></aside>
         </section>
 
         <section class="doc-section" id="instalar">
@@ -171,7 +176,7 @@
             <li class="tree__row">
               <code class="tree__name">visual-explainer.agent.md</code>
               <span class="tree__role">O agente desenhista: compõe a biblioteca pelas tools vxk_*.</span>
-              <span class="tree__size">2.5 KB</span>
+              <span class="tree__size">2.8 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">vxk-launch.mjs</code>
@@ -222,6 +227,10 @@
           <details class="faq">
             <summary>As páginas têm áudio?</summary>
             <p>Sim. Cada explicação nasce narrada: o builder assa a fala de cada passo pela voz do motor vox-engine e embute o áudio no HTML. A página fala ao abrir e roda offline. Requer o vox-engine instalado; sem ele, o build falha em vez de entregar mudo.</p>
+          </details>
+          <details class="faq">
+            <summary>Dá para gerar um vídeo em vez da página?</summary>
+            <p>Sim. Peça em vídeo/MP4: a explicação em passos é renderizada como MP4 com a mesma narração do vox-engine e legendas, cada passo durando o tempo da sua fala. Leva alguns minutos; o progresso aparece no build. Grafos (motor konva) e boards continuam só como página.</p>
           </details>
           <details class="faq">
             <summary>Dá para explicar como um aparelho é montado?</summary>
@@ -277,7 +286,7 @@
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.6.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.7.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>

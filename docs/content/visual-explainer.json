@@ -1,6 +1,6 @@
 {
   "tagline": "Peça uma explicação e receba uma página animada, narrada por voz e interativa: um agente desenhista escreve a spec, o builder assa a narração pelo motor e monta o HTML autocontido, aberto no seu navegador.",
-  "lede": "O **visual-explainer** transforma um pedido em texto — \"explica o ciclo da água\", \"o motor 4 tempos\", \"o fluxo HTTP\", \"como funciona uma tecla mecânica\" — numa **página HTML autocontida e offline**, com **narração por voz**, câmera passo a passo, play/pause, zoom e peças clicáveis. Você não desenha nada: um **agente desenhista** escreve uma spec declarativa, o builder **assa a voz pelo motor (vox-engine)** e entrega o HTML pronto, aberto no navegador.",
+  "lede": "O **visual-explainer** transforma um pedido em texto — \"explica o ciclo da água\", \"o motor 4 tempos\", \"o fluxo HTTP\", \"como funciona uma tecla mecânica\" — numa **página HTML autocontida e offline**, com **narração por voz**, câmera passo a passo, play/pause, zoom e peças clicáveis. Você não desenha nada: um **agente desenhista** escreve uma spec declarativa, o builder **assa a voz pelo motor (vox-engine)** e entrega o HTML pronto, aberto no navegador — ou, se você pedir, um **vídeo MP4** com a mesma voz e legendas.",
   "highlights": [
     {
       "title": "Narrada com a voz do motor",
@@ -9,6 +9,10 @@
     {
       "title": "Ouça e leia",
       "body": "A narração vem com **legenda** (CC) e a barra lateral acompanha cada passo com o texto falado. A intro abre a explicação e cada passo tem seu próprio áudio, que você pode reouvir."
+    },
+    {
+      "title": "Também em vídeo MP4",
+      "body": "Peça um vídeo e a mesma explicação sai como **MP4**: uma trilha única com as falas do vox-engine, legendas e cada passo durando o tempo da sua narração. A renderização é determinística (o mesmo pedido gera o mesmo vídeo) e leva alguns minutos, com o progresso visível no build."
     },
     {
       "title": "Do pedido à página, sem desenhar",
@@ -142,6 +146,11 @@
         {
           "type": "p",
           "text": "Como a saída é um HTML único e offline, você pode guardar, abrir de novo ou compartilhar a explicação sem depender de nada — nem do agente, nem da rede."
+        },
+        {
+          "type": "note",
+          "tone": "info",
+          "text": "**Vídeo:** peça \"em vídeo\" ou \"em MP4\" e o agente usa o mesmo fluxo com `vxk_build` + `target:\"mp4\"` (motor `vxk`, explicações em passos). O MP4 sai com a mesma voz e legendas; `vxk_build_result` mostra o progresso da renderização e `vxk_open` abre o arquivo."
         }
       ]
     }
@@ -156,6 +165,10 @@
     {
       "q": "As páginas têm áudio?",
       "a": "Sim. Cada explicação nasce narrada: o builder assa a fala de cada passo pela voz do motor vox-engine e embute o áudio no HTML. A página fala ao abrir e roda offline. Requer o vox-engine instalado; sem ele, o build falha em vez de entregar mudo."
+    },
+    {
+      "q": "Dá para gerar um vídeo em vez da página?",
+      "a": "Sim. Peça em vídeo/MP4: a explicação em passos é renderizada como MP4 com a mesma narração do vox-engine e legendas, cada passo durando o tempo da sua fala. Leva alguns minutos; o progresso aparece no build. Grafos (motor konva) e boards continuam só como página."
     },
     {
       "q": "Dá para explicar como um aparelho é montado?",
