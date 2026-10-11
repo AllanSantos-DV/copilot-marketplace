@@ -12,7 +12,7 @@
     },
     {
       "title": "Também em vídeo MP4",
-      "body": "Peça um vídeo e a mesma explicação sai como **MP4**: uma trilha única com as falas do vox-engine, legendas e cada passo durando o tempo da sua narração. A renderização é determinística (o mesmo pedido gera o mesmo vídeo) e leva alguns minutos, com o progresso visível no build."
+      "body": "Peça um vídeo e a mesma explicação sai como **MP4**: uma trilha única com as falas do vox-engine, legendas e cada passo durando o tempo da sua narração. A renderização é determinística (o mesmo pedido gera o mesmo vídeo) e leva alguns minutos, com o progresso visível no build. Para vídeos de produto, **presets prontos** fixam cenas, layout e tempo: você só preenche textos curtos."
     },
     {
       "title": "Do pedido à página, sem desenhar",
@@ -151,6 +151,20 @@
           "type": "note",
           "tone": "info",
           "text": "**Vídeo:** peça \"em vídeo\" ou \"em MP4\" e o agente usa o mesmo fluxo com `vxk_build` + `target:\"mp4\"` (motor `vxk`, explicações em passos). O MP4 sai com a mesma voz e legendas; `vxk_build_result` mostra o progresso da renderização e `vxk_open` abre o arquivo."
+        },
+        {
+          "type": "p",
+          "text": "**Vídeo por preset:** para apresentar uma funcionalidade ou um produto, há vídeos prontos — `funcionalidade`, `tour-produto`, `antes-depois`, `passo-a-passo` e `resumo-executivo`. O preset já decidiu cenas, layout, voz, legendas e o tempo de cada cena; você só escreve textos curtos e uma fala por cena num JSON. A entrada é validada antes de gastar voz, com todos os problemas de uma vez."
+        },
+        {
+          "type": "code",
+          "lang": "sh",
+          "code": "vxk presets                         # lista os presets\nvxk presets passo-a-passo           # campos, limites e um exemplo completo\nvxk video --preset passo-a-passo --input dados.json",
+          "copy": true
+        },
+        {
+          "type": "p",
+          "text": "Pelo MCP, as mesmas operações são `vxk_presets` (lista ou detalhe) e `vxk_video` (`preset` + `input`), acompanhadas por `vxk_build_result`."
         }
       ]
     }
@@ -169,6 +183,10 @@
     {
       "q": "Dá para gerar um vídeo em vez da página?",
       "a": "Sim. Peça em vídeo/MP4: a explicação em passos é renderizada como MP4 com a mesma narração do vox-engine e legendas, cada passo durando o tempo da sua fala. Leva alguns minutos; o progresso aparece no build. Grafos (motor konva) e boards continuam só como página."
+    },
+    {
+      "q": "O que é um preset de vídeo?",
+      "a": "Um vídeo pronto para apresentar uma funcionalidade, um produto, um antes e depois, um passo a passo ou um resumo executivo. Cenas, layout, voz, legendas e duração já estão fixos: você preenche só textos curtos num JSON e o render sai sem o agente desenhar nada — por isso é o caminho mais barato para um MP4."
     },
     {
       "q": "Dá para explicar como um aparelho é montado?",
