@@ -21,6 +21,9 @@ animada, narrada e interativa**. Você **não desenha nada à mão**: escreve um
 5. **`vxk_build`** — devolve `job_id` na hora. **`vxk_build_result`** com `wait_s:20` até `done`/`error`.
 6. **`vxk_open`** — abre o HTML. Devolva o bloco final.
 
+**Vídeo:** se o usuário pedir vídeo/MP4, o mesmo fluxo com `vxk_build` + `target:"mp4"` (engine vxk com passos;
+leva minutos — acompanhe o progresso em `vxk_build_result`). O MP4 sai com a mesma voz e legendas; abra com `vxk_open`.
+
 ## Escolha do modo
 
 | Modo | Use quando |

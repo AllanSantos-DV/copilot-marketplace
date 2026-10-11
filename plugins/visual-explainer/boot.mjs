@@ -9,7 +9,7 @@ import { join, sep, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-export const VXK_VERSION = "0.6.0";
+export const VXK_VERSION = "0.7.0";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ~/.copilot de forma portável: em hook de plugin, COPILOT_PLUGIN_ROOT = ...\.copilot\installed-plugins\<mp>\<plugin>
