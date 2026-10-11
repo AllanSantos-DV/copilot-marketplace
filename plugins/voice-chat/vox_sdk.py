@@ -404,7 +404,7 @@ class _OverlappedPipe:
 
     def _connect(self, pipe_name: str, timeout: float):
         ct = self._ctypes
-        deadline = time.time() + max(0.0, timeout)
+        deadline = time.monotonic() + max(0.0, timeout)
         while True:
             h = self._k.CreateFileW(pipe_name, _GENERIC_READ | _GENERIC_WRITE, 0, None,
                                     _OPEN_EXISTING, _FILE_FLAG_OVERLAPPED, None)
@@ -413,7 +413,7 @@ class _OverlappedPipe:
                 self._k.SetNamedPipeHandleState(h, ct.byref(mode), None, None)
                 return h
             err = ct.get_last_error()
-            if time.time() >= deadline:
+            if time.monotonic() >= deadline:
                 raise OSError(f"não abriu o pipe de captura {pipe_name}: erro Win32 {err}")
             if err == _ERROR_PIPE_BUSY:
                 self._k.WaitNamedPipeW(pipe_name, 500)   # aguarda uma instância livre
@@ -708,7 +708,7 @@ class VoxClient:
         # do connect inicial).
         self._auto_reconnect = bool(auto_reconnect)
         self._reconnect_timeout = max(0.0, reconnect_timeout)
-        deadline = time.time() + max(0.0, connect_timeout)
+        deadline = time.monotonic() + max(0.0, connect_timeout)
         last_err = None
         while True:
             try:
@@ -716,7 +716,7 @@ class VoxClient:
                 break
             except OSError as e:
                 last_err = e
-                if time.time() >= deadline:
+                if time.monotonic() >= deadline:
                     raise
                 time.sleep(0.1)
         if self._fh is None:  # pragma: no cover - defensivo
@@ -772,13 +772,13 @@ class VoxClient:
         if not self._auto_reconnect:
             return False
         self._close_fh()
-        deadline = time.time() + self._reconnect_timeout
+        deadline = time.monotonic() + self._reconnect_timeout
         while True:
             try:
                 self._fh = open(self.pipe_name, "r+b", buffering=0)  # noqa: SIM115
                 return True
             except OSError:
-                if time.time() >= deadline:
+                if time.monotonic() >= deadline:
                     self._fh = None
                     return False
                 time.sleep(0.05)
