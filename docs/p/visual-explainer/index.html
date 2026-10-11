@@ -39,9 +39,9 @@
       <p class="eyebrow">productivity</p>
       <div class="doc-hero__top">
         <h1 class="doc-hero__name">visual-explainer</h1>
-        <span class="chip" title="versão publicada">v0.8.0</span>
+        <span class="chip" title="versão publicada">v0.9.0</span>
       </div>
-      <p class="doc-hero__lede">O <strong>visual-explainer</strong> transforma um pedido em texto — &quot;explica o ciclo da água&quot;, &quot;o motor 4 tempos&quot;, &quot;o fluxo HTTP&quot;, &quot;como funciona uma tecla mecânica&quot; — numa <strong>página HTML autocontida e offline</strong>, com <strong>narração por voz</strong>, câmera passo a passo, play/pause, zoom e peças clicáveis. Você não desenha nada: um <strong>agente desenhista</strong> escreve uma spec declarativa, o builder <strong>assa a voz pelo motor (vox-engine)</strong> e entrega o HTML pronto, aberto no navegador — ou, se você pedir, um <strong>vídeo MP4</strong> com a mesma voz e legendas.</p>
+      <p class="doc-hero__lede">O <strong>visual-explainer</strong> transforma um pedido em texto — &quot;explica o ciclo da água&quot;, &quot;o motor 4 tempos&quot;, &quot;o fluxo HTTP&quot;, &quot;como funciona uma tecla mecânica&quot; — numa <strong>página HTML autocontida e offline</strong>, com <strong>narração por voz</strong>, câmera passo a passo, play/pause, zoom e peças clicáveis. Você não desenha nada: um <strong>agente desenhista</strong> escreve uma spec declarativa, o builder <strong>assa a voz pelo motor (vox-engine)</strong> e entrega o HTML pronto, aberto no navegador — ou, se você pedir, um <strong>vídeo MP4</strong> com a mesma voz e legendas. E para mostrar um produto, a <strong>apresentação por vídeo real</strong> filma o seu app rodando, com cursor, cliques, voz e legendas.</p>
       <div class="doc-hero__cta">
         <div class="prompt prompt--sm" data-cmd="copilot plugin install visual-explainer@copilot-marketplace">
         <span class="prompt__glyph" aria-hidden="true">⌁</span>
@@ -65,6 +65,10 @@
         <li class="hl__item">
           <h3 class="hl__title">Também em vídeo MP4</h3>
           <p class="hl__body">Peça um vídeo e a mesma explicação sai como <strong>MP4</strong>: uma trilha única com as falas do vox-engine, legendas e cada passo durando o tempo da sua narração. A renderização é determinística (o mesmo pedido gera o mesmo vídeo) e leva alguns minutos, com o progresso visível no build. Para vídeos de produto, <strong>presets prontos</strong> fixam cenas, layout e tempo: você só preenche textos curtos.</p>
+        </li>
+        <li class="hl__item">
+          <h3 class="hl__title">Apresentação por vídeo real</h3>
+          <p class="hl__body">Mostre o <strong>app de verdade</strong>: o vídeo filma as telas do seu aplicativo rodando (ou o HTML desenhado), com <strong>cursor, cliques e digitação reais</strong>, zoom no alvo, narração e legendas. Você escreve só um roteiro curto de passos; alvo errado, fora da tela ou coberto por um modal é apontado no ensaio, antes de gastar voz.</p>
         </li>
         <li class="hl__item">
           <h3 class="hl__title">Do pedido à página, sem desenhar</h3>
@@ -126,6 +130,42 @@ vxk video --preset passo-a-passo --input dados.json" aria-label="Copiar bloco de
 vxk presets passo-a-passo           # campos, limites e um exemplo completo
 vxk video --preset passo-a-passo --input dados.json</code></pre></div>
           <p>Pelo MCP, as mesmas operações são <code>vxk_presets</code> (lista ou detalhe) e <code>vxk_video</code> (<code>preset</code> + <code>input</code>), acompanhadas por <code>vxk_build_result</code>.</p>
+          <p><strong>Apresentação por vídeo real:</strong> para mostrar o aplicativo de verdade, peça uma &quot;apresentação por vídeo real&quot;. O roteiro aponta o app rodando (<code>url</code>) ou as telas desenhadas (<code>arquivo</code>), um <code>preparar</code> opcional (como o login) e os <code>passos</code>, cada um com <code>acao</code> (<code>mostrar</code>, <code>apontar</code>, <code>clicar</code>, <code>digitar</code>, <code>rolar</code>), <code>alvo</code> pelo rótulo visível (<code>texto=…</code>) ou seletor CSS, e a <code>fala</code>. Um Chrome headless executa as ações e fotografa cada estado; o VXK põe cursor, zoom, voz e legendas.</p>
+          <div class="codeblock"><button class="copy copy--code" type="button" data-copy="{
+  &quot;titulo&quot;: &quot;Consultório Demo: marcar uma consulta&quot;,
+  &quot;arquivo&quot;: &quot;index.html&quot;,
+  &quot;passos&quot;: [
+    { &quot;acao&quot;: &quot;mostrar&quot;,
+      &quot;fala&quot;: &quot;Esta é a tela inicial do consultório.&quot; },
+    { &quot;acao&quot;: &quot;clicar&quot;, &quot;alvo&quot;: &quot;texto=Agenda&quot;,
+      &quot;fala&quot;: &quot;Abra a agenda no menu.&quot; },
+    { &quot;acao&quot;: &quot;digitar&quot;, &quot;alvo&quot;: &quot;texto=Nome do cliente&quot;,
+      &quot;texto&quot;: &quot;Maria Souza&quot;,
+      &quot;fala&quot;: &quot;Digite o nome do cliente.&quot; },
+    { &quot;acao&quot;: &quot;clicar&quot;, &quot;alvo&quot;: &quot;#salvar&quot;,
+      &quot;fala&quot;: &quot;Salve, e a consulta aparece na agenda.&quot; }
+  ]
+}" aria-label="Copiar bloco de código">copiar</button><pre><code>{
+  &quot;titulo&quot;: &quot;Consultório Demo: marcar uma consulta&quot;,
+  &quot;arquivo&quot;: &quot;index.html&quot;,
+  &quot;passos&quot;: [
+    { &quot;acao&quot;: &quot;mostrar&quot;,
+      &quot;fala&quot;: &quot;Esta é a tela inicial do consultório.&quot; },
+    { &quot;acao&quot;: &quot;clicar&quot;, &quot;alvo&quot;: &quot;texto=Agenda&quot;,
+      &quot;fala&quot;: &quot;Abra a agenda no menu.&quot; },
+    { &quot;acao&quot;: &quot;digitar&quot;, &quot;alvo&quot;: &quot;texto=Nome do cliente&quot;,
+      &quot;texto&quot;: &quot;Maria Souza&quot;,
+      &quot;fala&quot;: &quot;Digite o nome do cliente.&quot; },
+    { &quot;acao&quot;: &quot;clicar&quot;, &quot;alvo&quot;: &quot;#salvar&quot;,
+      &quot;fala&quot;: &quot;Salve, e a consulta aparece na agenda.&quot; }
+  ]
+}</code></pre></div>
+          <div class="codeblock"><button class="copy copy--code" type="button" data-copy="vxk app                       # formato e exemplo
+vxk video --app roteiro.json --dry-run   # só o ensaio
+vxk video --app roteiro.json  # filma e gera o MP4" aria-label="Copiar bloco de código">copiar</button><pre><code>vxk app                       # formato e exemplo
+vxk video --app roteiro.json --dry-run   # só o ensaio
+vxk video --app roteiro.json  # filma e gera o MP4</code></pre></div>
+          <p>Pelo MCP, é <code>vxk_app_video</code>: sem roteiro, devolve o formato. Alvo inexistente, fora da tela ou coberto por um modal falha no ensaio, dizendo o passo exato, antes de gastar voz.</p>
         </section>
 
         <section class="doc-section" id="instalar">
@@ -164,7 +204,7 @@ vxk video --preset passo-a-passo --input dados.json</code></pre></div>
             <li class="tree__row">
               <code class="tree__name">boot.mjs</code>
               <span class="tree__role">Garante o motor vxk em ~/.vxk (engine-kit: SHA-256 + assinatura Ed25519) e instala o agente desenhista em ~/.copilot/agents.</span>
-              <span class="tree__size">3.7 KB</span>
+              <span class="tree__size">3.9 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">boot.neural-link.json</code>
@@ -174,7 +214,7 @@ vxk video --preset passo-a-passo --input dados.json</code></pre></div>
             <li class="tree__row">
               <code class="tree__name">plugin.json</code>
               <span class="tree__role">Metadados do plugin.</span>
-              <span class="tree__size">1.1 KB</span>
+              <span class="tree__size">1.2 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">README.md</code>
@@ -184,7 +224,7 @@ vxk video --preset passo-a-passo --input dados.json</code></pre></div>
             <li class="tree__row">
               <code class="tree__name">visual-explainer.agent.md</code>
               <span class="tree__role">O agente desenhista: compõe a biblioteca pelas tools vxk_*.</span>
-              <span class="tree__size">2.8 KB</span>
+              <span class="tree__size">3.3 KB</span>
             </li>
             <li class="tree__row">
               <code class="tree__name">vxk-launch.mjs</code>
@@ -245,6 +285,10 @@ vxk video --preset passo-a-passo --input dados.json</code></pre></div>
             <p>Um vídeo pronto para apresentar uma funcionalidade, um produto, um antes e depois, um passo a passo ou um resumo executivo. Cenas, layout, voz, legendas e duração já estão fixos: você preenche só textos curtos num JSON e o render sai sem o agente desenhar nada — por isso é o caminho mais barato para um MP4.</p>
           </details>
           <details class="faq">
+            <summary>Qual a diferença entre vídeo de apresentação e apresentação por vídeo real?</summary>
+            <p>O vídeo de apresentação usa um preset: cenas em blocos, com os seus textos curtos, sem mostrar o app. A apresentação por vídeo real filma o aplicativo de verdade — as telas rodando ou o HTML desenhado — com cursor, cliques e digitação reais, a partir de um roteiro de passos. Use o preset para contar; use o vídeo real para mostrar.</p>
+          </details>
+          <details class="faq">
             <summary>Dá para explicar como um aparelho é montado?</summary>
             <p>Sim, com a vista explodida: o objeto se desmonta em camadas e a câmera explica cada peça, remontando no fim. Conceitos abstratos (como uma pilha de protocolos) viram placas; objetos com forma física (uma tecla, um aparelho) ganham a silhueta real de cada peça.</p>
           </details>
@@ -298,7 +342,7 @@ vxk video --preset passo-a-passo --input dados.json</code></pre></div>
           </ul>
         </nav>
           <dl class="meta">
-            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.8.0</span></dd></div>
+            <div class="meta__row"><dt>versão</dt><dd><span class="chip">v0.9.0</span></dd></div>
             <div class="meta__row"><dt>licença</dt><dd>MIT</dd></div>
             <div class="meta__row"><dt>categoria</dt><dd>productivity</dd></div>
             <div class="meta__row"><dt>origem</dt><dd>vendado neste repo</dd></div>
