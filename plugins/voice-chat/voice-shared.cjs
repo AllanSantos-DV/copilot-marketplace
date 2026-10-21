@@ -30,6 +30,7 @@ function forkHeartbeatFile(dataDir, sid) { return path.join(forksDir(dataDir), s
 function pendingDir(dataDir) { return path.join(dataDir, 'pending'); }
 function pendingSpeakFile(dataDir, sid) { return path.join(pendingDir(dataDir), sanitizeSid(sid) + '.jsonl'); }
 function hookStateFile(dataDir, sid) { return path.join(dataDir, 'hook-state-' + sanitizeSid(sid) + '.json'); }
+function hookWarningReceiptFile(dataDir, sid, key) { return path.join(dataDir, 'hook-warning-seen-' + sanitizeSid(sid) + '-' + key + '.json'); }
 // Modo POR SESSÃO (fullRead / voiceEnabled): diferente dos demais toggles (globais no
 // settings.json), estes flags são PER-SID — ligar num painel não afeta as outras sessões.
 // Arquivo modes/<sid>.json = { fullRead?: bool, voiceEnabled?: bool }. ÚNICA fonte do path
@@ -126,9 +127,47 @@ function writeSessionVoiceEnabled(dataDir, sid, val) {
   return writeSessionModePatch(dataDir, sid, { voiceEnabled: !!val });
 }
 
+// Cobrança de resumo é GLOBAL e independente de voiceEnabled/TTS. Fora do pacote e do
+// settings.json (que a extensão regrava): OFF sobrevive a reload, novas sessões e upgrades.
+function hookPreferencesFile(dataDir) { return path.join(dataDir, 'hook-preferences.json'); }
+function readHookPreferencesStrict(dataDir) {
+  const fs = require('fs');
+  let raw;
+  try { raw = fs.readFileSync(hookPreferencesFile(dataDir), 'utf8'); }
+  catch (e) {
+    if (e && e.code === 'ENOENT') return { summaryEnforcement: true };
+    throw e;
+  }
+  const value = JSON.parse(raw);
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+      (Object.prototype.hasOwnProperty.call(value, 'summaryEnforcement') && typeof value.summaryEnforcement !== 'boolean')) {
+    throw new Error('invalid hook preferences');
+  }
+  return { summaryEnforcement: true, ...value };
+}
+// API administrativa: boolean estrito, preserva outros campos, não repara configuração
+// inválida silenciosamente. Rename no mesmo diretório evita expor JSON parcial ao hook.
+// Retorna o objeto gravado; falhas de leitura/escrita são lançadas ao chamador.
+function writeSummaryEnforcement(dataDir, enabled) {
+  if (typeof enabled !== 'boolean') throw new TypeError('summaryEnforcement must be boolean');
+  const fs = require('fs');
+  const next = { ...readHookPreferencesStrict(dataDir), summaryEnforcement: enabled };
+  fs.mkdirSync(dataDir, { recursive: true });
+  const target = hookPreferencesFile(dataDir);
+  const temp = target + '.' + require('crypto').randomUUID() + '.tmp';
+  try {
+    fs.writeFileSync(temp, JSON.stringify(next, null, 2) + '\n', { flag: 'wx' });
+    fs.renameSync(temp, target);
+  } finally {
+    try { fs.unlinkSync(temp); } catch { /* já renomeado, ou criação falhou */ }
+  }
+  return next;
+}
+
 module.exports = {
   resolveDataDir, sanitizeSid,
-  forksDir, forkHeartbeatFile, pendingDir, pendingSpeakFile, hookStateFile,
+  hookPreferencesFile, readHookPreferencesStrict, writeSummaryEnforcement,
+  forksDir, forkHeartbeatFile, pendingDir, pendingSpeakFile, hookStateFile, hookWarningReceiptFile,
   sessionModesDir, sessionModeFile, MODE_DEFAULTS,
   readSessionModeStrict, readSessionVoiceEnabled, readSessionFullRead,
   writeSessionModePatch, writeSessionFullRead, writeSessionVoiceEnabled,

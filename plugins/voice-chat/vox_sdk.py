@@ -32,6 +32,7 @@ byte-idêntica (a mesma convenção de lock/config vale para o SDK Node irmão).
 # INVARIANT: core NEVER imports lifecycle — unidirectional by design (lifecycle imports core).
 from __future__ import annotations
 
+import contextlib
 import json
 import struct
 import sys
@@ -42,7 +43,7 @@ from typing import Literal
 # ---------------------------------------------------------------------------
 # CONFIG canônica — fonte única (os MESMOS valores no SDK Node irmão).
 # ---------------------------------------------------------------------------
-SDK_VERSION = "2.2.0"
+SDK_VERSION = "2.3.0"
 
 DEFAULT_PIPE = r"\\.\pipe\vox"
 
@@ -285,6 +286,27 @@ def _to_pcm_bytes(audio) -> bytes:
     return a.tobytes()
 
 
+def _stt_payload(audio, container: "str | None") -> "tuple[bytes, str | None]":
+    """Payload do STT: PCM float32 LE ou, com ``container``, os BYTES do arquivo de áudio."""
+    c = container.lower() if isinstance(container, str) else container
+    if c in (None, "pcm"):
+        return _to_pcm_bytes(audio), None
+    if not isinstance(c, str):
+        raise TypeError("container deve ser string")
+    if not isinstance(audio, (bytes, bytearray, memoryview)):
+        raise TypeError("com container, o áudio são os BYTES do arquivo (não amostras)")
+    return bytes(audio), c
+
+
+def _check_container_echo(h: dict, container: "str | None") -> None:
+    """Daemon antigo ignora ``container`` e leria o arquivo como PCM (texto lixo, sem erro).
+    O result só vale se ecoar o container — senão é erro explícito."""
+    if container and h.get("event") == "result" and h.get("container") != container:
+        raise VoxEngineError(
+            "motor retornou result/container_unsupported: o motor não decodifica container "
+            "(versão anterior ao recurso); atualize o vox-engine ou envie PCM float32 16 kHz mono")
+
+
 # ---------------------------------------------------------------------------
 # VoxClient SÍNCRONO (1 request em voo). Espelha _VoxBridge do voice-chat.
 # ---------------------------------------------------------------------------
@@ -302,16 +324,15 @@ class _PartialSend(Exception):
 
 
 # ---------------------------------------------------------------------------
-# Transporte de pipe OVERLAPPED (ctypes/kernel32) — SÓ para a captura (stream).
+# Transporte de pipe OVERLAPPED (ctypes/kernel32) — captura e VoxClient no Windows.
 # ---------------------------------------------------------------------------
 # Um handle SÍNCRONO (``open(pipe,"r+b")``) serializa TODA a I/O do handle: um
 # ``ReadFile`` bloqueado (thread-leitora) trava um ``WriteFile`` concorrente (o
 # ``close`` do consumidor) no MESMO handle -> deadlock. Por isso o daemon e o
-# ``pipe_client`` interno usam ``FILE_FLAG_OVERLAPPED``. O ``VoxClient`` síncrono
-# deste SDK é seguro só porque é estritamente serial (escreve-então-lê sob lock,
-# sem thread-leitora persistente). A CAPTURA tem thread-leitora + escrita
-# concorrente, então PRECISA de overlapped — aqui em stdlib puro (``ctypes``) para
-# o SDK vendorável não exigir ``pywin32``. Só Windows (o transporte é named pipe).
+# ``pipe_client`` interno usam ``FILE_FLAG_OVERLAPPED``. A CAPTURA tem thread-leitora +
+# escrita concorrente, e o ``VoxClient.cancel_transcription`` escreve com a leitura do
+# pedido em voo pendente: os dois PRECISAM de overlapped — aqui em stdlib puro
+# (``ctypes``) para o SDK vendorável não exigir ``pywin32``. Só Windows (named pipe).
 _GENERIC_READ = 0x80000000
 _GENERIC_WRITE = 0x40000000
 _OPEN_EXISTING = 3
@@ -371,6 +392,14 @@ def _win_api():
         k.CloseHandle.restype = wintypes.BOOL
         _win_api_cache = (k, _OVERLAPPED, ctypes, wintypes)
         return _win_api_cache
+
+
+def _open_pipe(name: str):
+    """Handle do ``VoxClient`` (uma tentativa; o chamador faz o laço de espera). Named pipe
+    no Windows abre OVERLAPPED; outro caminho (testes, POSIX) abre como arquivo."""
+    if sys.platform == "win32" and name.lower().startswith("\\\\.\\pipe\\"):
+        return _OverlappedPipe(name, 0.0)
+    return open(name, "r+b", buffering=0)  # noqa: SIM115
 
 
 class _OverlappedPipe:
@@ -681,21 +710,29 @@ class CaptureHandle:
 class VoxClient:
     """Cliente **síncrono e serializado** do daemon ``vox-engine`` via named pipe.
 
-    Abre o pipe como arquivo (``open(pipe, "r+b", buffering=0)`` — sem ``pywin32``),
-    fala o framing ``struct.pack(">II", json_len, audio_len) + json + audio`` e
-    serializa **1 request/resposta por vez** com um lock; a resposta é lida numa
+    Abre o pipe em modo OVERLAPPED no Windows (via ``ctypes``, sem ``pywin32``) para que
+    ``cancel_transcription`` escreva enquanto uma leitura está pendente; fora do Windows
+    usa ``open(pipe, "r+b", buffering=0)``. Fala o framing
+    ``struct.pack(">II", json_len, audio_len) + json + audio`` e serializa **1
+    request/resposta por vez** com um lock (o cancel é a exceção); a resposta é lida numa
     thread com timeout (um daemon travado no meio do frame vira erro, não congela).
 
     Diferença importante: este cliente **NÃO** é o
     :class:`vox_engine.client.pipe_client.VoxClient` concorrente (que roteia
     múltiplos pedidos em voo por ``req_id``). Aqui há no máximo um pedido pendente —
-    adequado a um consumidor sequencial (ditado, TTS on-demand).
+    adequado a um consumidor sequencial (ditado, TTS on-demand). A exceção é
+    :meth:`cancel_transcription`, que fura a fila para cancelar o pedido em voo.
     """
+
+    _wlock = None       # escrita de frames (o cancel escreve com um pedido em voo)
+    _cancels = None     # req_id do cancel -> {"event": Event, "resp": header}
 
     def __init__(self, pipe: str = DEFAULT_PIPE, connect_timeout: float = 5.0, *,
                  auto_reconnect: bool = False, reconnect_timeout: float = 0.25):
         self.pipe_name = pipe
         self._lock = threading.Lock()   # serializa 1 request/resposta
+        self._wlock = threading.Lock()
+        self._cancels = {}
         self._fh = None
         self._rid = 0
         # auto_reconnect (opt-in, retrocompatível): quando o handle morre, o cliente o
@@ -712,7 +749,7 @@ class VoxClient:
         last_err = None
         while True:
             try:
-                self._fh = open(pipe, "r+b", buffering=0)  # noqa: SIM115
+                self._fh = _open_pipe(pipe)
                 break
             except OSError as e:
                 last_err = e
@@ -775,7 +812,7 @@ class VoxClient:
         deadline = time.monotonic() + self._reconnect_timeout
         while True:
             try:
-                self._fh = open(self.pipe_name, "r+b", buffering=0)  # noqa: SIM115
+                self._fh = _open_pipe(self.pipe_name)
                 return True
             except OSError:
                 if time.monotonic() >= deadline:
@@ -784,6 +821,11 @@ class VoxClient:
                 time.sleep(0.05)
 
     def _send_frame(self, fh, header: dict, audio: bytes) -> None:
+        # exclusivo: o cancel_transcription escreve enquanto um pedido está em voo
+        with self._wlock or contextlib.nullcontext():
+            self._write_frame(fh, header, audio)
+
+    def _write_frame(self, fh, header: dict, audio: bytes) -> None:
         """Escreve UM frame COMPLETO. ``FileIO.write`` (buffering=0) pode fazer um
         *short write* e devolver menos bytes SEM levantar — então escrevemos em laço
         até esgotar. Distinção crítica p/ o auto_reconnect:
@@ -810,7 +852,18 @@ class VoxClient:
                 raise _PartialSend(sent) from exc
             raise
 
-    def _read_reply(self, fh, timeout: float) -> "tuple[dict, bytes]":
+    def _deliver_cancel(self, h: dict) -> bool:
+        """True se ``h`` é a resposta de um :meth:`cancel_transcription` deste cliente."""
+        waiter = (self._cancels or {}).pop(h.get("req_id"), None) \
+            if h.get("event") == "cancel_requested" else None
+        if waiter is None:
+            return False
+        waiter["resp"] = h
+        waiter["event"].set()
+        return True
+
+    def _read_reply(self, fh, timeout: float,
+                    want_cancel: bool = False) -> "tuple[dict, bytes]":
         """Lê a resposta de ``fh`` com TETO de tamanho e TIMEOUT numa thread presa ao
         handle. Timeout -> solta o handle e levanta; erro de frame -> fecha e levanta.
         NUNCA é repetido pelo chamador (o motor pode já ter processado)."""
@@ -818,13 +871,18 @@ class VoxClient:
 
         def _do_read():
             try:
-                head = self._read_exact(fh, _HDR.size)
-                jl, al = _HDR.unpack(head)
-                if jl > MAX_JSON or al > MAX_AUDIO or jl == 0:
-                    raise ProtocolError(f"frame absurdo (jl={jl}, al={al})")
-                body = self._read_exact(fh, jl)
-                audio_out = self._read_exact(fh, al) if al else b""
-                out["resp"] = (json.loads(body.decode("utf-8")), audio_out)
+                while True:
+                    head = self._read_exact(fh, _HDR.size)
+                    jl, al = _HDR.unpack(head)
+                    if jl > MAX_JSON or al > MAX_AUDIO or jl == 0:
+                        raise ProtocolError(f"frame absurdo (jl={jl}, al={al})")
+                    body = self._read_exact(fh, jl)
+                    audio_out = self._read_exact(fh, al) if al else b""
+                    h = json.loads(body.decode("utf-8"))
+                    if self._deliver_cancel(h) and not want_cancel:
+                        continue        # resposta de um cancel_transcription: não é a nossa
+                    out["resp"] = (h, audio_out)
+                    return
             except Exception as exc:  # noqa: BLE001
                 out["err"] = exc
 
@@ -853,38 +911,43 @@ class VoxClient:
         idempotente-seguro). Falha de LEITURA/TIMEOUT NUNCA é repetida (o motor pode
         ter processado) — só solta o handle e levanta; a próxima chamada reconecta."""
         with self._lock:
-            # (1) handle morto -> reconecta preguiçoso (auto_reconnect) antes de enviar.
-            if self._fh is None and self._auto_reconnect:
-                self._try_reopen()
-            fh = self._fh
-            if fh is None:
-                raise VoxEngineError("conexão com o motor caiu")
+            return self._request_locked(header, audio, timeout)
 
-            # (2) envio; falha de ESCRITA => frame não chegou => reconecta + repete 1x.
-            #     envio PARCIAL (_PartialSend) => bytes já chegaram => NÃO repete.
+    def _request_locked(self, header: dict, audio: bytes, timeout: float,
+                        want_cancel: bool = False) -> "tuple[dict, bytes]":
+        """Corpo do :meth:`_request`; exige ``self._lock`` retido."""
+        # (1) handle morto -> reconecta preguiçoso (auto_reconnect) antes de enviar.
+        if self._fh is None and self._auto_reconnect:
+            self._try_reopen()
+        fh = self._fh
+        if fh is None:
+            raise VoxEngineError("conexão com o motor caiu")
+
+        # (2) envio; falha de ESCRITA => frame não chegou => reconecta + repete 1x.
+        #     envio PARCIAL (_PartialSend) => bytes já chegaram => NÃO repete.
+        try:
+            self._send_frame(fh, header, audio)
+        except _PartialSend as exc:
+            self._close_fh()
+            raise VoxEngineError(
+                f"envio parcial ao motor ({exc.sent} bytes) — não repetível") from exc
+        except Exception as exc:  # noqa: BLE001
+            self._close_fh()
+            if not (self._auto_reconnect and self._try_reopen()):
+                raise VoxEngineError(f"falha ao enviar ao motor: {exc}") from exc
+            fh = self._fh
             try:
                 self._send_frame(fh, header, audio)
-            except _PartialSend as exc:
+            except _PartialSend as exc2:
                 self._close_fh()
                 raise VoxEngineError(
-                    f"envio parcial ao motor ({exc.sent} bytes) — não repetível") from exc
-            except Exception as exc:  # noqa: BLE001
+                    f"envio parcial ao motor ({exc2.sent} bytes) — não repetível") from exc2
+            except Exception as exc2:  # noqa: BLE001
                 self._close_fh()
-                if not (self._auto_reconnect and self._try_reopen()):
-                    raise VoxEngineError(f"falha ao enviar ao motor: {exc}") from exc
-                fh = self._fh
-                try:
-                    self._send_frame(fh, header, audio)
-                except _PartialSend as exc2:
-                    self._close_fh()
-                    raise VoxEngineError(
-                        f"envio parcial ao motor ({exc2.sent} bytes) — não repetível") from exc2
-                except Exception as exc2:  # noqa: BLE001
-                    self._close_fh()
-                    raise VoxEngineError(f"falha ao enviar ao motor: {exc2}") from exc2
+                raise VoxEngineError(f"falha ao enviar ao motor: {exc2}") from exc2
 
-            # (3) leitura; o envio JÁ foi bem-sucedido -> NÃO repete (evita double-process).
-            return self._read_reply(fh, timeout)
+        # (3) leitura; o envio JÁ foi bem-sucedido -> NÃO repete (evita double-process).
+        return self._read_reply(fh, timeout, want_cancel)
 
     # ---- comandos de alto nível ----
     def _next_rid(self) -> str:
@@ -912,6 +975,83 @@ class VoxClient:
         (só o 'Automático'). Só ENTRADA — a saída do TTS é playback do consumidor (não do daemon)."""
         h, _ = self._request({"cmd": "devices", "req_id": self._next_rid()}, timeout=timeout)
         return {"input": h.get("input") or [], "default_input": h.get("default_input")}
+
+    def list_voices(self, timeout: float = 5.0) -> dict:
+        """Vozes TTS: ``{"voices": [...instaladas], "supported": [...catálogo baixável],
+        "default_voice": <nome>}`` — escolha em runtime em vez de hardcodar nomes."""
+        h, _ = self._request({"cmd": "list_voices", "req_id": self._next_rid()}, timeout=timeout)
+        if h.get("event") == "error":
+            raise VoxEngineError(f"list_voices: {h.get('code')}: {h.get('message') or ''}")
+        return {"voices": h.get("voices") or [], "supported": h.get("supported") or [],
+                "default_voice": h.get("default_voice")}
+
+    def open_session(self, session: str, timeout: float = 5.0, **defaults) -> dict:
+        """Abre a sessão ``session`` nesta conexão com defaults opcionais (``lang``, ``voice``,
+        ``priority``, ``model``, ``profile``, ``from_lang``, ``to_lang``). Devolve o header."""
+        h, _ = self._request({"cmd": "open_session", "req_id": self._next_rid(),
+                              "session": session, **defaults}, timeout=timeout)
+        return h
+
+    def set(self, session: str = "default", lang: "str | None" = None,
+            voice: "str | None" = None, priority: "str | None" = None,
+            model: "str | None" = None, profile: "str | None" = None,
+            from_lang: "str | None" = None, to_lang: "str | None" = None,
+            timeout: float = 5.0) -> dict:
+        """Altera os defaults de uma sessão aberta; só os campos passados mudam.
+        ``from_lang``/``to_lang`` são herdados por ``translate``/``translate_text``."""
+        header: dict = {"cmd": "set", "req_id": self._next_rid(), "session": session}
+        for k, v in (("lang", lang), ("voice", voice), ("priority", priority), ("model", model),
+                     ("profile", profile), ("from_lang", from_lang), ("to_lang", to_lang)):
+            if v is not None:
+                header[k] = v
+        h, _ = self._request(header, timeout=timeout)
+        return h
+
+    def close_session(self, session: str, timeout: float = 5.0) -> dict:
+        """Fecha a sessão ``session`` desta conexão. Devolve o header."""
+        h, _ = self._request({"cmd": "close_session", "req_id": self._next_rid(),
+                              "session": session}, timeout=timeout)
+        return h
+
+    def cancel_transcription(self, req_id: str, timeout: float = 5.0) -> dict:
+        """Cancela o ``transcribe``/``transcribe_file`` em voo com ``req_id`` (passe o mesmo
+        ``req_id`` no pedido). Chame de OUTRA thread: o cancel fura a fila serializada e o
+        pedido original levanta :class:`VoxEngineError` ``cancelled``. Devolve o header
+        ``cancel_requested`` (``cancelled=False`` se não havia pedido com esse id nesta
+        conexão). Requer a capacidade ``cancellation`` do contrato."""
+        if not isinstance(req_id, str) or not req_id:
+            raise ValueError("req_id deve ser string não-vazia")
+        rid = f"cancel-{self._next_rid()}"
+        header = {"cmd": "cancel_transcription", "req_id": rid, "target_req_id": req_id}
+        if self._lock.acquire(blocking=False):      # nada em voo: request comum
+            try:
+                return self._request_locked(header, b"", timeout, want_cancel=True)[0]
+            finally:
+                self._lock.release()
+        fh = self._fh
+        if fh is None:
+            raise VoxEngineError("conexão com o motor caiu")
+        waiter = {"event": threading.Event(), "resp": None}
+        self._cancels[rid] = waiter       # a leitora do pedido em voo entrega a resposta
+        try:
+            self._send_frame(fh, header, b"")
+        except Exception as exc:  # noqa: BLE001
+            self._cancels.pop(rid, None)
+            raise VoxEngineError(f"falha ao enviar o cancelamento: {exc}") from exc
+        deadline = time.monotonic() + timeout
+        while not waiter["event"].wait(0.05):
+            if self._lock.acquire(blocking=False):  # o pedido terminou antes da resposta
+                try:
+                    if not waiter["event"].is_set():
+                        self._read_reply(fh, max(0.0, deadline - time.monotonic()), True)
+                finally:
+                    self._lock.release()
+                break
+            if time.monotonic() >= deadline:
+                break
+        if not waiter["event"].is_set():
+            raise VoxEngineError(f"timeout ({timeout:.0f}s) aguardando cancel_requested")
+        return waiter["resp"]
 
     def update_check(self, timeout: float = 8.0) -> dict:
         """Pergunta ao motor se há release ASSINADA mais nova (endpoint READ-ONLY
@@ -997,10 +1137,12 @@ class VoxClient:
     def transcribe(self, audio, lang: str = "", session: str = "default",
                    priority: str = "interactive", profile: "str | None" = None,
                    model: "str | None" = None, timeout: float = 120.0, *,
-                   return_metadata: bool = False, req_id: "str | None" = None) -> "str | dict":
+                   return_metadata: bool = False, req_id: "str | None" = None,
+                   container: "str | None" = None) -> "str | dict":
         """Transcreve ``audio`` (float32 16k mono: bytes, ndarray ou iterável) e
         devolve o texto. Levanta :class:`VoxEngineError` se o motor não retornar
-        ``result``.
+        ``result``. ``container`` ("auto"/"ogg"/"opus"/"wav"/"flac"/"mp3"): ``audio`` são os
+        BYTES do arquivo e o motor decodifica (veja :meth:`transcribe_file`).
 
         Motores com ``info.transcription_contract.version >= 1`` segmentam uma
         entrada longa automaticamente. Para gravações prontas e compatibilidade
@@ -1013,7 +1155,7 @@ class VoxClient:
         hardware — ``translator`` usa large-v3 na GPU (turbo no CPU) para tradução de
         qualidade; ``dictation`` (default do daemon) usa turbo. ``model`` força um
         modelo específico (ex.: 'large-v3'), tendo precedência sobre o profile."""
-        pcm = _to_pcm_bytes(audio)
+        pcm, container = _stt_payload(audio, container)
         header: dict = {"cmd": "transcribe", "req_id": req_id or self._next_rid(),
                         "session": session, "lang": lang or "",
                         "priority": priority, "timeout_ms": timeout * 1000}
@@ -1021,7 +1163,10 @@ class VoxClient:
             header["profile"] = profile
         if model is not None:
             header["model"] = model
+        if container:
+            header["container"] = container
         h, _ = self._request(header, pcm, timeout=timeout)
+        _check_container_echo(h, container)
         if h.get("event") == "result":
             return h if return_metadata else (h.get("text") or "").strip()
         raise VoxEngineError(
@@ -1031,8 +1176,8 @@ class VoxClient:
                         priority: str = "interactive", profile: "str | None" = None,
                         model: "str | None" = None, timeout: float = 300.0, *,
                         return_metadata: bool = False, req_id: "str | None" = None,
-                        timestamps: bool = False, subtitles: "str | None" = None
-                        ) -> "str | dict":
+                        timestamps: bool = False, subtitles: "str | None" = None,
+                        container: "str | None" = None) -> "str | dict":
         """Transcreve um áudio COMPLETO (gravação inteira) e devolve o texto TODO.
 
         Esta trilha manda o áudio inteiro e o motor SEGMENTA no servidor (VAD /
@@ -1049,8 +1194,12 @@ class VoxClient:
         ``subtitles="srt"|"vtt"`` pede também o arquivo de legenda (``subtitles``). Com qualquer
         um dos dois o retorno é o HEADER (dict), porque o texto sozinho perderia o pedido.
         Motores com suporte anunciam ``transcription_contract.timestamps``.
+        ``container`` ("auto"/"ogg"/"opus"/"wav"/"flac"/"mp3"; ausente/"pcm" = PCM float32 16 kHz
+        mono): ``audio`` são os BYTES do arquivo e o motor decodifica — o consumidor não precisa
+        de ffmpeg. Arquivo inválido -> :class:`VoxEngineError` ``decode_failed``; motor anterior
+        ao recurso -> ``container_unsupported`` (anunciado em ``transcription_contract.containers``).
         Levanta :class:`VoxEngineError` se o motor não retornar ``result``."""
-        pcm = _to_pcm_bytes(audio)
+        pcm, container = _stt_payload(audio, container)
         header: dict = {"cmd": "transcribe_file", "req_id": req_id or self._next_rid(),
                         "session": session, "lang": lang or "",
                         "priority": priority, "timeout_ms": timeout * 1000}
@@ -1062,7 +1211,10 @@ class VoxClient:
             header["timestamps"] = "segment"
         if subtitles is not None:
             header["subtitles"] = subtitles
+        if container:
+            header["container"] = container
         h, _ = self._request(header, pcm, timeout=timeout)
+        _check_container_echo(h, container)
         if h.get("event") == "result":
             if return_metadata or timestamps or subtitles is not None:
                 return h
