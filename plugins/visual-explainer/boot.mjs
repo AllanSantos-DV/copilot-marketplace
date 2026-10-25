@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 // versão do PLUGIN (carimbo do agente; o vend.mjs grava aqui). NÃO é a versão do motor: o motor é sempre o
 // mais novo publicado no engine-registry (ensureEngine sem versão fixa) e sobe pelo tools/pack-mcp.mjs.
-export const VXK_VERSION = "0.9.0";
+export const VXK_VERSION = "0.9.1";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ~/.copilot de forma portável: em hook de plugin, COPILOT_PLUGIN_ROOT = ...\.copilot\installed-plugins\<mp>\<plugin>
