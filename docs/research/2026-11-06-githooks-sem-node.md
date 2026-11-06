@@ -20,3 +20,5 @@ Resíduo: um push que publica plugin ainda inicia 1 node (o gate calcula hash/JS
 ## Prova no host real
 
 Push de `develop` para `origin` (github.com) pela cadeia global instalada (orquestrador -> ~/.copilot/githooks), com um `node` de contagem no PATH: nenhum node iniciado pelo hook.
+
+Comando: `git push origin develop` (00169b6 -> origin/develop, f64a6f9..00169b6). Saída: `To https://github.com/AllanSantos-DV/copilot-marketplace.git` / `f64a6f9..00169b6  develop -> develop`; node iniciados pelo hook: 0. O repositório não tem GitHub Actions: não há run hospedado em `develop` (`gh run list --branch develop` vazio); o único workflow é o `pages-build-deployment`, na `main`.
