@@ -175,6 +175,43 @@ function bootstrapFails() {
   }
 }
 
+/**
+ * A vitrine gerada (card do `index.html` e linha da tabela do README) mostra a versão e a descrição
+ * do manifesto? Só versão/description são comparadas: o HTML inteiro varia por fim de linha no Windows.
+ * Um sync que pulou `node docs/build.mjs` deixa essas duas saídas velhas.
+ */
+function staleShowcase(name, version) {
+  const fails = [];
+  const rebuild = `rode node docs/build.mjs`;
+  const index = readText(join(HERE, "index.html"));
+  if (index != null) {
+    const start = index.indexOf(`id="p-${name}"`);
+    const card = start === -1 ? "" : index.slice(start, index.indexOf("</article>", start));
+    if (!card.includes(`>v${version}<`)) fails.push(`${name}: docs/index.html não mostra v${version} — ${rebuild}`);
+  }
+  const readme = readText(join(ROOT, "README.md"));
+  if (readme != null && readme.includes("<!-- plugins:start -->")) {
+    const row = readme.split(/\r?\n/).find((l) => l.includes(`](./plugins/${name})`)) ?? "";
+    const desc = String(manifestPlugin(name)?.description ?? "").replaceAll("|", "\\|");
+    if (!row.endsWith(` | ${version} |`)) fails.push(`${name}: README sem v${version} na tabela — ${rebuild}`);
+    else if (!row.includes(` | ${desc} | `)) fails.push(`${name}: README com description velha — ${rebuild}`);
+  }
+  return fails;
+}
+
+/**
+ * Entrada de um plugin no manifesto.
+ * @param {string} name nome do plugin.
+ * @returns {object|undefined} a entrada, ou undefined se o manifesto falta, é inválido ou não a tem.
+ */
+function manifestPlugin(name) {
+  try {
+    return JSON.parse(readText(MANIFEST) ?? "").plugins.find((p) => p.name === name);
+  } catch {
+    return undefined;
+  }
+}
+
 function cmdCheck() {
   const names = manifestNames(readText(MANIFEST) ?? "");
   const marker = loadMarkerFrom(readText(MARKER));
@@ -203,6 +240,7 @@ function cmdCheck() {
     // página gerada em sincronia com a versão?
     const page = readText(join(HERE, "p", name, "index.html"));
     if (page && version && !page.includes(`v${version}`)) fails.push(`${name}: docs/p/${name}/ desatualizada — rode node docs/build.mjs`);
+    for (const f of staleShowcase(name, version)) fails.push(f);
   }
   if (fails.length) {
     console.error("gate: NÃO revisado:\n  - " + fails.join("\n  - "));
