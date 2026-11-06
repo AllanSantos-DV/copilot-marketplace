@@ -4,10 +4,10 @@
 //   node docs/install-gate.mjs --status  -> só mostra o estado atual
 //   node docs/install-gate.mjs --uninstall
 //
-// Copia `docs/githooks/{pre-push,dispatch.mjs}` para `~/.copilot/githooks/` e aponta o
+// Copia `docs/githooks/{pre-push,commit-msg}` (sh puro, sem node) para `~/.copilot/githooks/` e aponta o
 // `git config --global core.hooksPath` para lá. O hook roda em todos os repos, mas só
 // age no copilot-marketplace (o dispatcher é transparente fora dele). Node puro.
-import { copyFileSync, mkdirSync, existsSync, chmodSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, existsSync, chmodSync, rmSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -16,7 +16,8 @@ import { homedir, platform } from "node:os";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = join(HERE, "githooks");
 const DEST = join(homedir(), ".copilot", "githooks");
-const FILES = ["pre-push", "dispatch.mjs"];
+const FILES = ["pre-push", "commit-msg"];
+const LEGACY = ["dispatch.mjs", "commit-msg.dispatch.mjs"];
 
 const gitGlobal = (args) => {
   try {
@@ -26,6 +27,17 @@ const gitGlobal = (args) => {
   }
 };
 const currentHooksPath = () => gitGlobal(["--get", "core.hooksPath"]);
+
+const slashes = (p) => p.replace(/\\/g, "/").toLowerCase();
+
+/** O hook global de outro dono já delega para DEST (cadeia), então não precisa tomar o core.hooksPath. */
+function chainsTo(hooksPath) {
+  try {
+    return readFileSync(join(hooksPath, "pre-push"), "utf8").replace(/\\/g, "/").toLowerCase().includes(slashes(DEST));
+  } catch {
+    return false;
+  }
+}
 
 function status() {
   const hp = currentHooksPath();
@@ -63,6 +75,7 @@ for (const f of FILES) {
     } catch {}
   }
 }
+for (const f of LEGACY) rmSync(join(DEST, f), { force: true });
 console.log(`gate: hooks copiados para ${DEST}`);
 
 const hp = currentHooksPath();
@@ -72,6 +85,8 @@ if (!hp) {
   console.log("gate: pronto. O push neste repo agora exige a página revisada.");
 } else if (hp === DEST) {
   console.log("gate: core.hooksPath já apontava para cá — ok.");
+} else if (chainsTo(hp)) {
+  console.log(`gate: core.hooksPath global (${hp}) encadeia para ${DEST} — ok.`);
 } else {
   console.error(`\ngate: ⚠ core.hooksPath global já está em:\n    ${hp}`);
   console.error("Não sobrescrevi para não quebrar seus outros hooks. Duas opções:");

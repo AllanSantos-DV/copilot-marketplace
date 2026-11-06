@@ -1,0 +1,21 @@
+#!/bin/sh
+# Global commit-msg (core.hooksPath). Pure sh and git: no node process.
+# Removes AI attribution (agent Co-authored-by trailers, "Generated with ..." lines) from the message, then hands
+# over to the repository's own commit-msg. Any unexpected failure lets the commit through.
+PATTERN='^[[:space:]]*co-authored-by:.*(copilot|claude|anthropic|openai|chatgpt|codex|gemini|cursor|devin|aider|windsurf|codeium)|^[^[:alnum:]]*generated[[:space:]]+(with|by)[[:space:]]*\[?[[:space:]]*(claude|copilot|chatgpt|codex|cursor|gemini|aider|windsurf)'
+msg=$1
+
+if [ -f "$msg" ] && LC_ALL=C grep -qiE "$PATTERN" "$msg" 2>/dev/null; then
+  tmp="$msg.strip.$$"
+  if LC_ALL=C grep -viE "$PATTERN" "$msg" | sed -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}' > "$tmp" 2>/dev/null; then
+    cat "$tmp" > "$msg"
+  fi
+  rm -f "$tmp"
+fi
+
+local_hook="$(git rev-parse --absolute-git-dir 2>/dev/null)/hooks/commit-msg"
+if [ -f "$local_hook" ] && ! [ "$local_hook" -ef "$0" ]; then
+  "$local_hook" "$@"
+  exit $?
+fi
+exit 0

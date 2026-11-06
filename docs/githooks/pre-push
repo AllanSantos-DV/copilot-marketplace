@@ -1,8 +1,92 @@
 #!/bin/sh
-# copilot-marketplace · pre-push gate (global)
-#
-# Este shim é instalado em ~/.copilot/githooks/ e ligado via `core.hooksPath` global.
-# Roda em TODOS os repositórios, mas só age no copilot-marketplace: delega ao
-# dispatcher Node, que detecta o repo alvo e, fora dele, é transparente (fail-open e
-# preserva o hook local). O Git no Windows executa este arquivo com o `sh` embutido.
-exec node "$(dirname "$0")/dispatch.mjs" "$@"
+# Global pre-push (core.hooksPath). Pure sh and git: no node process unless a push publishes a plugin.
+#  1. AI-attribution check on the pushed commits (skipped when the chain already ran it: ORQ_COAUTHOR_CHAIN).
+#  2. copilot-marketplace gate (docs/gate.mjs): node starts only when the pushed range touches plugins/,
+#     docs/content/*.json or the marketplace manifest, or when that range cannot be resolved.
+#  3. Elsewhere: hands over to the repository's own pre-push. Any unexpected failure lets the push through.
+TARGET='allansantos-dv/copilot-marketplace'
+PATTERN='^[[:space:]]*co-authored-by:.*(copilot|claude|anthropic|openai|chatgpt|codex|gemini|cursor|devin|aider|windsurf|codeium)|^[^[:alnum:]]*generated[[:space:]]+(with|by)[[:space:]]*\[?[[:space:]]*(claude|copilot|chatgpt|codex|cursor|gemini|aider|windsurf)'
+HERE=$(cd "$(dirname "$0")" && pwd)
+url=$2
+input=$(cat)
+
+normalize() { printf '%s' "$1" | tr 'A-Z' 'a-z' | sed -e 's/\.git$//' -e 's#/*$##'; }
+
+shared_repo() {
+  list="$HERE/repos-compartilhados.txt"
+  [ -f "$list" ] || return 1
+  want=$(normalize "$url")
+  grep -v '^[[:space:]]*#' "$list" | while read -r line; do
+    [ -n "$line" ] && [ "$(normalize "$line")" = "$want" ] && echo hit
+  done | grep -q hit
+}
+
+# Commit message of the pushed commits carries AI attribution: refuse. In a shared repo only own or unpublished commits count.
+check_attribution() {
+  me=$(git config user.email 2>/dev/null | tr 'A-Z' 'a-z')
+  zero=0000000000000000000000000000000000000000
+  shared=''; shared_repo && shared=1
+  bad=''
+  while read -r lref lsha rref rsha; do
+    [ -n "$lsha" ] || continue
+    case "$lsha" in *[!0]*) ;; *) continue ;; esac
+    case "$rsha" in *[!0]*) range="$lsha --not $rsha" ;; *) range="$lsha --not --remotes" ;; esac
+    found=$(git log -i -E --format='%H %ae' --grep="$PATTERN" $range 2>/dev/null) || continue
+    [ -n "$found" ] || continue
+    unpublished=''
+    [ -n "$shared" ] && unpublished=$(git rev-list $range --not --remotes 2>/dev/null)
+    for sha in $(printf '%s\n' "$found" | cut -d' ' -f1); do
+      if [ -n "$shared" ]; then
+        email=$(printf '%s\n' "$found" | grep "^$sha " | cut -d' ' -f2 | tr 'A-Z' 'a-z')
+        [ "$email" = "$me" ] || printf '%s\n' "$unpublished" | grep -qx "$sha" || continue
+      fi
+      bad="$bad $(printf '%s' "$sha" | cut -c1-9)"
+    done
+  done <<EOT
+$input
+EOT
+  if [ -n "$bad" ]; then
+    printf '\n[pre-push BLOQUEADO] Commit(s) com atribuicao de IA (Co-authored-by de agente / Generated with ...) NAO autorizada:\n %s\nLimpe a(s) mensagem(ns) antes do push.\n\n' "$bad" >&2
+    exit 1
+  fi
+}
+
+# Does any pushed ref touch what the gate reviews? Unknown range counts as yes.
+gate_needed() {
+  origin_main=$(git rev-parse -q --verify origin/main 2>/dev/null)
+  while read -r lref lsha rref rsha; do
+    case "$lsha" in ''|*[!0]*) ;; *) continue ;; esac
+    [ -n "$lsha" ] || continue
+    case "$rref" in refs/tags/*) continue ;; esac
+    case "$rsha" in *[!0]*) base=$rsha ;; *) base=$origin_main ;; esac
+    if [ -z "$base" ]; then
+      files=$(git show --name-only --pretty=format: "$lsha" 2>/dev/null) || return 0
+    else
+      files=$(git diff --name-only "$base" "$lsha" 2>/dev/null) || return 0
+    fi
+    printf '%s\n' "$files" | grep -qE '^(plugins/|docs/content/[^/]+\.json$|\.github/plugin/marketplace\.json$)' && return 0
+  done <<EOT
+$input
+EOT
+  return 1
+}
+
+[ "$ORQ_COAUTHOR_CHAIN" = pre-push ] || check_attribution
+
+root=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -n "$root" ] && [ -f "$root/docs/gate.mjs" ]; then
+  case "$(normalize "$url")" in *"$TARGET"*)
+    if gate_needed; then
+      printf '%s\n' "$input" | node "$root/docs/gate.mjs" prepush "$url"
+      exit $?
+    fi ;;
+  esac
+  exit 0
+fi
+
+local_hook="$(git rev-parse --absolute-git-dir 2>/dev/null)/hooks/pre-push"
+if [ -f "$local_hook" ] && ! [ "$local_hook" -ef "$0" ]; then
+  printf '%s\n' "$input" | "$local_hook" "$@"
+  exit $?
+fi
+exit 0

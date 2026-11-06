@@ -48,7 +48,7 @@ copilot plugin update --all
 │  ├─ content/<nome>.json             # conteúdo rico da página (você escreve; ver §6.1)
 │  ├─ gate.mjs                        # gate de publicação (check / mark / prepush) — ver §6.2
 │  ├─ .reviewed.json                  # marcador "revisado" por plugin (versão+hash) — GERADO por mark
-│  ├─ githooks/{pre-push,dispatch.mjs} # fonte do hook global (instalado por install-gate.mjs)
+│  ├─ githooks/{pre-push,commit-msg}   # fonte do hook global (sh puro) (instalado por install-gate.mjs)
 │  ├─ install-gate.mjs                # instala o hook global e liga core.hooksPath (1x por máquina)
 │  └─ assets/{styles.css,app.js}      # design escrito à mão (edite estes ao afinar visual)
 ├─ README.md                          # tabela entre <!-- plugins:start/end --> é GERADA
@@ -228,10 +228,12 @@ repo quando um plugin mudou sem revisão.
     remote é este repo, verifica os plugins tocados no push contra o marcador (via `git show` no
     commit que está subindo). Bloqueia (exit≠0) se faltar revisão.
 - **Hook global (uma vez por máquina):** `node docs/install-gate.mjs` copia
-  `docs/githooks/{pre-push,dispatch.mjs}` para `~/.copilot/githooks/` e aponta
-  `git config --global core.hooksPath` para lá. O `dispatch.mjs` roda em todos os repos, mas só
-  age onde existe `docs/gate.mjs` (este repo/forks); em qualquer outro é **transparente**
-  (fail-open e preserva o hook local). Status: `node docs/install-gate.mjs --status`;
+  `docs/githooks/{pre-push,commit-msg}` (sh puro: **nenhum processo node por commit/push**) para
+  `~/.copilot/githooks/` e aponta `git config --global core.hooksPath` para lá (ou, se outro
+  hook global já encadeia para essa pasta, mantém o dele). Os hooks rodam em todos os repos, mas só
+  agem onde existe `docs/gate.mjs` (este repo/forks); o `node docs/gate.mjs prepush` só inicia
+  quando o push toca `plugins/`, `docs/content/*.json` ou o manifesto. Em qualquer outro repo são
+  **transparentes** (fail-open e preservam o hook local). Teste: `node --test tests/githooks.test.mjs`. Status: `node docs/install-gate.mjs --status`;
   remover: `--uninstall`.
 - **Quando o push é bloqueado:** a mensagem pede para acionar o `publisher` (publica e delega o
   design) ou o `vitrine` (só desenha). Depois de desenhar + `gate.mjs mark <nome>` + commit, o
