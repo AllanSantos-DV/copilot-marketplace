@@ -16,3 +16,7 @@ commit-msg, bloqueio no pre-push, hook local preservado, fail-open). O gate (`do
 quando o push toca `plugins/`, `docs/content/*.json` ou `.github/plugin/marketplace.json`, ou quando o range
 não resolve. A checagem de atribuição é pulada quando a cadeia do orchestrador já a fez (`ORQ_COAUTHOR_CHAIN`).
 Resíduo: um push que publica plugin ainda inicia 1 node (o gate calcula hash/JSON).
+
+## Prova no host real
+
+Push de `develop` para `origin` (github.com) pela cadeia global instalada (orquestrador -> ~/.copilot/githooks), com um `node` de contagem no PATH: nenhum node iniciado pelo hook.
