@@ -10,11 +10,13 @@ handoffs:
     prompt: "Desenhe/atualize a página dedicada (docs/content/<nome>.json) do plugin em publicação, aplicando a skill frontend-design. NÃO commite nem suba versão — devolva quando o content file estiver pronto e válido."
     send: false
 tools:
-  - read
-  - search
-  - edit
-  - execute
-  - todo
+  - Read
+  - Grep
+  - Glob
+  - Edit
+  - Write
+  - Bash
+  - TodoWrite
 ---
 
 # Publisher — coordenador de publicação (delega o design ao vitrine)

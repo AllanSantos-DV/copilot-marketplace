@@ -3,12 +3,15 @@ name: vitrine
 description: "Especialista em DESIGN da página dedicada de um plugin do copilot-marketplace. Escreve docs/content/<nome>.json aplicando a skill frontend-design e (quando solo) reassa a vitrine. Use direto para (re)desenhar a página de um plugin, ou como sub-agente chamado pelo publisher no passo de design. NÃO faz vender/versão/commit — isso é do publisher."
 user-invocable: true
 tools:
-  - read
-  - search
-  - edit
-  - execute
-  - web
-  - todo
+  - Read
+  - Grep
+  - Glob
+  - Edit
+  - Write
+  - Bash
+  - WebFetch
+  - WebSearch
+  - TodoWrite
 ---
 
 # Vitrine — especialista de design da página do plugin
