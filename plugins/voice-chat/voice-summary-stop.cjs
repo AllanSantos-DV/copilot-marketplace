@@ -7,10 +7,10 @@
 // Payload REAL do CLI (1.0.71): { sessionId, transcriptPath, cwd, timestamp, stopReason } — camelCase.
 // Modelo v1.5.16 (por TOOL): quem produz áudio é a TOOL `falar` da extensão (o agente chama quando
 // quiser, várias vezes por turno, inclusive antes de uma pergunta). O hook NÃO coleta mais texto —
-// ele só faz DUAS coisas, ambas via transcript/estado em disco:
+// ele só faz DUAS coisas, ambas via transcript/estado em disco (cobrança configurável):
 //   1) ENFORCEMENT: se o turno teve resposta textual mas NÃO chamou a tool `falar`, BLOQUEIA pedindo
 //      pra chamar (cap de blocks CONSECUTIVOS evita loop).
-//   2) ADVISOR de canvas caído: heartbeat do fork com PID morto -> avisa o agente a rodar extensions_reload.
+//   2) Infra indisponível/desconhecida: aviso persistente + skip (NUNCA block).
 
 const fs = require('fs');
 // Contrato cross-process (data dir, sanitização de sid, paths das filas) — ÚNICA fonte, igual à extensão.
@@ -87,41 +87,61 @@ const SPEAK_REASON_TAIL = '[voice-chat hook] Voice session — you ALREADY spoke
 // texto novo depois (fale só o delta); spoke=false -> turno mudo (fale a resposta).
 function speakReasonFor(turn) { return (turn && turn.spoke) ? SPEAK_REASON_TAIL : SPEAK_REASON_NONE; }
 
-// ---- advisor DETERMINÍSTICO de canvas caído (caminho A->B->C: hook detecta -> avisa -> agente recarrega)
-// O canvas é registrado pelo joinSession do fork da extensão e MORRE com o processo. Logo
-// "canvas registrado <=> processo do fork vivo". A extensão grava forks/<sid>.json={pid,ts} e
-// atualiza a cada 5s. Aqui checamos: PID vivo? (fato do SO) E heartbeat fresco? Se o PID está
-// MORTO (ou o ts velho = fork travado / PID reusado), o canvas caiu -> avisamos o agente a rodar
-// extensions_reload. Ausência do arquivo = voz nunca aberta nesta sessão -> não avisa (zero nag).
-const HEARTBEAT_STALE_MS = 90000;   // fork atualiza a cada 5s; 90s tolera GC/stall/wake de sleep sem falso "caído"
-const ADVISOR_MAX = 5;              // teto absoluto de avisos de reload por sessão (backstop anti-loop patológico)
-function readForkHeartbeat(sid) {
-  try {
-    const hb = JSON.parse(fs.readFileSync(shared.forkHeartbeatFile(DATA_DIR, sid), 'utf8'));
-    if (hb && typeof hb.pid === 'number' && hb.pid > 0 && Number(hb.ts) > 0) return { pid: hb.pid, ts: Number(hb.ts), status: typeof hb.status === 'string' ? hb.status : 'ready' };
-  } catch { /* ausente/corrompido = voz nunca aberta aqui -> não avisa */ }
-  return null;
+// ---- prontidão POSITIVA: desconhecido nunca autoriza cobrança -----------------------------
+const HEARTBEAT_STALE_MS = 90000;   // produtor atualiza a cada 5s
+const ADVISOR_MAX = 5;              // teto absoluto de avisos persistidos por sessão
+function readForkReadiness(sid) {
+  if (typeof sid !== 'string' || !sid.trim()) return { ready: false, reason: 'missing-session', key: 'missing-session' };
+  let hb;
+  try { hb = JSON.parse(fs.readFileSync(shared.forkHeartbeatFile(DATA_DIR, sid), 'utf8')); }
+  catch (e) {
+    const reason = e && e.code === 'ENOENT' ? 'heartbeat-absent' : 'heartbeat-unreadable';
+    return { ready: false, reason, key: reason };
+  }
+  return decideForkReadiness(hb, Date.now(), pidAlive);
+}
+// A prova de PID é injetada; shape, status e relógio são avaliados sem I/O.
+function decideForkReadiness(hb, now, isPidAlive) {
+  const invalid = { ready: false, reason: 'heartbeat-invalid', key: 'heartbeat-invalid' };
+  if (!hb || typeof hb !== 'object' || Array.isArray(hb) ||
+      !Number.isSafeInteger(hb.pid) || hb.pid <= 0 ||
+      typeof hb.ts !== 'number' || !Number.isFinite(hb.ts) || hb.ts <= 0) return invalid;
+  const key = hb.pid + ':' + hb.ts;
+  let reason;
+  if (hb.status !== 'ready') reason = 'heartbeat-not-ready';
+  else if (now < hb.ts || now - hb.ts >= HEARTBEAT_STALE_MS) reason = 'heartbeat-stale';
+  else if (!isPidAlive(hb.pid)) reason = 'heartbeat-dead-pid';
+  return reason ? { ready: false, reason, key } : { ready: true };
 }
 function pidAlive(pid) {
-  if (!pid || pid < 1) return false;
-  try { process.kill(pid, 0); return true; }        // sinal 0 = só testa existência (fato do SO)
-  catch (e) { return !!(e && e.code === 'EPERM'); }  // EPERM = existe sem permissão -> vivo; ESRCH -> morto
+  try { process.kill(pid, 0); return true; }
+  catch { return false; }   // inclusive EPERM: não temos prova positiva de prontidão
 }
-// PURO (testável): decide se avisa o reload. `alive` já resolvido pelo chamador (PID + frescor).
-function decideCanvasAdvisor(hb, alive, alreadyAdvisedKey) {
-  if (!hb || !hb.pid) return { advise: false };   // sem heartbeat -> voz nunca aberta -> não avisa
-  if (alive) return { advise: false };            // fork vivo -> canvas registrado -> nada a fazer
-  const key = hb.pid + ':' + (hb.ts || 0);        // instância única do fork morto (dedup por queda)
-  if (key === alreadyAdvisedKey) return { advise: false };   // já avisou ESTA queda -> não repete
-  return { advise: true, key };
+function decideCanvasAdvisor(readiness, alreadyAdvisedKey) {
+  if (readiness.ready || readiness.key === alreadyAdvisedKey) return { advise: false };
+  return { advise: true, key: readiness.key };
 }
-const CANVAS_RELOAD_REASON = '[voice-chat hook] This session\'s voice canvas is down: the extension-host process that registered the canvas died (opening the panel would show "Canvas not registered"). Run the extensions_reload tool now to relaunch the host and re-register this session\'s voice canvas.';
+// agentStop não oferece additionalContext não bloqueante. O aviso suportado aqui é o
+// diagnóstico PERSISTENTE em hook-state-<sid>.json.warning, consumido pela extensão no
+// próximo onUserPromptSubmitted (additionalContext + session.log); stderr é redundância.
+// Nunca emite decision:block por infraestrutura, nem ordena reload/uso de ferramentas.
+function warnAndSkip(sid, st, readiness) {
+  const advisedCount = Number(st.advisedCount) || 0;
+  const adv = decideCanvasAdvisor(readiness, st.advisedDropKey);
+  if (!adv.advise || advisedCount >= ADVISOR_MAX) return;
+  const warning = {
+    hook: 'agentStop', code: readiness.reason, timestamp: Date.now(),
+    message: '[voice-chat hook] Cobrança de fala pulada: prontidão não comprovada (' + readiness.reason + '). Ferramentas e sessão liberadas. Verifique a configuração/host de voz se quiser reativar a cobrança.',
+  };
+  const persisted = writeState(sid, { ...st, advisedDropKey: adv.key, advisedCount: advisedCount + 1, warning });
+  console.error(warning.message + (persisted ? ' Aviso salvo em ' + stateFile(sid) : ' Não foi possível persistir o aviso.'));
+}
 // ---- estado por sessão (disco): anti block-storm por CONTADOR CONSECUTIVO -----------------------
 // O CLI NÃO manda stop_hook_active E re-injeta o motivo do block como um NOVO prompt. Um cap por
 // JANELA DE TEMPO falha: se os re-prompts vêm espaçados (turno lento), poucos blocks caem na janela
 // e ele NUNCA estoura -> loop infinito. Então o cap é ABSOLUTO: nº de blocks CONSECUTIVOS por sid
 // desde o último sucesso; ao chegar em MAX_BLOCKS, desiste (skip) — independente do tempo. Um turno
-// que chamou `falar` (ou o próprio cap) ZERA o contador.
+// conforme ZERA o contador; atingir o cap NÃO o rearma.
 // MAX_BLOCKS=1: UM único bloqueio por queda de fala, SEM escalar. Re-nag não compensa — o 2º/3º stop
 // só arranca um "ok" degradado (ou repetição do que já foi dito), e o Voice Chat já guarda o histórico
 // de áudios (até ~30 turnos), então re-cobrar a fala é redundante. Bloqueia 1x com a nova diretriz e para.
@@ -129,7 +149,19 @@ const MAX_BLOCKS = 1;
 function stateFile(sid) {
   return shared.hookStateFile(DATA_DIR, sid);
 }
-function readState(sid) { try { return JSON.parse(fs.readFileSync(stateFile(sid), 'utf8')) || {}; } catch { return {}; } }
+function readState(sid) {
+  try {
+    const st = JSON.parse(fs.readFileSync(stateFile(sid), 'utf8'));
+    if (!st || typeof st !== 'object' || Array.isArray(st)) throw new Error('invalid hook state');
+    for (const key of ['consecBlocks', 'advisedCount']) {
+      if (st[key] !== undefined && (!Number.isSafeInteger(st[key]) || st[key] < 0)) throw new Error('invalid hook counter');
+    }
+    return st;
+  } catch (e) {
+    if (e && e.code === 'ENOENT') return {};
+    throw e; // contador desconhecido NÃO rearma o budget de bloqueios
+  }
+}
 function writeState(sid, st) {
   try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(stateFile(sid), JSON.stringify(st)); return true; }
   catch { return false; }   // não conseguiu PERSISTIR -> o chamador decide (fail-open p/ não dar block-storm)
@@ -146,32 +178,39 @@ if (require.main === module) {
   process.stdin.on('end', () => {
     let p;
     try { p = JSON.parse(data); } catch { process.exit(0); }
-    const sid = p.sessionId || p.session_id || '';
+    if (!p || typeof p !== 'object' || Array.isArray(p)) process.exit(0);
+    const rawSid = p.sessionId || p.session_id;
+    const sid = typeof rawSid === 'string' && rawSid.trim() ? rawSid : '';
     const tp = p.transcriptPath || p.transcript_path || '';
-    const st = sid ? readState(sid) : {};
+    let preferences;
+    try { preferences = shared.readHookPreferencesStrict(DATA_DIR); }
+    catch { /* erro vira aviso após recuperar o budget persistido, sem zerá-lo */ }
+    if (preferences && !preferences.summaryEnforcement) process.exit(0); // só cobrança OFF: nenhum efeito sobre áudio
 
-    // Voz DESLIGADA nesta sessão (modes/<sid>.json voiceEnabled:false): hook INERTE — não cobra
-    // `falar`, não bloqueia, não aconselha reload de canvas. Default ON (ausente/lixo = ligado).
-    if (sid && !shared.readSessionVoiceEnabled(DATA_DIR, sid)) process.exit(0);
+    let st;
+    try { st = readState(sid); }
+    catch {
+      // Não sobrescrever contador corrompido, nem presumir budget disponível.
+      console.error('[voice-chat hook] Estado anti-loop ilegível; cobrança pulada, ferramentas e sessão liberadas.');
+      process.exit(0);
+    }
+    if (!preferences) { warnAndSkip(sid, st, { ready: false, reason: 'preferences-unreadable', key: 'preferences-unreadable' }); process.exit(0); }
+    let mode;
+    try { mode = sid ? shared.readSessionModeStrict(DATA_DIR, sid) : shared.MODE_DEFAULTS; }
+    catch { warnAndSkip(sid, st, { ready: false, reason: 'session-mode-unreadable', key: 'session-mode-unreadable' }); process.exit(0); }
+    if (!mode.voiceEnabled) process.exit(0); // conserva o OFF de voz legado por sessão
 
-    // Liveness do fork do canvas (fato do SO) — reusado no enforcement E no advisor. A tool `falar` VIVE
-    // no fork; se ele morreu, pedir `falar` é IMPOSSÍVEL -> pulamos o enforcement e deixamos o advisor
-    // pedir o reload (senão o usuário come 3 nags inúteis antes da dica que resolve).
-    const hb = sid ? readForkHeartbeat(sid) : null;
-    // "vivo" p/ o canvas = PID vivo E heartbeat fresco E o registro NÃO falhou. status:"failed"
-    // (joinSession falhou 2x) conta como canvas AUSENTE mesmo com PID vivo -> o advisor pede reload
-    // (o join pode falhar com o host de pé; sem isto ficaria o buraco negro host-vivo-sem-canvas).
-    const forkAlive = hb ? (pidAlive(hb.pid) && (Date.now() - hb.ts) < HEARTBEAT_STALE_MS && hb.status !== 'failed') : true;
-    const forkDead = !!hb && !forkAlive;
+    const readiness = readForkReadiness(sid);
+    if (!readiness.ready) { warnAndSkip(sid, st, readiness); process.exit(0); }
 
-    // 1) ENFORCEMENT da tool `falar` (cap CONSECUTIVO anti-loop). Pulado se o fork está morto. Fail-open
-    //    se não der pra PERSISTIR o contador (sem persistência o cap não segura -> não bloqueia).
+    // Cobrança só com preferência ON + sid + heartbeat válido/fresco/ready + PID vivo.
+    // Falha em persistir o contador também libera o turno (anti-loop).
     const turn = readTurnSpeak(tp);
     // modo FALA COMPLETA é POR SESSÃO (modes/<sid>.json): a resposta é ÁUDIO via `falar`; o texto do chat
-    // é só artefato (código/tabela/imagem), que NÃO se cobra como fala. Sem sid -> false (enforcement de RESUMO).
-    const fullRead = sid ? shared.readSessionFullRead(DATA_DIR, sid) : false;
+    // é só artefato (código/tabela/imagem), que NÃO se cobra como fala.
+    const fullRead = mode.fullRead;
     const consec = Number(st.consecBlocks) || 0;
-    const enf = forkDead ? 'ok' : decideSpeakEnforcement(turn, consec >= MAX_BLOCKS, fullRead);
+    const enf = decideSpeakEnforcement(turn, consec >= MAX_BLOCKS, fullRead);
     if (enf === 'block') {
       if (!sid || !writeState(sid, { ...st, consecBlocks: consec + 1 })) process.exit(0);
       emitBlock(speakReasonFor(turn));   // Caso B (já falou, sobrou texto) -> fala SÓ o delta; Caso A -> fala a resposta
@@ -185,22 +224,9 @@ if (require.main === module) {
       : !!(turn && turn.hadText && (Number(turn.unspokenTail) || 0) < SUMMARY_MIN_CHARS);
     if (compliant && consec !== 0) st.consecBlocks = 0;
 
-    // 2) ADVISOR determinístico de canvas caído (independente). Deduplicado por queda + teto ABSOLUTO
-    //    ADVISOR_MAX por SESSÃO (NÃO reabastece em turno saudável: senão alternar saudável/morto burla o
-    //    cap -> storm ilimitado). advisedCount = nº de quedas DISTINTAS já avisadas; conta só pra cima.
-    //    Fail-open igual: só emite se conseguiu persistir o advisedCount.
-    if (sid) {
-      const advisedCount = Number(st.advisedCount) || 0;
-      const adv = decideCanvasAdvisor(hb, forkAlive, st.advisedDropKey);
-      if (adv.advise && advisedCount < ADVISOR_MAX) {
-        if (writeState(sid, { ...st, advisedDropKey: adv.key, advisedCount: advisedCount + 1 })) emitBlock(CANVAS_RELOAD_REASON);
-        process.exit(0);
-      }
-    }
-
     if (sid) writeState(sid, st);   // persiste resets (consecBlocks / advisedCount)
     process.exit(0);
   });
 }
 
-module.exports = { decideSpeakEnforcement, readTurnSpeak, isFalarTool, decideCanvasAdvisor, SUMMARY_MIN_CHARS, speakReasonFor };
+module.exports = { decideSpeakEnforcement, readTurnSpeak, isFalarTool, decideCanvasAdvisor, decideForkReadiness, SUMMARY_MIN_CHARS, speakReasonFor };

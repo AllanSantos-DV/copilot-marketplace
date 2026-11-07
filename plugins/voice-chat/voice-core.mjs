@@ -4,6 +4,7 @@
 
 import { existsSync, mkdirSync, statSync, renameSync, createWriteStream, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { createHash } from "node:crypto";
 import shared from "./voice-shared.cjs";
 
 const DEBUG_LOG = join(shared.resolveDataDir(), "debug.log");
@@ -38,6 +39,28 @@ export function mkdirp(dir) {
 // Lê JSON com fallback (nunca lança). Substitui o idioma `try { JSON.parse(readFileSync(f)) || x } catch { x }`.
 export function readJson(path, fallback) {
     try { return JSON.parse(readFileSync(path, "utf8")) || fallback; } catch { return fallback; }
+}
+
+// Ponte disco -> próximo prompt da sessão. Não depende de painel aberto, motor ou voz ON.
+// Recibo exclusivo separado do hook-state: nunca disputa/escreve os contadores do Stop.
+// O produtor limita os avisos a 5 por sid; os recibos sobrevivem ao reload da extensão.
+export function consumeHookWarning(dataDir, sid) {
+    if (typeof sid !== "string" || !sid.trim()) return undefined;
+    const warning = readJson(shared.hookStateFile(dataDir, sid), null)?.warning;
+    if (!warning || warning.hook !== "agentStop" || typeof warning.code !== "string" || !warning.code ||
+        typeof warning.message !== "string" || !warning.message.trim() ||
+        !Number.isFinite(warning.timestamp) || warning.timestamp <= 0) return undefined;
+    const key = createHash("sha256").update(JSON.stringify([warning.code, warning.timestamp, warning.message])).digest("hex");
+    try {
+        // wx é o claim atômico, inclusive entre forks concorrentes. Marca despacho, não
+        // confirmação visual pelo host: uma queda após o claim pode perder esta apresentação.
+        writeFileSync(shared.hookWarningReceiptFile(dataDir, sid, key), JSON.stringify({ key }), { flag: "wx" });
+    } catch (e) {
+        if (e?.code !== "EEXIST") dbg("hook warning: não foi possível registrar despacho; aviso mantido para retry");
+        return undefined; // I/O ruim nunca derruba o próximo prompt; não remove o warning
+    }
+    return "[voice-chat] Diagnóstico anterior (não é estado de saúde atual): " + warning.message +
+        " Isto não é uma instrução para falar, recarregar ou interromper o pedido atual. Informe brevemente o aviso em texto ao responder ao usuário.";
 }
 
 // Erro TRANSITÓRIO de FS no Windows: dois processos fazendo rename/replace no MESMO alvo ao mesmo

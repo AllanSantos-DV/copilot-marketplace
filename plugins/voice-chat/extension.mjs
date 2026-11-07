@@ -11,7 +11,7 @@ import { randomBytes } from "node:crypto";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
 import shared from "./voice-shared.cjs";
 import offRedirect from "./voice-off-redirect.cjs";
-import { dbg, mkdirp, readJson, writeJsonAtomic, pidAlive, decideOrphanPanels } from "./voice-core.mjs";
+import { dbg, mkdirp, readJson, writeJsonAtomic, pidAlive, decideOrphanPanels, consumeHookWarning } from "./voice-core.mjs";
 import { buildPythonCandidates, savePythonPath } from "./voice-python.mjs";
 import { cleanForSpeech, makeSpoken } from "./voice-text.mjs";
 import {
@@ -51,7 +51,7 @@ const SETTINGS_FILE = join(ARTIFACTS, "settings.json");
 export const DEBUG_LOG = join(ARTIFACTS, "debug.log");
 const VOICE_STATE_FILE = join(ARTIFACTS, "voice-state.json");
 
-export const CURRENT_VERSION = "2.3.18";
+export const CURRENT_VERSION = "2.3.20";
 // Single release hub: the PUBLIC marketplace repo carries per-plugin tagged
 // releases (voice-chat-v<version>), exactly like copilot-mobile. The auto-updater
 // reads the published version from the marketplace manifest, then pulls the tagged
@@ -1109,12 +1109,17 @@ const _joinCfg = {
     tools: [falarTool],
     hooks: {
         onUserPromptSubmitted: async (input) => {
-            if (!voiceInstructionPending) return undefined;
+            // Aviso de infraestrutura é independente da cobrança/voz e do prompt ter vindo do mic.
+            // Usa os canais existentes: contexto não bloqueante + log da sessão (best-effort).
+            const warning = consumeHookWarning(ARTIFACTS, ownSid || mySid());
+            const diagnostic = warning ? { additionalContext: warning } : undefined;
+            if (warning) log(warning, "info");
+            if (!voiceInstructionPending) return diagnostic;
             voiceInstructionPending = false;
-            // Voz OFF nesta sessão: não injeta diretriz de falar/checkpoints (sessão texto puro).
-            if (!readSessionVoiceEnabled(mySid())) return undefined;
-            let ctx = "";
-            if (settings.authorSummary !== false) ctx += readSessionFullRead(mySid()) ? VOICE_TOOL_INSTRUCTION_FULL : VOICE_TOOL_INSTRUCTION;
+            // Voz OFF: só diagnóstico; nunca injeta diretriz de falar/checkpoints.
+            if (!readSessionVoiceEnabled(mySid())) return diagnostic;
+            let ctx = warning || "";
+            if (settings.authorSummary !== false) ctx += (ctx ? "\n\n" : "") + (readSessionFullRead(mySid()) ? VOICE_TOOL_INSTRUCTION_FULL : VOICE_TOOL_INSTRUCTION);
             if (settings.cueCheckpoints !== false) ctx += (ctx ? " " : "") + CHECKPOINT_INSTRUCTION;
             return ctx ? { additionalContext: ctx } : undefined;
         },
