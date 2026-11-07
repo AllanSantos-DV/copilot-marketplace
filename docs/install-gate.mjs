@@ -6,7 +6,7 @@
 //
 // Copia `docs/githooks/{pre-push,commit-msg}` (sh puro, sem node) para `~/.copilot/githooks/` e aponta o
 // `git config --global core.hooksPath` para lá. O hook roda em todos os repos, mas só
-// age no copilot-marketplace (o dispatcher é transparente fora dele). Node puro.
+// age no copilot-marketplace (os hooks são transparentes fora dele). Node puro.
 import { copyFileSync, mkdirSync, existsSync, chmodSync, rmSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";

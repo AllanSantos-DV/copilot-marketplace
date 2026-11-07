@@ -8,5 +8,4 @@
 ## Fora deste repositório
 
 `copilot-voice/publish.ps1` não roda `docs/build.mjs` antes do `gate mark` (linha ~123). A correção
-é no repo `copilot-voice`; repassada ao orquestrador. Com o `check` acima, esse sync agora é barrado
-no gate em vez de passar com a vitrine velha.
+é no repo `copilot-voice`; repassada ao orquestrador. Com o `check` acima, rodá-lo antes do push pega a vitrine velha; o `pre-push` confere só o marcador.

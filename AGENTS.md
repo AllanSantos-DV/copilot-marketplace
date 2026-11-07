@@ -222,7 +222,7 @@ repo quando um plugin mudou sem revisão.
   agente, via `node docs/gate.mjs mark <nome>` (ou `--all`). Se a página ou a versão mudam, o
   hash muda e o marcador precisa ser refeito.
 - **Gate (`docs/gate.mjs`):** três modos —
-  - `node docs/gate.mjs check` → valida a working tree (todo plugin com página + marcador em dia).
+  - `node docs/gate.mjs check` → valida a working tree (todo plugin com página + marcador em dia, vitrine gerada em sincronia, bootstrap sem divergência).
   - `node docs/gate.mjs mark <nome|--all>` → grava/atualiza o marcador.
   - `node docs/gate.mjs prepush <remoteUrl>` → usado pelo hook; lê a stdin do `pre-push`, e se o
     remote é este repo, verifica os plugins tocados no push contra o marcador (via `git show` no
@@ -261,8 +261,9 @@ repo quando um plugin mudou sem revisão.
 > é publicado do repo `copilot-voice`; `action-bridge` é empacotado com esbuild do repo privado do
 > Action; `copilot-mobile`/`copilot-remote` são vendados dos seus repos privados.
 >
-> **Todo sync — script ou à mão — roda o passo 5 (`node docs/build.mjs`).** O gate **não** pega
-> vitrine velha: o hash cobre `plugin.json` + content, não o HTML gerado. Em 2026-10-11 o
+> **Todo sync — script ou à mão — roda o passo 5 (`node docs/build.mjs`).** O `gate.mjs check` pega
+> vitrine velha (card do `index.html` e linha do README), mas o hash do marcador e o `pre-push` cobrem só
+> `plugin.json` + content, não o HTML gerado — rode `check` antes do push. Em 2026-10-11 o
 > `publish.ps1` do `copilot-voice` fez `gate mark` sem build e a vitrine ficou mostrando o
 > voice-chat em v2.3.17 depois do sync v2.3.18.
 
@@ -331,7 +332,7 @@ papel inline seguindo o `vitrine`). Detalhes na seção "Como delegar" do `publi
 - [ ] Entrada correspondente em `.github/plugin/marketplace.json` (mesma versão/descrição).
 - [ ] `node docs/build.mjs` rodado (index.html + `docs/p/<nome>/` + tabela do README atualizados).
 - [ ] `node docs/gate.mjs mark <nome>` rodado e `docs/.reviewed.json` incluído no commit (§6.2).
-- [ ] `node docs/gate.mjs check` diz "ok" (senão o push é bloqueado pelo gate).
+- [ ] `node docs/gate.mjs check` diz "ok" (o `pre-push` não roda o `check`: ele só confere o marcador; o `check` é a conferência completa, inclusive da vitrine gerada).
 - [ ] Mexeu no `boot.mjs`? Editou a **fonte** (`plugins/canvas-sync/boot.mjs`) e rodou
       `node tools/sync-boot.mjs --fix` — nunca uma cópia isolada (§10).
 - [ ] Nada editado à mão em `plugins/<nome>/` nem nos `.html` gerados (`index.html`, `p/<nome>/`).
@@ -354,7 +355,7 @@ que chega em quatro e esquece o quinto (medido em 2026-07-30).
 | **Fonte canônica** | `plugins/canvas-sync/boot.mjs` — o dono do bootstrap |
 | **Editar** | sempre a fonte, nunca uma cópia |
 | **Propagar** | `node tools/sync-boot.mjs --fix` |
-| **Verificar** | `node tools/sync-boot.mjs` (exit 1 se divergir) — **e o `docs/gate.mjs check` já roda isso**, então divergência bloqueia o push |
+| **Verificar** | `node tools/sync-boot.mjs` (exit 1 se divergir) — **e o `docs/gate.mjs check` já roda isso**, então divergência é pega no `check` |
 
 **Bootstrap próprio ≠ divergência.** Três plugins têm o seu por decisão registrada — `mcp-bridge`
 (sem rede, requisito enterprise), `modo-auto` e `visual-explainer`. Estão na lista `PROPRIOS` de
