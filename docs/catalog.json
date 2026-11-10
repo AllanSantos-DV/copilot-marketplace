@@ -87,7 +87,7 @@
     },
     {
       "name": "voice-chat",
-      "version": "2.3.20",
+      "version": "2.3.21",
       "description": "Converse por voz com o Copilot (pt-BR): fale e ouça um resumo falado. STT e TTS pelo motor único local vox-engine, que a extensão instala e atualiza sozinha no Windows, verificando a assinatura Ed25519 do instalador antes de executá-lo.",
       "kind": "plugin",
       "category": "productivity",
@@ -169,7 +169,7 @@
     },
     {
       "name": "mcp-bridge",
-      "version": "0.2.8",
+      "version": "0.2.10",
       "description": "Restaura o MCP no GitHub Copilot onde ele é bloqueado por política mas as extensões são permitidas: conecta a servidores MCP (stdio/http/sse, com login OAuth) e expõe tools, prompts e resources nativamente ao agente. Aponta para um MOTOR local (ex.: mcp-gateway) só pelo nome — sem URL nem token no config.",
       "kind": "plugin",
       "category": "productivity",

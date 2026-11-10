@@ -1,10 +1,9 @@
 {
   "name": "mcp-bridge",
-  "version": "0.2.8",
+  "version": "0.2.10",
   "description": "Restaura o MCP no GitHub Copilot onde ele é bloqueado por política mas as extensões são permitidas: conecta a servidores MCP (stdio/http/sse, com login OAuth) e expõe tools, prompts e resources nativamente ao agente. Aponta para um MOTOR local (ex.: mcp-gateway) só pelo nome — sem URL nem token no config.",
   "author": {
-    "name": "Allan Santos",
-    "url": "https://github.com/AllanSantos-DV"
+    "name": "o mantenedor"
   },
   "homepage": "https://github.com/AllanSantos-DV/copilot-marketplace",
   "repository": "https://github.com/AllanSantos-DV/mcp-bridge-copilot-extension",

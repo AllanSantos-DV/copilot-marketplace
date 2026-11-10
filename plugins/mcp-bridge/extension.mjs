@@ -1,6 +1,6 @@
 import { createRequire as __createRequire } from "node:module";
 const require = globalThis.require ?? __createRequire(import.meta.url);
-// mcp-bridge v0.2.8 — Copilot CLI extension (MCP SDK embutido; @github/copilot-sdk external). Gerado por esbuild — não editar à mão.
+// mcp-bridge v0.2.10 — Copilot CLI extension (MCP SDK embutido; @github/copilot-sdk external). Gerado por esbuild — não editar à mão.
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -18009,7 +18009,7 @@ var Client = class extends Protocol {
 };
 
 // src/version.ts
-var BRIDGE_VERSION = true ? "0.2.8" : "0.0.0-dev";
+var BRIDGE_VERSION = true ? "0.2.10" : "0.0.0-dev";
 
 // node_modules/@modelcontextprotocol/sdk/dist/esm/shared/transport.js
 function normalizeHeaders(headers) {
@@ -21288,6 +21288,10 @@ ${r.text}`);
 function failResult(message) {
   return { textResultForLlm: message, resultType: "failure", error: message };
 }
+function failureStatus(err) {
+  if ((0, import_cockatiel.isBrokenCircuitError)(err)) return "circuit-open";
+  return /timed out|timeout/i.test(String(err?.message ?? err)) ? "timeout" : "error";
+}
 async function main() {
   const discarded = [];
   const cfg = loadConfig((name, reason) => {
@@ -21419,7 +21423,7 @@ async function main() {
           } catch (err) {
             const durationMs = Date.now() - t0;
             const message = String(err?.message ?? err);
-            const status = (0, import_cockatiel.isBrokenCircuitError)(err) ? "circuit-open" : /timed out|timeout/i.test(message) ? "timeout" : "error";
+            const status = failureStatus(err);
             health.record(sc.name, { durationMs, success: false, error: message });
             audit.complete(auditId, { status });
             return failResult(`Erro ao chamar "${mcpToolName}" em "${sc.name}": ${message}`);
@@ -21438,6 +21442,8 @@ async function main() {
         description: `[MCP:${sc.name} prompt] ${p.description ?? p.name}`,
         parameters: promptArgsSchema(p.arguments),
         handler: async (args) => {
+          const auditId = audit.begin({ server: sc.name, tool: `prompt:${promptName}`, args });
+          const t0 = Date.now();
           try {
             const strArgs = Object.fromEntries(
               Object.entries(args ?? {}).map(([k, v]) => [
@@ -21447,8 +21453,14 @@ async function main() {
               ])
             );
             const res = await srv.getPrompt(promptName, strArgs, callTimeoutMs);
-            return promptToResult(res);
+            health.record(sc.name, { durationMs: Date.now() - t0, success: true });
+            audit.complete(auditId, { status: "success" });
+            const result = promptToResult(res);
+            return { ...result, textResultForLlm: applyLimit(result.textResultForLlm, limiterCfg) };
           } catch (err) {
+            const message = String(err?.message ?? err);
+            health.record(sc.name, { durationMs: Date.now() - t0, success: false, error: message });
+            audit.complete(auditId, { status: failureStatus(err) });
             return failResult(`Erro ao obter prompt "${promptName}" em "${sc.name}": ${String(err?.message ?? err)}`);
           }
         }
@@ -21654,10 +21666,18 @@ ${logs.join("\n")}` : "";
         const uri = String(a.uri ?? "");
         const srv = servers.get(server);
         if (!srv) return failResult(`servidor "${server}" n\xE3o encontrado`);
+        const auditId = audit.begin({ server, tool: "resource:read", args: { uri } });
+        const t0 = Date.now();
         try {
           const res = await srv.readResource(uri, callTimeoutMs);
-          return convertResourceContents(res);
+          health.record(server, { durationMs: Date.now() - t0, success: true });
+          audit.complete(auditId, { status: "success" });
+          const result = convertResourceContents(res);
+          return { ...result, textResultForLlm: applyLimit(result.textResultForLlm, limiterCfg) };
         } catch (err) {
+          const message = String(err?.message ?? err);
+          health.record(server, { durationMs: Date.now() - t0, success: false, error: message });
+          audit.complete(auditId, { status: failureStatus(err) });
           return failResult(`Erro ao ler resource "${uri}" em "${server}": ${String(err?.message ?? err)}`);
         }
       }

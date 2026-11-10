@@ -43,9 +43,13 @@ from typing import Literal
 # ---------------------------------------------------------------------------
 # CONFIG canônica — fonte única (os MESMOS valores no SDK Node irmão).
 # ---------------------------------------------------------------------------
-SDK_VERSION = "2.3.0"
+SDK_VERSION = "2.5.0"
 
 DEFAULT_PIPE = r"\\.\pipe\vox"
+
+# Comandos cujo header leva a identidade `app` do cliente.
+APP_COMMANDS = frozenset({"open_session", "set", "tts", "save_default", "list_profiles", "translate",
+                          "translate_text", "prepare_translation"})
 
 # Tetos de sanidade do framing (espelham daemon/protocol.py).
 MAX_JSON = 4 * 1024 * 1024
@@ -94,7 +98,7 @@ class Capabilities:
                  models_resident=None, models_allowed=None, models_known=MODELS,
                  audio_formats_available=None, audio_formats_known=AUDIO_FORMATS,
                  priorities=PRIORITIES, voices=None, supported_voices=None,
-                 default_voice=None, transcription_contract=None):
+                 default_voice=None, transcription_contract=None, voice_profiles=None):
         self.version = version
         self.provider = provider
         self.hardware = hardware
@@ -111,6 +115,7 @@ class Capabilities:
         self.default_voice = default_voice
         self.transcription_contract = (transcription_contract
                                        if isinstance(transcription_contract, dict) else None)
+        self.voice_profiles = voice_profiles if isinstance(voice_profiles, dict) else None
 
     def __repr__(self) -> str:
         return (f"Capabilities(version={self.version!r}, provider={self.provider!r}, "
@@ -551,6 +556,7 @@ class CaptureHandle:
       * ``{event:"capture_level",   session, rms, peak, silent}`` — VU (~10 Hz); dica de exibição
       * ``{event:"capture_error",   session, code, message}``     — erro de device (``device_fail``)
         ou, client-side, ``code="pipe_broken"`` quando a conexão cai.
+      * ``{event:"capture_draining", session}`` — o motor ainda transcreve a cauda após o ``close()``
 
     ``close()`` (drena a cauda) / ``cancel()`` (aborta, descarta) fecham a captura e devolvem o
     ``capture_closed`` (texto + métricas). Fail-loud: conexão morta ⇒ ``capture_error`` tipado ao
@@ -568,6 +574,7 @@ class CaptureHandle:
         self._open_ack: "dict | None" = None
         self._result: "dict | None" = None
         self._end_sent = False
+        self._last_frame = time.monotonic()     # último frame do daemon: prazo do close/cancel
         self._reader = threading.Thread(target=self._read_loop, name="vox-capture-reader",
                                         daemon=True)
         self._reader.start()
@@ -599,7 +606,9 @@ class CaptureHandle:
 
     def close(self, timeout: float = 8.0) -> dict:
         """Fecha a captura (drena a cauda transcrita) e devolve o ``capture_closed``
-        (``text``/``peak``/``duration_s``/``chunks``/``errors``/``mic_ok``…)."""
+        (``text``/``peak``/``duration_s``/``chunks``/``errors``/``mic_ok``…). ``timeout`` é o
+        máximo SEM notícia do daemon: enquanto ele manda trechos ou ``capture_draining``, a
+        espera continua — a cauda de uma fala longa com a GPU disputada leva o que levar."""
         return self._end("capture_close", timeout)
 
     def cancel(self, timeout: float = 8.0) -> dict:
@@ -615,17 +624,28 @@ class CaptureHandle:
             try:
                 self._send_frame({"cmd": cmd, "session": self._session, "req_id": _cap_rid()})
             except Exception as exc:  # noqa: BLE001 — pipe morto: o leitor já sinaliza pipe_broken
-                self._closed.wait(timeout)
+                self._wait_closed(timeout)
                 self._teardown()
                 if self._result is not None:
                     return self._result
                 raise CaptureError("pipe_broken", f"falha ao enviar {cmd}: {exc}") from exc
-        if not self._closed.wait(timeout):
+        if not self._wait_closed(timeout):
             self._teardown()
             raise CaptureError("capture_timeout",
-                               f"{cmd} sem capture_closed em {timeout:.1f}s")
+                               f"{cmd}: {timeout:.1f}s sem notícia do daemon")
         self._teardown()
         return self._result or {"event": "capture_closed", "session": self._session, "ok": False}
+
+    def _wait_closed(self, idle: float) -> bool:
+        """Espera o ``capture_closed`` enquanto o daemon dá sinal de vida (``idle`` s desde o
+        último frame ou desde o início desta espera)."""
+        start = time.monotonic()
+        while not self._closed.is_set():
+            left = max(self._last_frame, start) + idle - time.monotonic()
+            if left <= 0:
+                return False
+            self._closed.wait(left)
+        return True
 
     # ------------------------------------------------------------ read-loop
     def _read_loop(self) -> None:
@@ -636,6 +656,7 @@ class CaptureHandle:
             except (EOFError, ProtocolError, OSError, ValueError):
                 self._fail_closed_local("pipe_broken", "conexão de captura caiu")
                 return
+            self._last_frame = time.monotonic()
             ev = header.get("event")
             if ev == "capture_open":
                 self._open_ack = header
@@ -726,10 +747,13 @@ class VoxClient:
 
     _wlock = None       # escrita de frames (o cancel escreve com um pedido em voo)
     _cancels = None     # req_id do cancel -> {"event": Event, "resp": header}
+    app = None
 
     def __init__(self, pipe: str = DEFAULT_PIPE, connect_timeout: float = 5.0, *,
-                 auto_reconnect: bool = False, reconnect_timeout: float = 0.25):
+                 auto_reconnect: bool = False, reconnect_timeout: float = 0.25,
+                 app: "str | None" = None):
         self.pipe_name = pipe
+        self.app = app           # identidade do aplicativo: o motor escolhe a voz pelo vínculo do dono
         self._lock = threading.Lock()   # serializa 1 request/resposta
         self._wlock = threading.Lock()
         self._cancels = {}
@@ -763,7 +787,7 @@ class VoxClient:
     def try_connect(cls, pipe: str = DEFAULT_PIPE,
                     connect_timeout: float = 2.0, *,
                     auto_reconnect: bool = False,
-                    reconnect_timeout: float = 0.25) -> "VoxClient | None":
+                    reconnect_timeout: float = 0.25, app: "str | None" = None) -> "VoxClient | None":
         """Conecta se o daemon existir; senão devolve ``None`` (não levanta).
 
         É a política "reusa se existe": tenta o motor único e, se não estiver no
@@ -771,7 +795,7 @@ class VoxClient:
         cliente (self-healing opt-in)."""
         try:
             return cls(pipe, connect_timeout, auto_reconnect=auto_reconnect,
-                       reconnect_timeout=reconnect_timeout)
+                       reconnect_timeout=reconnect_timeout, app=app)
         except (OSError, ValueError):
             return None
 
@@ -910,6 +934,8 @@ class VoxClient:
         dispara reconectar + REPETIR o envio UMA vez (o frame não chegou ao motor —
         idempotente-seguro). Falha de LEITURA/TIMEOUT NUNCA é repetida (o motor pode
         ter processado) — só solta o handle e levanta; a próxima chamada reconecta."""
+        if self.app and header.get("cmd") in APP_COMMANDS and "app" not in header:
+            header = {**header, "app": self.app}
         with self._lock:
             return self._request_locked(header, audio, timeout)
 
@@ -978,12 +1004,47 @@ class VoxClient:
 
     def list_voices(self, timeout: float = 5.0) -> dict:
         """Vozes TTS: ``{"voices": [...instaladas], "supported": [...catálogo baixável],
-        "default_voice": <nome>}`` — escolha em runtime em vez de hardcodar nomes."""
+        "default_voice": <nome>}`` — escolha em runtime em vez de hardcodar nomes. Com o TTS remoto
+        ligado, ``voices`` são as do servidor, ``supported`` vem vazio e ``default_voice`` é a voz escolhida."""
         h, _ = self._request({"cmd": "list_voices", "req_id": self._next_rid()}, timeout=timeout)
         if h.get("event") == "error":
             raise VoxEngineError(f"list_voices: {h.get('code')}: {h.get('message') or ''}")
         return {"voices": h.get("voices") or [], "supported": h.get("supported") or [],
                 "default_voice": h.get("default_voice")}
+
+    def dictation_seen(self, text: str, timeout: float = 5.0) -> int:
+        """Quantos ditados recentes (``profile="dictation"``, só na memória do motor) contêm ``text``
+        como palavras inteiras. Os textos ditados nunca saem do motor."""
+        h, _ = self._request({"cmd": "dictation_seen", "text": text, "req_id": self._next_rid()},
+                             timeout=timeout)
+        if h.get("event") == "error":
+            raise VoxEngineError(f"dictation_seen: {h.get('code')}: {h.get('message') or ''}")
+        return int(h["seen"])
+
+    def list_profiles(self, timeout: float = 5.0) -> dict:
+        """Perfis de voz que o dono definiu no motor (somente leitura): ``profiles`` (nome, descrição e
+        idioma de cada um), ``default``, ``profile_required``, ``allow_client_default``, ``ignore_session_voice`` e, com ``app``,
+        ``bound_profile`` (o perfil que o dono ligou a este app, ``None`` se não ligou)."""
+        h, _ = self._request({"cmd": "list_profiles", "req_id": self._next_rid()}, timeout=timeout)
+        if h.get("event") == "error":
+            raise VoxEngineError(f"list_profiles: {h.get('code')}: {h.get('message') or ''}")
+        out = {k: h[k] for k in ("profiles", "default", "profile_required", "allow_client_default")}
+        out["bound_profile"] = h.get("bound_profile")
+        out["ignore_session_voice"] = bool(h.get("ignore_session_voice"))
+        return out
+
+    def save_default(self, profile: str, app: "str | None" = None, timeout: float = 5.0) -> dict:
+        """Guarda ``profile`` como o padrão deste ``app`` (chamada única; depois os pedidos do app dispensam
+        o perfil). Só vale se o dono permitiu: com a opção desligada, ou com um vínculo do dono para o app,
+        o motor recusa e este método levanta :class:`VoxEngineError` com o código
+        (``client_default_disabled``, ``profile_bound``, ``profile_unknown``, ``bad_app``)."""
+        header = {"cmd": "save_default", "req_id": self._next_rid(), "profile": profile}
+        if app:
+            header["app"] = app
+        h, _ = self._request(header, timeout=timeout)
+        if h.get("event") == "error":
+            raise VoxEngineError(f"save_default: {h.get('code')}: {h.get('message') or ''}")
+        return {"app": h["app"], "profile": h["profile"]}
 
     def open_session(self, session: str, timeout: float = 5.0, **defaults) -> dict:
         """Abre a sessão ``session`` nesta conexão com defaults opcionais (``lang``, ``voice``,
@@ -996,12 +1057,13 @@ class VoxClient:
             voice: "str | None" = None, priority: "str | None" = None,
             model: "str | None" = None, profile: "str | None" = None,
             from_lang: "str | None" = None, to_lang: "str | None" = None,
-            timeout: float = 5.0) -> dict:
+            timeout: float = 5.0, app: "str | None" = None) -> dict:
         """Altera os defaults de uma sessão aberta; só os campos passados mudam.
         ``from_lang``/``to_lang`` são herdados por ``translate``/``translate_text``."""
         header: dict = {"cmd": "set", "req_id": self._next_rid(), "session": session}
         for k, v in (("lang", lang), ("voice", voice), ("priority", priority), ("model", model),
-                     ("profile", profile), ("from_lang", from_lang), ("to_lang", to_lang)):
+                     ("profile", profile), ("from_lang", from_lang), ("to_lang", to_lang),
+                     ("app", app)):
             if v is not None:
                 header[k] = v
         h, _ = self._request(header, timeout=timeout)
@@ -1132,6 +1194,7 @@ class VoxClient:
             supported_voices=_l(h.get("supported_voices")),
             default_voice=h.get("default_voice"),
             transcription_contract=h.get("transcription_contract"),
+            voice_profiles=h.get("voice_profiles"),
         )
 
     def transcribe(self, audio, lang: str = "", session: str = "default",
@@ -1225,8 +1288,11 @@ class VoxClient:
     def tts(self, text: str, fmt: str = "pcm", voice: "str | None" = None,
             speed: float = 1.0, session: str = "default",
             priority: str = "interactive", normalize: bool = False,
-            timeout: float = 120.0):
-        """Sintetiza ``text``.
+            timeout: float = 120.0, profile: "str | None" = None, app: "str | None" = None, lang: "str | None" = None,
+            keep_speed: bool = False):
+        """Sintetiza ``text``. ``profile`` pede um perfil de voz pelo nome (``list_profiles``); ``app`` diz
+        quem fala (o vínculo do dono vale sobre o perfil e sobre ``voice``). O header traz ``profile``,
+        ``profile_source`` e ``voice_ignored``.
 
         Com ``fmt="pcm"`` (default) devolve ``(header, samples)`` — ``samples`` é um
         ``numpy.ndarray`` float32 quando numpy existe, senão os ``bytes`` PCM crus
@@ -1239,6 +1305,14 @@ class VoxClient:
         default OFF = PCM cru byte-idêntico. Fade NÃO é da fonte (é playback)."""
         req = {"cmd": "tts", "req_id": self._next_rid(), "session": session,
                "text": text, "voice": voice, "speed": speed, "priority": priority}
+        if profile:
+            req["profile"] = profile
+        if app:
+            req["app"] = app
+        if lang:
+            req["lang"] = lang
+        if keep_speed:
+            req["keep_speed"] = True
         if normalize:
             req["normalize"] = True
         if fmt and fmt != "pcm":
@@ -1304,7 +1378,7 @@ class VoxClient:
                   session: str = "default", whisper_model: "str | None" = None,
                   priority: str = "interactive", speak: bool = False,
                   dub_voice: "str | None" = None, dub_sid: int = 0, dub_fmt: str = "pcm",
-                  timeout: float = 120.0):
+                  timeout: float = 120.0, dub_profile: "str | None" = None):
         """Traduz ``audio`` (float32 16k mono) -> texto no idioma ``to_lang`` e, com
         ``speak=True``, também a VOZ dublada no idioma-alvo (Fase B).
 
@@ -1318,7 +1392,8 @@ class VoxClient:
         - ``speak=True, dub_fmt!="pcm"`` -> ``(header, bytes)`` já codificados.
 
         A voz de dublagem é escolhida pelo idioma-ALVO no daemon (NÃO é a voz do
-        ``cmd tts``); ``dub_voice`` só força uma alternativa compatível com o alvo."""
+        ``cmd tts``); ``dub_voice`` força uma alternativa compatível com o alvo ou, com o TTS
+        remoto ligado, uma voz que o servidor anuncia (``tts_provider: "remote"``)."""
         pcm = _to_pcm_bytes(audio)
         header: dict = {"cmd": "translate", "req_id": self._next_rid(),
                         "session": session, "to_lang": to_lang, "priority": priority}
@@ -1330,6 +1405,8 @@ class VoxClient:
             header["speak"] = True
             if dub_voice:
                 header["dub_voice"] = dub_voice
+            if dub_profile:
+                header["dub_profile"] = dub_profile
             if dub_sid:
                 header["dub_sid"] = dub_sid
             if dub_fmt and dub_fmt != "pcm":
@@ -1344,7 +1421,8 @@ class VoxClient:
     def translate_text(self, text: str, from_lang: str, to_lang: str = "pt", *,
                        session: str = "default", priority: str = "interactive",
                        speak: bool = False, dub_voice: "str | None" = None,
-                       dub_sid: int = 0, dub_fmt: str = "pcm", timeout: float = 120.0):
+                       dub_sid: int = 0, dub_fmt: str = "pcm", timeout: float = 120.0,
+                       dub_profile: "str | None" = None):
         """Traduz TEXTO -> texto no idioma ``to_lang`` (pula o STT: o chamador JÁ
         transcreveu a fala) e, com ``speak=True``, também a VOZ dublada (Fase B).
 
@@ -1362,6 +1440,8 @@ class VoxClient:
             header["speak"] = True
             if dub_voice:
                 header["dub_voice"] = dub_voice
+            if dub_profile:
+                header["dub_profile"] = dub_profile
             if dub_sid:
                 header["dub_sid"] = dub_sid
             if dub_fmt and dub_fmt != "pcm":
@@ -1376,7 +1456,7 @@ class VoxClient:
     def prepare_translation(self, from_lang: str, to_lang: str,
                             whisper_model: "str | None" = None, speak: bool = False,
                             dub_voice: "str | None" = None, dub_sid: int = 0,
-                            timeout: float = 600.0) -> dict:
+                            timeout: float = 600.0, dub_profile: "str | None" = None) -> dict:
         """Baixa/instala o modelo faster-whisper + par(es) Argos ANTES de traduzir (o
         caminho de inferência nunca baixa). Com ``speak=True`` também faz o warm-up da
         voz de dublagem do idioma-alvo, FORA do worker — a resposta ``ready`` ganha
@@ -1390,6 +1470,8 @@ class VoxClient:
             header["speak"] = True
             if dub_voice:
                 header["dub_voice"] = dub_voice
+            if dub_profile:
+                header["dub_profile"] = dub_profile
             if dub_sid:
                 header["dub_sid"] = dub_sid
         h, _ = self._request(header, timeout=timeout)
