@@ -33,16 +33,18 @@ import { lifecycle } from "./lifecycle.mjs";
  * @param {Record<string,string>=} opts.trustedKeys chaves públicas FIXADAS pelo consumidor
  *        (`{ "<motor>": "<hex>" }`). Divergência com o registry = ABORT. Sem isso vale TOFU:
  *        a chave da 1ª instalação é gravada e qualquer troca posterior aborta.
+ * @param {string=} opts.registryUrl URL do manifest (default: registry público; testes apontam para um local).
+ * @param {(url:string,timeoutMs:number)=>Promise<Buffer>=} opts.fetcher download injetável (testes).
  * @param {()=>Promise<void>=} opts.onBeforeReplace shutdown do motor antes de sobrescrever (Windows).
  * @returns {Promise<{available:true, runtime:object, health:object, engine:object} | {available:false, reason:string}>}
  */
 export async function ensureEngine(name, opts = {}) {
-  const { healthCheck, version, allowNetwork = true, registryUrl, log = () => {}, bootTimeoutMs, onBeforeReplace, env, trustedKeys, refresh = false } = opts;
+  const { healthCheck, version, allowNetwork = true, registryUrl, log = () => {}, bootTimeoutMs, onBeforeReplace, env, trustedKeys, refresh = false, fetcher } = opts;
 
   const r = await resolve(name, { version, allowNetwork, registryUrl, refresh });
   if (!r.ok) { return { available: false, reason: r.reason }; }
 
-  const p = await provision(r.engine, { log, allowNetwork, onBeforeReplace, trustedKeys });
+  const p = await provision(r.engine, { log, allowNetwork, onBeforeReplace, trustedKeys, ...(fetcher ? { fetcher } : {}) });
   if (!p.ok) { return { available: false, reason: p.reason }; }
 
   const l = await lifecycle(r.engine, p.entryPath, { healthCheck, log, bootTimeoutMs, env });
