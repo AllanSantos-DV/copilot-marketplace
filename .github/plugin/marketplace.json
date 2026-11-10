@@ -182,10 +182,10 @@
     {
       "name": "action-bridge",
       "description": "Conecta o Copilot ao Action no Windows: descubra e acompanhe reuniões, inicie gravações por projeto, consulte histórico e publique insights citados. Instala o app quando necessário e delega a ele as atualizações assinadas.",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "source": "./plugins/action-bridge",
       "author": {
-        "name": "Allan Santos"
+        "name": "Action"
       },
       "homepage": "https://github.com/AllanSantos-DV/action-releases",
       "repository": "https://github.com/AllanSantos-DV/action-releases",
