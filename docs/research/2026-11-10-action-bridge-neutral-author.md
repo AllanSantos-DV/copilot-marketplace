@@ -91,3 +91,14 @@ in place of the direct install. config.json is not edited by hand: the CLI owns 
 Decision (orchestrator, for the owner): option (c). The owner installs nothing and the guard stays as it
 is; the installed files already match origin/main, so the registry catches up on each plugin's next
 release.
+
+## voice-chat 2.3.21 and mcp-bridge 0.2.10 vendored (2026-11-10)
+
+Sources: copilot-voice develop 75d5895 (voice-chat 2.3.21) and mcp-bridge-copilot-extension 082e3f2
+(mcp-bridge 0.2.10, chosen by the orchestrator over 0.2.9 because it was the newest commit and was already
+installed). Each was exported with `git archive` to a temp folder, so nothing was written in the origin repos and
+their uncommitted changes stayed out. The mcp-bridge `plugin/extension.mjs` (gitignored) came from `npm ci` +
+`npm run build` there. The file lists are the ones the origin publish scripts copy, normalized to LF, with pruning.
+Both vendored folders match the copies the origin sessions installed in ~/.copilot/installed-plugins (diff -r: 0).
+The canvas-sync mirror in ~/.copilot/extensions matches too; voice-chat adds only a runtime `artifacts` folder.
+Sweep: 22 hits before, 18 after.
