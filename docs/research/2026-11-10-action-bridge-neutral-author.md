@@ -87,3 +87,7 @@ Options: (a) the owner runs the CLI's update-all once; (b) the owner allows the 
 installer for agents in the Skill Manager; (c) leave it until the next plugin release.
 Recommendation: (a), and in the same run reinstall action-bridge from `action-bridge@copilot-marketplace`
 in place of the direct install. config.json is not edited by hand: the CLI owns it and the guard covers it.
+
+Decision (orchestrator, for the owner): option (c). The owner installs nothing and the guard stays as it
+is; the installed files already match origin/main, so the registry catches up on each plugin's next
+release.
