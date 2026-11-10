@@ -46,3 +46,27 @@ LICENSE/README/package.json/selftest path, copilot-memory README), each through 
 plus a version bump, and use "o mantenedor" for `owner.name`, the footer and the README intro.
 The GitHub account in repository URLs stays: it is the repo address and cannot be removed
 without moving the repositories.
+
+## Owner decision applied: neutral storefront (2026-11-10)
+
+Decision relayed by the orchestrator: the identity rule covers the storefront's public face too.
+Applied in this repo: `author.name` "o mantenedor" in canvas-sync 0.6.1, copilot-memory 1.17.1 and
+session-unloader 0.7.1 (author url dropped); manifest `owner.name`, `metadata.description` and every
+entry author (action-bridge keeps "Action", matching its plugin.json); footer "Feito pelo mantenedor",
+page title, meta description and hero line in `docs/build.mjs`; README and AGENTS intro and examples;
+AGENTS §4.1 states the neutral-author rule.
+
+Sweep: 89 hits before, 22 after. All 22 are in vendored files owned by other repos:
+copilot-mobile, copilot-remote, mcp-bridge, voice-chat (`plugin.json` author), modo-auto (LICENSE,
+README:11/83, package.json author, plugin.json author, selftest/memory-validator-smoke.mjs:208 path),
+copilot-memory README:247. The copilot-memory and session-unloader source repos still carry the name
+in their own plugin.json (1.17.0 / 0.7.0); their next sync would revert the vendored change unless the
+source is fixed and its next version is above 1.17.1 / 0.7.1.
+
+Real-environment check: runtime of the three plugins is identical to the installed copies (diff -r
+without plugin.json); installed folders backed up to %LOCALAPPDATA%\copilot-plugin-backups and the
+candidate plugin.json applied. A new `copilot -p` session ran canvas-sync at SessionStart, which
+mirrored copilot-memory 1.17.1 to ~/.copilot/extensions (`action: update`, `guard: upgrade`). The
+headless CLI does not load extensions in either version (A/B with 1.17.0 gave the same answer), so the
+mirror was imported in Node with the extension's own `COPILOT_MEMORY_SMOKE` mode: 27 tools, hooks
+onSessionStart and onUserPromptSubmitted, version 1.17.1, author "o mantenedor".
