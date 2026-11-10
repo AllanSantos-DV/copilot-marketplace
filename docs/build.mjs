@@ -4,6 +4,7 @@
 //   - `docs/index.html`            — a vitrine (um card por plugin, linkando a página dedicada)
 //   - `docs/p/<nome>/index.html`   — a PÁGINA DEDICADA de cada plugin (o que é, como usar,
 //                                    como instalar, estrutura, meta, navegação prev/next)
+//   - `docs/catalog.json`          — o mesmo catálogo em JSON, para agentes e scripts
 // e sincroniza a tabela do README. Sem framework, sem dependências, sem GitHub Actions.
 // Rode `node docs/build.mjs` como último passo do publish (o commit é a publicação).
 //
@@ -593,9 +594,36 @@ function syncReadme({ plugins }) {
   return true;
 }
 
+/**
+ * Catálogo legível por máquina, para agentes e scripts lerem a vitrine sem parsear HTML.
+ * Sem carimbo de data: o mesmo manifesto gera sempre o mesmo arquivo.
+ * @param {{plugins: object[]}} data saída de load().
+ * @returns {object} o catálogo.
+ */
+function catalog({ plugins }) {
+  return {
+    register: REGISTER_CMD,
+    site: `${SITE}/`,
+    plugins: plugins.map((p) => ({
+      name: p.name,
+      version: p.version,
+      description: p.description,
+      kind: kindOf(p),
+      category: p.category ?? null,
+      keywords: p.keywords ?? [],
+      canvas: p.markers.extensions,
+      page: `${SITE}/p/${p.name}/`,
+      repository: p.repository ?? null,
+      install: isDaemon(p) ? null : installCmd(p.name),
+      update: isDaemon(p) ? null : updateCmd(p.name),
+    })),
+  };
+}
+
 // ---------- escrita ----------
 const data = load();
 writeFileSync(OUT_INDEX, renderIndex(data), "utf8");
+writeFileSync(join(HERE, "catalog.json"), JSON.stringify(catalog(data), null, 2) + "\n", "utf8");
 
 const list = data.plugins;
 // prev/next navega só entre plugins INSTALÁVEIS — daemons (infra) ficam fora da paginação dos outros e da própria.

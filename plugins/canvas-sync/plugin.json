@@ -1,6 +1,6 @@
 {
   "name": "canvas-sync",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Infra da vitrine: espelha as canvas extensions instaladas (installed-plugins, incluindo installs diretos) para ~/.copilot/extensions no SessionStart. Nunca rebaixa: compara a versao que entra com a do carimbo e recusa a mais velha, de forma visivel. Quando duas origens miram o mesmo canvas, vence a maior versao e a perdedora e reportada. Carimbo e log registram qual motor escreveu.",
   "author": {
     "name": "o mantenedor"
@@ -15,6 +15,5 @@
     "hooks",
     "marketplace"
   ],
-  "category": "productivity",
-  "hooks": "hooks.json"
+  "category": "productivity"
 }

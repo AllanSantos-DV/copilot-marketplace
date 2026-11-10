@@ -26,7 +26,7 @@ beforeEach(() => {
   mkdirSync(join(root, "docs"));
   copyFileSync(GATE, join(root, "docs", "gate.mjs"));
   put(".github/plugin/marketplace.json", JSON.stringify({ plugins: [{ name: "demo", version: "1.0.0", description: DESC }] }));
-  put("plugins/demo/plugin.json", JSON.stringify({ name: "demo", version: "1.0.0" }));
+  put("plugins/demo/plugin.json", JSON.stringify({ name: "demo", version: "1.0.0", description: DESC }));
   put("docs/content/demo.json", "{}");
   put("docs/p/demo/index.html", "<span>v1.0.0</span>");
   put("docs/index.html", card("1.0.0"));

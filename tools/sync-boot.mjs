@@ -12,8 +12,8 @@
 //
 // Então a solução não é eliminar a cópia — é eliminar a DIVERGÊNCIA: uma fonte canônica
 // (`plugins/canvas-sync/boot.mjs`, do dono do bootstrap) e uma verificação que falha alto quando
-// alguma cópia sai de sincronia. Vendored-with-verification, o mesmo padrão já aplicado ao
-// `sync.mjs` dentro do mcp-bridge.
+// alguma cópia sai de sincronia. Vendored-with-verification. O mesmo vale para o motor
+// (`sync.mjs`) que o mcp-bridge vendoriza para o bootstrap sem rede.
 //
 //   node tools/sync-boot.mjs            # verifica (exit 1 se divergir)
 //   node tools/sync-boot.mjs --fix      # ressincroniza a partir da fonte
@@ -78,6 +78,35 @@ for (const nome of readdirSync(PLUGINS, { withFileTypes: true }).filter((d) => d
   } else {
     console.log(`  !!   ${nome.padEnd(18)} DIVERGE da fonte (${hash(atual)} ≠ ${canonHash})`);
     divergentes++;
+  }
+}
+
+/**
+ * Plugins que vendorizam o MOTOR do canvas-sync (`sync.mjs`) para rodar sem rede. A cópia tem de ser
+ * idêntica à fonte: uma versão velha do motor espelhando canvases foi o incidente das três cópias
+ * divergentes registrado no próprio `sync.mjs`.
+ */
+const MOTOR_COPIAS = ["mcp-bridge"];
+const MOTOR = join(PLUGINS, "canvas-sync", "sync.mjs");
+
+if (existsSync(MOTOR)) {
+  const motorTexto = readFileSync(MOTOR, "utf8");
+  const motorHash = hash(motorTexto);
+  console.log(`\n== motor do canvas-sync: plugins/canvas-sync/sync.mjs (${motorHash}) ==\n`);
+  for (const nome of MOTOR_COPIAS) {
+    const alvo = join(PLUGINS, nome, "sync.mjs");
+    if (!existsSync(alvo)) { continue; }
+    const atual = readFileSync(alvo, "utf8");
+    if (hash(atual) === motorHash) {
+      console.log(`  OK   ${nome.padEnd(18)} motor em sincronia`);
+    } else if (fix) {
+      writeFileSync(alvo, motorTexto);
+      console.log(`  FIX  ${nome.padEnd(18)} motor ressincronizado (${hash(atual)} → ${motorHash})`);
+      sincronizados++;
+    } else {
+      console.log(`  !!   ${nome.padEnd(18)} motor DIVERGE da fonte (${hash(atual)} ≠ ${motorHash})`);
+      divergentes++;
+    }
   }
 }
 

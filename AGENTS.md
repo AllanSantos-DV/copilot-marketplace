@@ -44,6 +44,7 @@ copilot plugin update --all
 ├─ docs/                              # vitrine (GitHub Pages, gerada)
 │  ├─ build.mjs                       # gerador: manifesto + content -> index + páginas + README
 │  ├─ index.html                      # GERADO (não editar à mão)
+│  ├─ catalog.json                    # GERADO: o catálogo em JSON, para agentes e scripts
 │  ├─ p/<nome>/index.html             # GERADO: a PÁGINA DEDICADA de cada plugin
 │  ├─ content/<nome>.json             # conteúdo rico da página (você escreve; ver §6.1)
 │  ├─ gate.mjs                        # gate de publicação (check / mark / prepush) — ver §6.2
@@ -223,11 +224,12 @@ repo quando um plugin mudou sem revisão.
   agente, via `node docs/gate.mjs mark <nome>` (ou `--all`). Se a página ou a versão mudam, o
   hash muda e o marcador precisa ser refeito.
 - **Gate (`docs/gate.mjs`):** três modos —
-  - `node docs/gate.mjs check` → valida a working tree (todo plugin com página + marcador em dia, vitrine gerada em sincronia, bootstrap sem divergência).
+  - `node docs/gate.mjs check` → valida a working tree (todo plugin com página + marcador em dia, manifesto = `plugin.json` em name/version/description, `hooks` apontando para arquivo que existe, vitrine e `catalog.json` em sincronia, bootstrap sem divergência). Divergência conhecida, com o conserto pendente no repo de origem, fica nas listas `KNOWN_MANIFEST_DIVERGENCES` e `KNOWN_DANGLING_HOOKS` do `gate.mjs`; o gate pede para tirar a entrada quando ela some.
   - `node docs/gate.mjs mark <nome|--all>` → grava/atualiza o marcador.
   - `node docs/gate.mjs prepush <remoteUrl>` → usado pelo hook; lê a stdin do `pre-push`, e se o
     remote é este repo, verifica os plugins tocados no push contra o marcador (via `git show` no
-    commit que está subindo). Bloqueia (exit≠0) se faltar revisão.
+    commit que está subindo). Bloqueia (exit≠0) se faltar revisão, se o contrato do plugin falhar ou se
+    `plugins/<nome>/` mudou sem versão maior.
 - **Hook global (uma vez por máquina):** `node docs/install-gate.mjs` copia
   `docs/githooks/{pre-push,commit-msg}` (sh puro: **nenhum processo node por commit/push**) para
   `~/.copilot/githooks/` e aponta `git config --global core.hooksPath` para lá (ou, se outro
@@ -357,6 +359,10 @@ que chega em quatro e esquece o quinto (medido em 2026-07-30).
 | **Editar** | sempre a fonte, nunca uma cópia |
 | **Propagar** | `node tools/sync-boot.mjs --fix` |
 | **Verificar** | `node tools/sync-boot.mjs` (exit 1 se divergir) — **e o `docs/gate.mjs check` já roda isso**, então divergência é pega no `check` |
+
+**O motor também tem uma fonte.** O `mcp-bridge` vendoriza o `sync.mjs` do canvas-sync para o bootstrap
+sem rede; a cópia tem de ser idêntica a `plugins/canvas-sync/sync.mjs`, e o mesmo `tools/sync-boot.mjs`
+verifica e propaga (`MOTOR_COPIAS`).
 
 **Bootstrap próprio ≠ divergência.** Três plugins têm o seu por decisão registrada — `mcp-bridge`
 (sem rede, requisito enterprise), `modo-auto` e `visual-explainer`. Estão na lista `PROPRIOS` de

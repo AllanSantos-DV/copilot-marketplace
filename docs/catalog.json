@@ -1,0 +1,209 @@
+{
+  "register": "copilot plugin marketplace add AllanSantos-DV/copilot-marketplace",
+  "site": "https://allansantos-dv.github.io/copilot-marketplace/",
+  "plugins": [
+    {
+      "name": "session-unloader",
+      "version": "0.7.1",
+      "description": "Libera a RAM de sessões realmente ociosas do Copilot medindo inatividade contínua da árvore inteira de processos. Um daemon único é o dono do scan, da telemetria e do painel (dashboard) — cada sessão é só um cliente fino que aponta pra ele; nunca cria um servidor local próprio. Preserva voz, workers, mesas e recursos allowlisted; tempo e allowlist são configuráveis no canvas. Automático fail-closed e desligado por padrão, com dry-run e descarga manual pela tool unload_idle.",
+      "kind": "plugin",
+      "category": "productivity",
+      "keywords": [
+        "sessions",
+        "sessoes",
+        "ram",
+        "memory",
+        "cleanup",
+        "idle",
+        "processes"
+      ],
+      "canvas": true,
+      "page": "https://allansantos-dv.github.io/copilot-marketplace/p/session-unloader/",
+      "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "install": "copilot plugin install session-unloader@copilot-marketplace",
+      "update": "copilot plugin update session-unloader"
+    },
+    {
+      "name": "copilot-memory",
+      "version": "1.17.1",
+      "description": "Memória persistente por projeto para o Copilot (pt-BR): guarda decisões, conhecimento e lições e as recupera por busca semântica, isoladas no projeto certo, com recall automático. Um curador destila os aprendizados da sessão em skills, e um grafo semântico do código (símbolos, chamadas, imports) ajuda a navegar repositórios grandes sem garimpar. Traz um painel de saúde, escopo e skills.",
+      "kind": "plugin",
+      "category": "productivity",
+      "keywords": [
+        "memory",
+        "memoria",
+        "mcp",
+        "recall",
+        "skills",
+        "native-java",
+        "project-scope",
+        "performance"
+      ],
+      "canvas": true,
+      "page": "https://allansantos-dv.github.io/copilot-marketplace/p/copilot-memory/",
+      "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "install": "copilot plugin install copilot-memory@copilot-marketplace",
+      "update": "copilot plugin update copilot-memory"
+    },
+    {
+      "name": "modo-auto",
+      "version": "0.6.5",
+      "description": "Modo autonomo por sessao para o Copilot: uma MESA de agentes responde os ask_user e revisa os Stop, entao o agente nao para antes do plano terminar. Planeja em fases (ADR), constroi por TDD com revisao adversarial, audita reuso e seguranca, e um modo-sombra contesta a direcao em segundo plano. Nucleo hexagonal; cada modo e um interruptor da sessao.",
+      "kind": "plugin",
+      "category": "productivity",
+      "keywords": [
+        "autonomo",
+        "mesa",
+        "ask_user",
+        "stop",
+        "agentes",
+        "ports-adapters"
+      ],
+      "canvas": true,
+      "page": "https://allansantos-dv.github.io/copilot-marketplace/p/modo-auto/",
+      "repository": "https://github.com/AllanSantos-DV/modo-auto",
+      "install": "copilot plugin install modo-auto@copilot-marketplace",
+      "update": "copilot plugin update modo-auto"
+    },
+    {
+      "name": "visual-explainer",
+      "version": "0.10.0",
+      "description": "Explicações visuais animadas, narradas por voz e interativas: peça um assunto e o agente desenhista monta UMA página HTML autocontida e offline — ou um vídeo MP4 com a mesma narração e legendas — compondo a biblioteca pronta do motor vxk: componentes, ícones e um controle único de reprodução, de diagramas de sequência e grafos a vistas explodidas. Para vídeo de apresentação há presets prontos (funcionalidade, tour, antes e depois, passo a passo, resumo executivo): basta preencher textos curtos. A apresentação por vídeo real filma o seu app rodando de verdade, com cursor, cliques, voz e legendas, a partir de um roteiro curto de passos. O motor é um servidor MCP independente do host, instalado uma vez por máquina; a narração é assada pelo vox-engine.",
+      "kind": "plugin",
+      "category": "productivity",
+      "keywords": [
+        "visual",
+        "explicacao",
+        "animacao",
+        "canvas",
+        "agente",
+        "pt-BR"
+      ],
+      "canvas": false,
+      "page": "https://allansantos-dv.github.io/copilot-marketplace/p/visual-explainer/",
+      "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "install": "copilot plugin install visual-explainer@copilot-marketplace",
+      "update": "copilot plugin update visual-explainer"
+    },
+    {
+      "name": "voice-chat",
+      "version": "2.3.20",
+      "description": "Converse por voz com o Copilot (pt-BR): fale e ouça um resumo falado. STT e TTS pelo motor único local vox-engine, que a extensão instala e atualiza sozinha no Windows, verificando a assinatura Ed25519 do instalador antes de executá-lo.",
+      "kind": "plugin",
+      "category": "productivity",
+      "keywords": [
+        "voice",
+        "voz",
+        "tts",
+        "stt",
+        "whisper",
+        "canvas",
+        "pt-BR"
+      ],
+      "canvas": true,
+      "page": "https://allansantos-dv.github.io/copilot-marketplace/p/voice-chat/",
+      "repository": "https://github.com/AllanSantos-DV/copilot-voice",
+      "install": "copilot plugin install voice-chat@copilot-marketplace",
+      "update": "copilot plugin update voice-chat"
+    },
+    {
+      "name": "action-bridge",
+      "version": "1.3.1",
+      "description": "Conecta o Copilot ao Action no Windows: descubra e acompanhe reuniões, inicie gravações por projeto, consulte histórico e publique insights citados. Instala o app quando necessário e delega a ele as atualizações assinadas.",
+      "kind": "plugin",
+      "category": "productivity",
+      "keywords": [
+        "action",
+        "meetings",
+        "transcription",
+        "mcp",
+        "memory",
+        "windows"
+      ],
+      "canvas": true,
+      "page": "https://allansantos-dv.github.io/copilot-marketplace/p/action-bridge/",
+      "repository": "https://github.com/AllanSantos-DV/action-releases",
+      "install": "copilot plugin install action-bridge@copilot-marketplace",
+      "update": "copilot plugin update action-bridge"
+    },
+    {
+      "name": "copilot-mobile",
+      "version": "0.3.37",
+      "description": "Bridge do copilot-mobile: provisiona o daemon apartado na 1ª execução (baixa a release buildada, sem build), encaminha o resumo falado ao celular (narração on-device, sem injetar marcador) e detecta drift celular→PC na sessão viva. Pareamento, transporte e painel de configuração ficam no daemon (ícone da bandeja).",
+      "kind": "plugin",
+      "category": "productivity",
+      "keywords": [
+        "copilot-mobile",
+        "daemon",
+        "mobile",
+        "bridge",
+        "remote",
+        "voz",
+        "pt-BR"
+      ],
+      "canvas": true,
+      "page": "https://allansantos-dv.github.io/copilot-marketplace/p/copilot-mobile/",
+      "repository": "https://github.com/AllanSantos-DV/copilot-mobile",
+      "install": "copilot plugin install copilot-mobile@copilot-marketplace",
+      "update": "copilot plugin update copilot-mobile"
+    },
+    {
+      "name": "copilot-remote",
+      "version": "0.2.0",
+      "description": "Controle remoto de sessões do Copilot em outras máquinas via o daemon do copilot-mobile: escolha a máquina, liste sessões, converse, mande áudio (reusa o motor de voz local) e arquivos — direto do desktop.",
+      "kind": "plugin",
+      "category": "productivity",
+      "keywords": [
+        "remote",
+        "daemon",
+        "copilot-mobile",
+        "sessions",
+        "voice",
+        "pt-BR"
+      ],
+      "canvas": true,
+      "page": "https://allansantos-dv.github.io/copilot-marketplace/p/copilot-remote/",
+      "repository": "https://github.com/AllanSantos-DV/copilot-remote",
+      "install": "copilot plugin install copilot-remote@copilot-marketplace",
+      "update": "copilot plugin update copilot-remote"
+    },
+    {
+      "name": "mcp-bridge",
+      "version": "0.2.8",
+      "description": "Restaura o MCP no GitHub Copilot onde ele é bloqueado por política mas as extensões são permitidas: conecta a servidores MCP (stdio/http/sse, com login OAuth) e expõe tools, prompts e resources nativamente ao agente. Aponta para um MOTOR local (ex.: mcp-gateway) só pelo nome — sem URL nem token no config.",
+      "kind": "plugin",
+      "category": "productivity",
+      "keywords": [
+        "mcp",
+        "bridge",
+        "model-context-protocol",
+        "tools",
+        "enterprise",
+        "pt-BR"
+      ],
+      "canvas": true,
+      "page": "https://allansantos-dv.github.io/copilot-marketplace/p/mcp-bridge/",
+      "repository": "https://github.com/AllanSantos-DV/mcp-bridge-copilot-extension",
+      "install": "copilot plugin install mcp-bridge@copilot-marketplace",
+      "update": "copilot plugin update mcp-bridge"
+    },
+    {
+      "name": "canvas-sync",
+      "version": "0.6.2",
+      "description": "Infra da vitrine: espelha as canvas extensions instaladas (installed-plugins, incluindo installs diretos) para ~/.copilot/extensions no SessionStart. Nunca rebaixa: compara a versao que entra com a do carimbo e recusa a mais velha, de forma visivel. Quando duas origens miram o mesmo canvas, vence a maior versao e a perdedora e reportada. Carimbo e log registram qual motor escreveu.",
+      "kind": "plugin",
+      "category": "productivity",
+      "keywords": [
+        "canvas",
+        "sync",
+        "infra",
+        "hooks"
+      ],
+      "canvas": false,
+      "page": "https://allansantos-dv.github.io/copilot-marketplace/p/canvas-sync/",
+      "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
+      "install": "copilot plugin install canvas-sync@copilot-marketplace",
+      "update": "copilot plugin update canvas-sync"
+    }
+  ]
+}

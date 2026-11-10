@@ -5,6 +5,8 @@
 // que casa a versão do plugin + um hash do (plugin.json + docs/content/<nome>.json).
 // Quando o agente (publisher/vitrine) desenha a página, ele grava esse marcador — e é
 // isso que o hook de pre-push confere para liberar (ou bloquear) o push.
+// Também confere o contrato de cada plugin vendado (manifesto = plugin.json; `hooks` aponta para
+// arquivo que existe) e, no pre-push, que runtime alterado veio com versão nova.
 //
 // Modos:
 //   node docs/gate.mjs check                 -> valida a working tree (humano/self-check)
@@ -78,6 +80,108 @@ function descriptionOverflows(manifestText) {
     }
   }
   return bad;
+}
+
+/**
+ * Divergências conhecidas entre a entrada do manifesto e o `plugin.json` vendado, por plugin e
+ * campo, com o motivo. A correção é no repo de origem; quando ela chega, o check pede para tirar a
+ * entrada daqui, para a lista nunca esconder uma divergência nova.
+ */
+const KNOWN_MANIFEST_DIVERGENCES = {
+  "copilot-mobile": { description: "o repo de origem (copilot-mobile) ainda publica a description antiga no plugin.json" },
+};
+
+/**
+ * Plugins cujo `plugin.json` ainda aponta `hooks` para o arquivo que a migração para o neural-link
+ * apagou. O campo morto sai no repo de origem de cada um; o check pede para tirar a entrada daqui
+ * quando isso acontecer.
+ */
+const KNOWN_DANGLING_HOOKS = {
+  "action-bridge": "repo de origem: Action (integrations/copilot-extension)",
+  "copilot-mobile": "repo de origem: copilot-mobile",
+  "session-unloader": "repo de origem: session-unloader",
+  "visual-explainer": "repo de origem: visual-explainer",
+};
+
+const CONTRACT_FIELDS = ["name", "version", "description"];
+
+/**
+ * Confere o contrato do plugin vendado: manifesto e `plugin.json` dizem o mesmo nome, versão e
+ * description, e o `hooks` declarado aponta para um arquivo que existe.
+ * @param {string} name nome do plugin.
+ * @param {object|undefined} entry entrada do manifesto.
+ * @param {string|null} pluginJsonText conteúdo de `plugins/<name>/plugin.json`.
+ * @param {(rel: string) => boolean} exists diz se um caminho relativo à raiz existe.
+ * @returns {string[]} falhas encontradas.
+ */
+function contractFails(name, entry, pluginJsonText, exists) {
+  let plugin;
+  try {
+    plugin = JSON.parse(pluginJsonText ?? "");
+  } catch {
+    return [`${name}: plugins/${name}/plugin.json ausente ou inválido`];
+  }
+  const fails = [];
+  const allowed = KNOWN_MANIFEST_DIVERGENCES[name] ?? {};
+  for (const field of CONTRACT_FIELDS) {
+    const differs = plugin[field] !== entry?.[field];
+    if (differs && !allowed[field]) fails.push(`${name}: ${field} do manifesto ≠ plugins/${name}/plugin.json — alinhe os dois`);
+    if (!differs && allowed[field]) fails.push(`${name}: ${field} já bate com o plugin.json — tire a exceção de KNOWN_MANIFEST_DIVERGENCES (docs/gate.mjs)`);
+  }
+  const dangling = typeof plugin.hooks === "string" && !exists(`plugins/${name}/${plugin.hooks}`);
+  if (dangling && !KNOWN_DANGLING_HOOKS[name]) fails.push(`${name}: plugin.json aponta hooks para ${plugin.hooks}, que não existe — remova o campo ou vende o arquivo`);
+  if (!dangling && KNOWN_DANGLING_HOOKS[name]) fails.push(`${name}: hooks não está mais quebrado — tire a exceção de KNOWN_DANGLING_HOOKS (docs/gate.mjs)`);
+  return fails;
+}
+
+/**
+ * Compara versões x.y.z numericamente.
+ * @returns {number} negativo se a < b, zero se iguais, positivo se a > b.
+ */
+function cmpVersion(a, b) {
+  const pa = String(a).split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
+/**
+ * Plugins cujo runtime (`plugins/<nome>/`) mudou no range sem subir a versão. O
+ * `copilot plugin update` só entrega quando a versão sobe, então a mudança não chegaria a ninguém.
+ * Plugin novo ou removido no range não tem versão anterior para comparar.
+ */
+function unbumpedFails(base, tip) {
+  let files;
+  try {
+    files = git(["diff", "--name-only", base, tip]);
+  } catch {
+    return [];
+  }
+  const names = new Set();
+  for (const line of files.split(/\r?\n/)) {
+    const m = line.trim().match(/^plugins\/([^/]+)\//);
+    if (m) names.add(m[1]);
+  }
+  const fails = [];
+  for (const name of names) {
+    const before = versionOf(gitShow(base, `plugins/${name}/plugin.json`));
+    const after = versionOf(gitShow(tip, `plugins/${name}/plugin.json`));
+    if (before == null || after == null) continue;
+    if (cmpVersion(after, before) <= 0) fails.push(`${name}: plugins/${name}/ mudou sem subir a versão (v${before} → v${after}) — o copilot plugin update só entrega versão nova`);
+  }
+  return fails;
+}
+
+function gitHas(rev, path) {
+  try {
+    execFileSync("git", ["cat-file", "-e", `${rev}:${path}`], { cwd: ROOT, stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function versionOf(pluginJsonText) {
@@ -196,6 +300,14 @@ function staleShowcase(name, version) {
     if (!row.endsWith(` | ${version} |`)) fails.push(`${name}: README sem v${version} na tabela — ${rebuild}`);
     else if (!row.includes(` | ${desc} | `)) fails.push(`${name}: README com description velha — ${rebuild}`);
   }
+  const catalog = readText(join(HERE, "catalog.json"));
+  if (catalog != null) {
+    let entry;
+    try {
+      entry = JSON.parse(catalog).plugins.find((p) => p.name === name);
+    } catch {}
+    if (entry?.version !== version) fails.push(`${name}: docs/catalog.json não mostra v${version} — ${rebuild}`);
+  }
   return fails;
 }
 
@@ -232,6 +344,7 @@ function cmdCheck() {
       fails.push(`${name}: docs/content/${name}.json não é JSON válido`);
       continue;
     }
+    for (const f of contractFails(name, manifestPlugin(name), pj, (rel) => existsSync(join(ROOT, rel)))) fails.push(f);
     const version = versionOf(pj);
     const m = marker[name];
     if (!m) fails.push(`${name}: sem marcador de revisado (rode: node docs/gate.mjs mark ${name})`);
@@ -299,6 +412,12 @@ function verifyAtRev(name, tip) {
   const cj = gitShow(tip, `docs/content/${name}.json`);
   const marker = loadMarkerFrom(gitShow(tip, "docs/.reviewed.json"));
   if (!cj) return `${name}: falta docs/content/${name}.json (página não desenhada)`;
+  let entry;
+  try {
+    entry = JSON.parse(gitShow(tip, ".github/plugin/marketplace.json") ?? "").plugins.find((p) => p.name === name);
+  } catch {}
+  const contract = contractFails(name, entry, pj, (rel) => gitHas(tip, rel));
+  if (contract.length) return contract.join("; ");
   const version = versionOf(pj);
   const m = marker[name];
   if (!m) return `${name}: sem marcador de revisado`;
@@ -321,6 +440,9 @@ function blockMessage(fails) {
     "    vitrine     (só desenha docs/content/<nome>.json com frontend-design)",
     "    depois: node docs/gate.mjs mark <nome>  e commit — aí libera.",
     "",
+    "  Runtime mudou sem bump → suba a version no plugin.json e no manifesto.",
+    "  Manifesto ≠ plugin.json → alinhe name/version/description nos dois.",
+    "",
     "  Description longa → encurte no .github/plugin/marketplace.json (máx 1024).",
     "    A description é semântica (o que ESSA versão entrega), não um changelog.",
     "",
@@ -338,12 +460,14 @@ function cmdPrepush(url) {
   } catch {}
   const lines = readStdin().split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const toVerify = new Set();
+  const bumpFails = [];
   let unknownRange = false;
   for (const line of lines) {
     const [, localSha, remoteRef, remoteSha] = line.split(/\s+/);
     if (!localSha || ZERO.test(localSha)) continue; // deleção de ref
     if ((remoteRef ?? "").startsWith("refs/tags/")) continue; // tags: fora do gate
     const base = remoteSha && !ZERO.test(remoteSha) ? remoteSha : originMain;
+    if (base) for (const f of unbumpedFails(base, localSha)) bumpFails.push(f);
     const touched = touchedPlugins(base, localSha);
     if (touched == null) {
       unknownRange = true;
@@ -356,7 +480,7 @@ function cmdPrepush(url) {
     const tip = lines[0].split(/\s+/)[1];
     for (const n of manifestNames(gitShow(tip, ".github/plugin/marketplace.json") ?? readText(MANIFEST) ?? "")) toVerify.add(`${n}\u0000${tip}`);
   }
-  const fails = [];
+  const fails = [...bumpFails];
   for (const item of toVerify) {
     const [name, tip] = item.split("\u0000");
     const f = verifyAtRev(name, tip);
