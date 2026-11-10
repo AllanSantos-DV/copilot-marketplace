@@ -70,3 +70,20 @@ mirrored copilot-memory 1.17.1 to ~/.copilot/extensions (`action: update`, `guar
 headless CLI does not load extensions in either version (A/B with 1.17.0 gave the same answer), so the
 mirror was imported in Node with the extension's own `COPILOT_MEMORY_SMOKE` mode: 27 tools, hooks
 onSessionStart and onUserPromptSubmitted, version 1.17.1, author "o mantenedor".
+
+## Owner question: CLI registry still lists the old versions (2026-11-10)
+
+Facts: the installed folders of canvas-sync, copilot-memory and session-unloader match origin/main
+(diff -r: 0 differences; versions 0.6.1 / 1.17.1 / 0.7.1 in the installed plugin.json). The CLI plugin
+list still prints 0.6.0 / 1.17.0 / 0.7.0 because the CLI keeps its own record in ~/.copilot/config.json
+(`installedPlugins[].version`, `source_sha`), written only by its own install and update commands. The
+Skill Manager guard refuses those commands from an agent and forbids any other path to that folder.
+action-bridge stays as a direct install (`_direct`, deprecated by the CLI) for the same reason.
+
+Impact: none on behaviour (same files); only the registry number is stale, and the next update of each
+plugin rewrites it.
+
+Options: (a) the owner runs the CLI's update-all once; (b) the owner allows the Copilot CLI plugin
+installer for agents in the Skill Manager; (c) leave it until the next plugin release.
+Recommendation: (a), and in the same run reinstall action-bridge from `action-bridge@copilot-marketplace`
+in place of the direct install. config.json is not edited by hand: the CLI owns it and the guard covers it.
