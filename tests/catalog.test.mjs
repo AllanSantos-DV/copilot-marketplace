@@ -23,8 +23,8 @@ before(() => {
   for (const f of ["build.mjs", "gate.mjs"]) copyFileSync(join(DOCS, f), join(root, "docs", f));
   const entry = { name: "demo", version: "1.2.0", description: "Faz X.", category: "productivity", keywords: ["a", "b"], repository: "https://example.com/demo" };
   put(".github/plugin/marketplace.json", JSON.stringify({ plugins: [entry] }));
-  put("plugins/demo/plugin.json", JSON.stringify({ name: "demo", version: "1.2.0", description: "Faz X.", extensions: ["."] }));
-  put("docs/content/demo.json", "{}");
+  put("plugins/demo/plugin.json", JSON.stringify({ name: "demo", version: "1.2.0", description: "Faz X.", category: "productivity", repository: "https://example.com/demo", extensions: ["."] }));
+  put("docs/content/demo.json", JSON.stringify({ requirements: ["Windows 10/11"] }));
   put("README.md", "<!-- plugins:start -->\n<!-- plugins:end -->\n");
   const r = node("docs/build.mjs");
   assert.equal(r.status, 0, r.stderr);
@@ -43,6 +43,7 @@ test("build grava docs/catalog.json com os dados do manifesto", () => {
     category: "productivity",
     keywords: ["a", "b"],
     canvas: true,
+    requirements: ["Windows 10/11"],
     page: `${c.site}p/demo/`,
     repository: "https://example.com/demo",
     install: "copilot plugin install demo@copilot-marketplace",

@@ -18,6 +18,12 @@
         "processes"
       ],
       "canvas": true,
+      "requirements": [
+        "Windows 10/11 (a varredura usa WMI/CIM)",
+        "App do GitHub Copilot (CLI) com suporte a plugins",
+        "Node 18+ (runtime do daemon, dos hooks e da tool)",
+        "PowerShell disponível (`Get-CimInstance`)"
+      ],
       "page": "https://allansantos-dv.github.io/copilot-marketplace/p/session-unloader/",
       "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
       "install": "copilot plugin install session-unloader@copilot-marketplace",
@@ -40,6 +46,13 @@
         "performance"
       ],
       "canvas": true,
+      "requirements": [
+        "Copilot App (desktop) com o GitHub Copilot SDK",
+        "Java 21 no PATH (o servidor de memória roda sobre a JVM; usado no auto-provisionamento)",
+        "Node 18+ (runtime da extensão)",
+        "Git no PATH — usado pelos gates (diff do push e recibo por commit)",
+        "Rede na primeira vez, para baixar o servidor quando ele ainda não existe"
+      ],
       "page": "https://allansantos-dv.github.io/copilot-marketplace/p/copilot-memory/",
       "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
       "install": "copilot plugin install copilot-memory@copilot-marketplace",
@@ -60,6 +73,11 @@
         "ports-adapters"
       ],
       "canvas": true,
+      "requirements": [
+        "GitHub Copilot CLI/app (carrega o canvas)",
+        "Node 18+ (runtime da extensão)",
+        "copilot-memory — opcional (memória e grafo do projeto)"
+      ],
       "page": "https://allansantos-dv.github.io/copilot-marketplace/p/modo-auto/",
       "repository": "https://github.com/AllanSantos-DV/modo-auto",
       "install": "copilot plugin install modo-auto@copilot-marketplace",
@@ -80,6 +98,12 @@
         "pt-BR"
       ],
       "canvas": false,
+      "requirements": [
+        "GitHub Copilot CLI / app",
+        "Node 18+ (motor e lançador do MCP)",
+        "Motor de voz vox-engine instalado (para a narração assada)",
+        "Um navegador para abrir as páginas geradas"
+      ],
       "page": "https://allansantos-dv.github.io/copilot-marketplace/p/visual-explainer/",
       "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
       "install": "copilot plugin install visual-explainer@copilot-marketplace",
@@ -101,6 +125,13 @@
         "pt-BR"
       ],
       "canvas": true,
+      "requirements": [
+        "GitHub Copilot CLI (app de desktop, com canvas)",
+        "Windows 10/11 — o motor usa named pipe e instalador do Windows",
+        "Node 18+ (runtime da extensão)",
+        "Python 3 — o worker de voz é Python; a extensão o encontra sozinha e instala as dependências no 1º uso",
+        "Microfone e saída de áudio"
+      ],
       "page": "https://allansantos-dv.github.io/copilot-marketplace/p/voice-chat/",
       "repository": "https://github.com/AllanSantos-DV/copilot-voice",
       "install": "copilot plugin install voice-chat@copilot-marketplace",
@@ -121,6 +152,14 @@
         "windows"
       ],
       "canvas": true,
+      "requirements": [
+        "Windows 10/11 para o app Action",
+        "Action 1.6.1+ recomendado para estes fluxos",
+        "Copilot com suporte a extensões e Node 18+",
+        "Vox Engine daemon local para a transcrição padrão",
+        "Servidor de memória compartilhado para correlações",
+        "Espaço em disco para gravações opcionais"
+      ],
       "page": "https://allansantos-dv.github.io/copilot-marketplace/p/action-bridge/",
       "repository": "https://github.com/AllanSantos-DV/action-releases",
       "install": "copilot plugin install action-bridge@copilot-marketplace",
@@ -142,6 +181,11 @@
         "pt-BR"
       ],
       "canvas": true,
+      "requirements": [
+        "App copilot-mobile (Android) via GitHub Releases",
+        "Daemon apartado (baixado na 1ª execução)",
+        "Node 18+ (runtime da extensão)"
+      ],
       "page": "https://allansantos-dv.github.io/copilot-marketplace/p/copilot-mobile/",
       "repository": "https://github.com/AllanSantos-DV/copilot-mobile",
       "install": "copilot plugin install copilot-mobile@copilot-marketplace",
@@ -162,6 +206,11 @@
         "pt-BR"
       ],
       "canvas": true,
+      "requirements": [
+        "copilot-mobile instalado na máquina remota, com o daemon armado",
+        "Rede entre as máquinas (LAN, Tailscale ou URL pública)",
+        "Node 18+ (runtime da extensão)"
+      ],
       "page": "https://allansantos-dv.github.io/copilot-marketplace/p/copilot-remote/",
       "repository": "https://github.com/AllanSantos-DV/copilot-remote",
       "install": "copilot plugin install copilot-remote@copilot-marketplace",
@@ -182,6 +231,12 @@
         "pt-BR"
       ],
       "canvas": true,
+      "requirements": [
+        "App do GitHub Copilot com suporte a plugins (o painel exige o app GUI)",
+        "Node 18+ (runtime da extensão)",
+        "Servidores MCP para conectar — `stdio`, `http` ou `sse`",
+        "Para o campo `engine`: o motor já instalado e rodando (ex.: `mcp-gateway`)"
+      ],
       "page": "https://allansantos-dv.github.io/copilot-marketplace/p/mcp-bridge/",
       "repository": "https://github.com/AllanSantos-DV/mcp-bridge-copilot-extension",
       "install": "copilot plugin install mcp-bridge@copilot-marketplace",
@@ -200,6 +255,10 @@
         "hooks"
       ],
       "canvas": false,
+      "requirements": [
+        "Node 18+",
+        "GitHub Copilot CLI + app GUI"
+      ],
       "page": "https://allansantos-dv.github.io/copilot-marketplace/p/canvas-sync/",
       "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
       "install": "copilot plugin install canvas-sync@copilot-marketplace",

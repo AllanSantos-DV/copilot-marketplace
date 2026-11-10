@@ -103,7 +103,7 @@ const KNOWN_DANGLING_HOOKS = {
   "visual-explainer": "repo de origem: visual-explainer",
 };
 
-const CONTRACT_FIELDS = ["name", "version", "description"];
+const CONTRACT_FIELDS = ["name", "version", "description", "homepage", "repository", "license", "category"];
 
 /**
  * Confere o contrato do plugin vendado: manifesto e `plugin.json` dizem o mesmo nome, versão e
@@ -112,9 +112,10 @@ const CONTRACT_FIELDS = ["name", "version", "description"];
  * @param {object|undefined} entry entrada do manifesto.
  * @param {string|null} pluginJsonText conteúdo de `plugins/<name>/plugin.json`.
  * @param {(rel: string) => boolean} exists diz se um caminho relativo à raiz existe.
+ * @param {(rel: string) => string|null} read lê um arquivo relativo à raiz.
  * @returns {string[]} falhas encontradas.
  */
-function contractFails(name, entry, pluginJsonText, exists) {
+function contractFails(name, entry, pluginJsonText, exists, read) {
   let plugin;
   try {
     plugin = JSON.parse(pluginJsonText ?? "");
@@ -131,6 +132,12 @@ function contractFails(name, entry, pluginJsonText, exists) {
   const dangling = typeof plugin.hooks === "string" && !exists(`plugins/${name}/${plugin.hooks}`);
   if (dangling && !KNOWN_DANGLING_HOOKS[name]) fails.push(`${name}: plugin.json aponta hooks para ${plugin.hooks}, que não existe — remova o campo ou vende o arquivo`);
   if (!dangling && KNOWN_DANGLING_HOOKS[name]) fails.push(`${name}: hooks não está mais quebrado — tire a exceção de KNOWN_DANGLING_HOOKS (docs/gate.mjs)`);
+  if (typeof plugin.hooks === "string" && !dangling) {
+    const hooksText = read(`plugins/${name}/${plugin.hooks}`) ?? "";
+    for (const script of new Set(hooksText.match(/[\w./-]+\.(?:mjs|cjs|js|py|ps1)\b/g) ?? [])) {
+      if (!exists(`plugins/${name}/${script}`)) fails.push(`${name}: ${plugin.hooks} chama ${script}, que não está vendado`);
+    }
+  }
   return fails;
 }
 
@@ -375,7 +382,7 @@ function cmdCheck() {
       fails.push(`${name}: docs/content/${name}.json não é JSON válido`);
       continue;
     }
-    for (const f of contractFails(name, manifestPlugin(name), pj, (rel) => existsSync(join(ROOT, rel)))) fails.push(f);
+    for (const f of contractFails(name, manifestPlugin(name), pj, (rel) => existsSync(join(ROOT, rel)), (rel) => readText(join(ROOT, rel)))) fails.push(f);
     const version = versionOf(pj);
     const m = marker[name];
     if (!m) fails.push(`${name}: sem marcador de revisado (rode: node docs/gate.mjs mark ${name})`);
@@ -445,7 +452,7 @@ function verifyAtRev(name, tip) {
   try {
     entry = JSON.parse(gitShow(tip, ".github/plugin/marketplace.json") ?? "").plugins.find((p) => p.name === name);
   } catch {}
-  const contract = contractFails(name, entry, pj, (rel) => gitHas(tip, rel));
+  const contract = contractFails(name, entry, pj, (rel) => gitHas(tip, rel), (rel) => gitShow(tip, rel));
   if (contract.length) return contract.join("; ");
   const stale = staleShowcase(name, versionOf(pj), (rel) => gitShow(tip, rel));
   if (stale.length) return stale.join("; ");

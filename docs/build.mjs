@@ -612,6 +612,7 @@ function catalog({ plugins }) {
       category: p.category ?? null,
       keywords: p.keywords ?? [],
       canvas: p.markers.extensions,
+      requirements: p.content.requirements ?? [],
       page: `${SITE}/p/${p.name}/`,
       repository: p.repository ?? null,
       install: isDaemon(p) ? null : installCmd(p.name),

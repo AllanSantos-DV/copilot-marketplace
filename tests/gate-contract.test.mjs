@@ -142,3 +142,22 @@ test("check passa com aviso quando a description passa de 600 chars", () => {
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /aviso — demo: description com 700 chars/);
 });
+
+test("check recusa repository diferente entre manifesto e plugin.json", () => {
+  plugin("demo");
+  put("plugins/demo/plugin.json", JSON.stringify({ name: "demo", version: "1.0.0", description: "Faz X.", repository: "https://example.com/outro" }));
+  assert.equal(gate(["mark", "demo"]).status, 0);
+  const r = gate(["check"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /demo: repository do manifesto ≠/);
+});
+
+test("check recusa hooks.json que chama script não vendado", () => {
+  plugin("demo", { hooks: "hooks.json" });
+  put("plugins/demo/hooks.json", JSON.stringify({ version: 1, hooks: { agentStop: [{ type: "command", command: "node stop.cjs" }] } }));
+  const r = gate(["check"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /demo: hooks\.json chama stop\.cjs, que não está vendado/);
+  put("plugins/demo/stop.cjs", "// ok\n");
+  assert.equal(gate(["check"]).status, 0);
+});
