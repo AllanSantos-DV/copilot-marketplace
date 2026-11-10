@@ -127,3 +127,18 @@ test("prepush recusa manifesto divergente do plugin.json no commit enviado", () 
   assert.equal(r.status, 1);
   assert.match(r.stderr, /description do manifesto ≠/);
 });
+
+test("check falha quando o sync-boot quebra sem apontar divergência", () => {
+  plugin("demo");
+  put("tools/sync-boot.mjs", 'console.log("FALHA: fonte canônica ausente"); process.exit(1);\n');
+  const r = gate(["check"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /tools\/sync-boot\.mjs falhou sem apontar divergência — FALHA: fonte canônica ausente/);
+});
+
+test("check passa com aviso quando a description passa de 600 chars", () => {
+  plugin("demo", { description: "x".repeat(700) });
+  const r = gate(["check"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /aviso — demo: description com 700 chars/);
+});

@@ -149,7 +149,8 @@ Um plugin que registra um **canvas** (painel de UI no app GUI) precisa do marcad
       "repository": "https://github.com/AllanSantos-DV/origem",
       "license": "MIT",
       "keywords": ["..."],
-      "category": "productivity"
+      "category": "productivity",
+      "kind": "plugin"                              // OPCIONAL: "plugin" (padrão) | "daemon" (infra provisionada, sem install pela CLI)
     }
   ]
 }
@@ -205,7 +206,8 @@ Você cuida do resto. Esquema:
   ],
   "requirements": ["Windows 10/11", "Node 18+"],          // opcional -> aside
   "faq": [ { "q": "...", "a": "..." } ],                   // opcional
-  "files": { "extension.mjs": "papel custom na Estrutura" } // opcional
+  "files": { "extension.mjs": "papel custom na Estrutura" }, // opcional
+  "install_note": "..."                                   // opcional: nota de provisionamento de item kind=daemon
 }
 ```
 

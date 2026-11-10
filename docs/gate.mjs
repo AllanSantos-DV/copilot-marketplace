@@ -184,6 +184,25 @@ function gitHas(rev, path) {
   }
 }
 
+// Acima disto a description já foge da faixa que cabe num card (AGENTS.md §4.1) e chega perto do
+// limite duro; o aviso dá margem antes de o gate recusar.
+const DESC_WARN = 600;
+
+function descriptionWarnings(manifestText) {
+  let plugins;
+  try {
+    plugins = JSON.parse(manifestText ?? "").plugins;
+  } catch {
+    return [];
+  }
+  return (Array.isArray(plugins) ? plugins : [])
+    .filter((p) => {
+      const len = String(p?.description ?? "").length;
+      return len > DESC_WARN && len <= DESC_MAX;
+    })
+    .map((p) => `${p.name}: description com ${String(p.description).length} chars (> ${DESC_WARN}; o limite é ${DESC_MAX}) — encurte enquanto há margem`);
+}
+
 function versionOf(pluginJsonText) {
   try {
     return JSON.parse(pluginJsonText).version ?? null;
@@ -266,41 +285,53 @@ function cmdMark(arg) {
  * alguém. Fonte canônica e regras de exceção vivem em `tools/sync-boot.mjs`.
  */
 function bootstrapFails() {
+  const tool = join(ROOT, "tools", "sync-boot.mjs");
+  if (!existsSync(tool)) return [];
   try {
-    execFileSync(process.execPath, [join(ROOT, "tools", "sync-boot.mjs")], { encoding: "utf8", stdio: "pipe" });
+    execFileSync(process.execPath, [tool], { encoding: "utf8", stdio: "pipe" });
     return [];
   } catch (err) {
-    // exit != 0 → há divergência; a saída lista quais.
-    const out = `${err?.stdout ?? ""}`;
+    const out = `${err?.stdout ?? ""}${err?.stderr ?? ""}`;
     const linhas = out.split("\n").filter((l) => l.includes("DIVERGE"));
-    return linhas.length
-      ? linhas.map((l) => `bootstrap: ${l.trim()} — rode: node tools/sync-boot.mjs --fix`)
-      : []; // ferramenta ausente/erro de infra não trava a vitrine
+    if (linhas.length) return linhas.map((l) => `bootstrap: ${l.trim()} — rode: node tools/sync-boot.mjs --fix`);
+    const motivo = out.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 3).join(" | ") || (err?.message ?? "sem saída");
+    return [`bootstrap: tools/sync-boot.mjs falhou sem apontar divergência — ${motivo}`];
   }
 }
 
 /**
- * A vitrine gerada (card do `index.html` e linha da tabela do README) mostra a versão e a descrição
- * do manifesto? Só versão/description são comparadas: o HTML inteiro varia por fim de linha no Windows.
- * Um sync que pulou `node docs/build.mjs` deixa essas duas saídas velhas.
+ * A vitrine gerada (página dedicada, card do `index.html`, linha da tabela do README e
+ * `catalog.json`) mostra a versão e a descrição do manifesto? Só versão/description são comparadas:
+ * o HTML inteiro varia por fim de linha no Windows. Um sync que pulou `node docs/build.mjs` deixa
+ * essas saídas velhas.
+ * @param {string} name nome do plugin.
+ * @param {string} version versão do `plugin.json`.
+ * @param {(rel: string) => string|null} read lê um arquivo relativo à raiz (disco ou commit).
+ * @returns {string[]} falhas encontradas.
  */
-function staleShowcase(name, version) {
+function staleShowcase(name, version, read) {
   const fails = [];
   const rebuild = `rode node docs/build.mjs`;
-  const index = readText(join(HERE, "index.html"));
+  const page = read(`docs/p/${name}/index.html`);
+  if (page != null && version && !page.includes(`>v${version}<`)) fails.push(`${name}: docs/p/${name}/ desatualizada — ${rebuild}`);
+  const index = read("docs/index.html");
   if (index != null) {
     const start = index.indexOf(`id="p-${name}"`);
     const card = start === -1 ? "" : index.slice(start, index.indexOf("</article>", start));
     if (!card.includes(`>v${version}<`)) fails.push(`${name}: docs/index.html não mostra v${version} — ${rebuild}`);
   }
-  const readme = readText(join(ROOT, "README.md"));
+  const readme = read("README.md");
   if (readme != null && readme.includes("<!-- plugins:start -->")) {
     const row = readme.split(/\r?\n/).find((l) => l.includes(`](./plugins/${name})`)) ?? "";
-    const desc = String(manifestPlugin(name)?.description ?? "").replaceAll("|", "\\|");
+    let entry;
+    try {
+      entry = JSON.parse(read(".github/plugin/marketplace.json") ?? "").plugins.find((p) => p.name === name);
+    } catch {}
+    const desc = String(entry?.description ?? "").replaceAll("|", "\\|");
     if (!row.endsWith(` | ${version} |`)) fails.push(`${name}: README sem v${version} na tabela — ${rebuild}`);
     else if (!row.includes(` | ${desc} | `)) fails.push(`${name}: README com description velha — ${rebuild}`);
   }
-  const catalog = readText(join(HERE, "catalog.json"));
+  const catalog = read("docs/catalog.json");
   if (catalog != null) {
     let entry;
     try {
@@ -350,15 +381,13 @@ function cmdCheck() {
     if (!m) fails.push(`${name}: sem marcador de revisado (rode: node docs/gate.mjs mark ${name})`);
     else if (m.version !== version) fails.push(`${name}: marcador v${m.version} ≠ plugin.json v${version} — re-revise`);
     else if (m.hash !== reviewHash(pj, cj)) fails.push(`${name}: página mudou desde a última revisão — re-revise`);
-    // página gerada em sincronia com a versão?
-    const page = readText(join(HERE, "p", name, "index.html"));
-    if (page && version && !page.includes(`v${version}`)) fails.push(`${name}: docs/p/${name}/ desatualizada — rode node docs/build.mjs`);
-    for (const f of staleShowcase(name, version)) fails.push(f);
+    for (const f of staleShowcase(name, version, (rel) => readText(join(ROOT, rel)))) fails.push(f);
   }
   if (fails.length) {
     console.error("gate: NÃO revisado:\n  - " + fails.join("\n  - "));
     process.exit(1);
   }
+  for (const w of descriptionWarnings(readText(MANIFEST))) console.log(`gate: aviso — ${w}`);
   console.log(`gate: ok — ${names.length} plugin(s) revisado(s) e em sincronia`);
   process.exit(0);
 }
@@ -418,6 +447,8 @@ function verifyAtRev(name, tip) {
   } catch {}
   const contract = contractFails(name, entry, pj, (rel) => gitHas(tip, rel));
   if (contract.length) return contract.join("; ");
+  const stale = staleShowcase(name, versionOf(pj), (rel) => gitShow(tip, rel));
+  if (stale.length) return stale.join("; ");
   const version = versionOf(pj);
   const m = marker[name];
   if (!m) return `${name}: sem marcador de revisado`;

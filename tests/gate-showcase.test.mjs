@@ -66,3 +66,31 @@ test("check recusa o plugin que não tem card no index.html", () => {
   assert.equal(r.status, 1);
   assert.match(r.stderr, /docs\/index\.html não mostra v1\.0\.0/);
 });
+
+test("check recusa página que só mostra outra versão com o mesmo prefixo", () => {
+  put("docs/p/demo/index.html", "<span>v1.0.05</span>");
+  const r = gate("check");
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /docs\/p\/demo\/ desatualizada/);
+});
+
+test("prepush recusa vitrine velha no commit enviado", () => {
+  const git = (...args) => spawnSync("git", ["-c", "user.name=T", "-c", "user.email=t@example.com", ...args], { cwd: root, encoding: "utf8", windowsHide: true });
+  git("init", "-q");
+  git("add", "-A");
+  git("commit", "-q", "-m", "chore: demo 1.0.0");
+  const base = git("rev-parse", "HEAD").stdout.trim();
+  put("plugins/demo/plugin.json", JSON.stringify({ name: "demo", version: "1.0.1", description: DESC }));
+  put(".github/plugin/marketplace.json", JSON.stringify({ plugins: [{ name: "demo", version: "1.0.1", description: DESC }] }));
+  assert.equal(gate("mark", "demo").status, 0);
+  git("add", "-A");
+  git("commit", "-q", "-m", "chore: demo 1.0.1 sem build");
+  const tip = git("rev-parse", "HEAD").stdout.trim();
+  const r = spawnSync(process.execPath, [join(root, "docs", "gate.mjs"), "prepush", "https://github.com/AllanSantos-DV/copilot-marketplace.git"], {
+    input: `refs/heads/main ${tip} refs/heads/main ${base}\n`,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /demo: docs\/p\/demo\/ desatualizada/);
+});
