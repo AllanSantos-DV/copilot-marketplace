@@ -70,3 +70,22 @@ export function checkTrust(engineName, publicKey, { trustedKeys } = {}) {
 }
 
 export const trustPath = () => trustFile();
+
+/** Compara versões `x.y.z` numericamente: negativo, zero ou positivo. */
+export const cmpVer = (a, b) => String(a).localeCompare(String(b), "en", { numeric: true });
+
+/** Motivo do ABORT se `version` é menor que a maior já instalada do motor (anti-rollback); falsy se pode seguir. */
+export function rollbackReason(name, version) {
+  const max = readTrust()[name]?.maxVersion;
+  return max && cmpVer(version, max) < 0 && `${name}: v${version} < v${max} já instalada → ABORT (rollback; downgrade só com --version)`;
+}
+
+/** Grava `version` como a maior vista do motor, se superar a registrada. */
+export function noteVersion(name, version) {
+  const store = readTrust(), max = store[name]?.maxVersion;
+  if (max && cmpVer(version, max) <= 0) return;
+  try {
+    mkdirSync(trustDir(), { recursive: true });
+    writeFileSync(trustFile(), JSON.stringify({ ...store, [name]: { ...store[name], maxVersion: version } }, null, 2));
+  } catch { /* sem gravar, a proteção vale a partir da próxima instalação */ }
+}

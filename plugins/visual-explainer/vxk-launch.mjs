@@ -1,7 +1,8 @@
 // visual-explainer/vxk-launch.mjs — lançador do servidor MCP vxk (declarado no .mcp.json do plugin).
-// Não carrega o motor: lê o PONTEIRO que o motor publica (~/.vxk/cli.json, contrato do engine-registry)
-// e repassa o stdio para `node <mcp>`. Sem ponteiro (1º uso, antes do boot), instala pelo engine-kit
-// vendorizado e usa o binário que ele devolve. Falha alto (stderr + exit 1) — nunca um MCP mudo.
+// Não carrega o motor: lê o PONTEIRO que o motor publica (~/.vxk/cli.json, contrato do engine-registry). Motor com daemon
+// (vxk-daemon.mjs ao lado do vxk-mcp.mjs): o shim roda NESTE processo (um processo por agente) e fala com o daemon único da
+// máquina. Motor antigo (sem daemon): repassa o stdio para `node <mcp>`. Sem ponteiro (1º uso, antes do boot), instala pelo
+// engine-kit vendorizado e usa o binário que ele devolve. Falha alto (stderr + exit 1) — nunca um MCP mudo.
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
@@ -21,6 +22,11 @@ async function mcpPath() {
 }
 
 const mcp = await mcpPath();
+if (existsSync(join(dirname(mcp), "vxk-daemon.mjs"))) {
+  const shim = await import(pathToFileURL(mcp).href);
+  try { await shim.main(); } catch (e) { die("shim do VXK: " + (e && e.message || e)); }
+  process.exit(0);
+}
 const child = spawn(process.execPath, [mcp], { stdio: "inherit", windowsHide: true });
 child.on("error", (e) => die("não consegui iniciar o servidor: " + e.message));
 child.on("exit", (code, signal) => process.exit(code ?? (signal ? 1 : 0)));

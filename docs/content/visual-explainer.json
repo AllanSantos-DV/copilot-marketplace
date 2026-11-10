@@ -246,7 +246,7 @@
     },
     {
       "q": "Dá para usar fora do Copilot?",
-      "a": "Sim. O motor vxk é um servidor MCP comum: registre `node ~/.vxk/bin/vxk-mcp.mjs` no Claude Code, no Codex ou em qualquer cliente MCP e use as mesmas tools `vxk_*`."
+      "a": "Sim. O motor vxk é um servidor MCP comum. Sem o Copilot, rode `node instalar-motor.mjs` (na pasta do plugin) para instalar ou atualizar o motor em `~/.vxk` pelo mesmo caminho verificado do boot; ele mostra como declarar o MCP. Depois registre `node ~/.vxk/bin/vxk-mcp.mjs` no Claude Code, no Codex ou em qualquer cliente MCP e use as mesmas tools `vxk_*`."
     },
     {
       "q": "Como o motor se atualiza?",
@@ -259,6 +259,7 @@
     "boot.mjs": "Garante o motor vxk em ~/.vxk (engine-kit: SHA-256 + assinatura Ed25519) e instala o agente desenhista em ~/.copilot/agents.",
     ".mcp.json": "Declara o servidor MCP `vxk` do plugin.",
     "vxk-launch.mjs": "Lançador do MCP: lê o ponteiro ~/.vxk/cli.json publicado pelo motor e repassa o stdio.",
+    "instalar-motor.mjs": "Instala ou atualiza o motor em ~/.vxk sem o Copilot (Claude Code, Codex, outro cliente MCP), pelo mesmo caminho verificado do boot.",
     "visual-explainer.agent.md": "O agente desenhista: compõe a biblioteca pelas tools vxk_*.",
     "engine-kit/": "Cópia verificada do cliente do engine-registry (só módulos nativos do Node).",
     "README.md": "Resumo do cliente fino."
