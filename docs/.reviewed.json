@@ -5,14 +5,14 @@
     "at": "2026-11-10T20:03:53.756Z"
   },
   "canvas-sync": {
-    "version": "0.6.0",
-    "hash": "1f9112498c3e4409",
-    "at": "2026-07-30T16:02:42.925Z"
+    "version": "0.6.1",
+    "hash": "caa2cfd5d5af1f6e",
+    "at": "2026-11-10T20:55:34.288Z"
   },
   "copilot-memory": {
-    "version": "1.17.0",
-    "hash": "d7851d19d77ef1da",
-    "at": "2026-08-04T17:02:14.316Z"
+    "version": "1.17.1",
+    "hash": "43cb46852118e04c",
+    "at": "2026-11-10T20:55:34.428Z"
   },
   "copilot-mobile": {
     "version": "0.3.37",
@@ -35,9 +35,9 @@
     "at": "2026-07-31T20:44:25.194Z"
   },
   "session-unloader": {
-    "version": "0.7.0",
-    "hash": "17554ac2a0d4fa07",
-    "at": "2026-07-31T15:05:09.651Z"
+    "version": "0.7.1",
+    "hash": "39b48ceb1473085f",
+    "at": "2026-11-10T20:55:34.571Z"
   },
   "visual-explainer": {
     "version": "0.10.0",

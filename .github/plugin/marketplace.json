@@ -1,20 +1,20 @@
 {
   "name": "copilot-marketplace",
   "owner": {
-    "name": "Allan Santos"
+    "name": "o mantenedor"
   },
   "metadata": {
-    "description": "Plugins do Allan para o GitHub Copilot CLI",
+    "description": "Plugins para o GitHub Copilot CLI",
     "version": "1.0.0"
   },
   "plugins": [
     {
       "name": "session-unloader",
       "description": "Libera a RAM de sessões realmente ociosas do Copilot medindo inatividade contínua da árvore inteira de processos. Um daemon único é o dono do scan, da telemetria e do painel (dashboard) — cada sessão é só um cliente fino que aponta pra ele; nunca cria um servidor local próprio. Preserva voz, workers, mesas e recursos allowlisted; tempo e allowlist são configuráveis no canvas. Automático fail-closed e desligado por padrão, com dry-run e descarga manual pela tool unload_idle.",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "source": "./plugins/session-unloader",
       "author": {
-        "name": "Allan Santos"
+        "name": "o mantenedor"
       },
       "homepage": "https://github.com/AllanSantos-DV/copilot-marketplace",
       "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
@@ -33,10 +33,10 @@
     {
       "name": "copilot-memory",
       "description": "Memória persistente por projeto para o Copilot (pt-BR): guarda decisões, conhecimento e lições e as recupera por busca semântica, isoladas no projeto certo, com recall automático. Um curador destila os aprendizados da sessão em skills, e um grafo semântico do código (símbolos, chamadas, imports) ajuda a navegar repositórios grandes sem garimpar. Traz um painel de saúde, escopo e skills.",
-      "version": "1.17.0",
+      "version": "1.17.1",
       "source": "./plugins/copilot-memory",
       "author": {
-        "name": "Allan Santos"
+        "name": "o mantenedor"
       },
       "homepage": "https://github.com/AllanSantos-DV/copilot-marketplace",
       "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
@@ -59,7 +59,7 @@
       "version": "0.6.5",
       "source": "./plugins/modo-auto",
       "author": {
-        "name": "Allan Santos"
+        "name": "o mantenedor"
       },
       "homepage": "https://github.com/AllanSantos-DV/modo-auto",
       "repository": "https://github.com/AllanSantos-DV/modo-auto",
@@ -98,10 +98,10 @@
     {
       "name": "canvas-sync",
       "description": "Infra da vitrine: espelha as canvas extensions instaladas (installed-plugins, incluindo installs diretos) para ~/.copilot/extensions no SessionStart. Nunca rebaixa: compara a versao que entra com a do carimbo e recusa a mais velha, de forma visivel. Quando duas origens miram o mesmo canvas, vence a maior versao e a perdedora e reportada. Carimbo e log registram qual motor escreveu.",
-      "version": "0.6.0",
+      "version": "0.6.1",
       "source": "./plugins/canvas-sync",
       "author": {
-        "name": "Allan Santos"
+        "name": "o mantenedor"
       },
       "homepage": "https://github.com/AllanSantos-DV/copilot-marketplace",
       "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
@@ -120,7 +120,7 @@
       "version": "0.2.0",
       "source": "./plugins/copilot-remote",
       "author": {
-        "name": "Allan Santos"
+        "name": "o mantenedor"
       },
       "homepage": "https://github.com/AllanSantos-DV/copilot-remote",
       "repository": "https://github.com/AllanSantos-DV/copilot-remote",
@@ -141,7 +141,7 @@
       "version": "0.3.37",
       "source": "./plugins/copilot-mobile",
       "author": {
-        "name": "Allan Santos"
+        "name": "o mantenedor"
       },
       "homepage": "https://github.com/AllanSantos-DV/copilot-mobile",
       "repository": "https://github.com/AllanSantos-DV/copilot-mobile",
@@ -163,7 +163,7 @@
       "version": "2.3.20",
       "source": "./plugins/voice-chat",
       "author": {
-        "name": "Allan Santos"
+        "name": "o mantenedor"
       },
       "homepage": "https://github.com/AllanSantos-DV/copilot-voice",
       "repository": "https://github.com/AllanSantos-DV/copilot-voice",
@@ -206,7 +206,7 @@
       "version": "0.2.8",
       "source": "./plugins/mcp-bridge",
       "author": {
-        "name": "Allan Santos"
+        "name": "o mantenedor"
       },
       "homepage": "https://github.com/AllanSantos-DV/copilot-marketplace",
       "repository": "https://github.com/AllanSantos-DV/mcp-bridge-copilot-extension",

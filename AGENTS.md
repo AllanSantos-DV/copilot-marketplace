@@ -7,7 +7,7 @@ Guia para um agente (ou humano) **publicar, migrar ou criar** um plugin/extensã
 
 ## 1. O que é este repositório
 
-Vitrine (marketplace) de plugins do Copilot CLI do Allan. Usuários registram uma vez:
+Vitrine (marketplace) de plugins do Copilot CLI do mantenedor. Usuários registram uma vez:
 
 ```sh
 copilot plugin marketplace add AllanSantos-DV/copilot-marketplace
@@ -64,7 +64,7 @@ copilot plugin update --all
   "name": "meu-plugin",
   "version": "0.1.0",
   "description": "Uma frase clara do que faz, na voz do usuário.",
-  "author": { "name": "Allan Santos", "url": "https://github.com/AllanSantos-DV" },
+  "author": { "name": "o mantenedor" },
   "homepage": "https://github.com/AllanSantos-DV/<origem>",
   "repository": "https://github.com/AllanSantos-DV/<origem>",
   "license": "MIT",
@@ -76,7 +76,8 @@ copilot plugin update --all
 ```
 
 Campos usados pela vitrine: `name, version, description, category, keywords, repository,
-homepage`. Mantenha a `description` curta (cabe num card) e em pt-BR.
+homepage`. Mantenha a `description` curta (cabe num card) e em pt-BR. O `author.name` é neutro
+(`o mantenedor`, ou o nome do produto): nome pessoal, e-mail e caminho local não vão em nada publicado.
 
 > **A `description` é SEMÂNTICA, não um changelog.** Ela descreve **o que aquela versão
 > entrega** — o uso do plugin, na voz do usuário — e nada mais. Regras:
@@ -132,7 +133,7 @@ Um plugin que registra um **canvas** (painel de UI no app GUI) precisa do marcad
 ```jsonc
 {
   "name": "copilot-marketplace",
-  "owner": { "name": "Allan Santos" },
+  "owner": { "name": "o mantenedor" },
   "metadata": { "description": "...", "version": "1.0.0" },
   "plugins": [
     {
@@ -142,7 +143,7 @@ Um plugin que registra um **canvas** (painel de UI no app GUI) precisa do marcad
       "source": "./plugins/meu-plugin",            // vendado neste repo
       // OU, para referenciar outro repo:
       // "source": { "source": "github", "repo": "AllanSantos-DV/origem", "path": "plugin" },
-      "author": { "name": "Allan Santos" },
+      "author": { "name": "o mantenedor" },
       "homepage": "https://github.com/AllanSantos-DV/origem",
       "repository": "https://github.com/AllanSantos-DV/origem",
       "license": "MIT",

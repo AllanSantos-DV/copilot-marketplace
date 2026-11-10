@@ -426,7 +426,7 @@ ${metaAside(p)}
   </main>
 
   <footer class="foot">
-    <p class="foot__made">Feito por <a href="https://github.com/AllanSantos-DV" rel="noopener">Allan Santos</a> · MIT · página gerada de <code>marketplace.json</code> + <code>docs/content/${esc(p.name)}.json</code></p>
+    <p class="foot__made">Feito pelo mantenedor · MIT · página gerada de <code>marketplace.json</code> + <code>docs/content/${esc(p.name)}.json</code></p>
     <p class="foot__cmd"><span aria-hidden="true">⌁</span> ${isDaemon(p) ? `<a href="${RELEASE_URL}" rel="noopener"><code>releases ↗</code></a>` : `<code>${esc(installCmd(p.name))}</code>`}</p>
   </footer>
 
@@ -487,13 +487,13 @@ function pipeline() {
 function renderIndex({ plugins }) {
   const count = plugins.filter((p) => !isDaemon(p)).length; // conta só plugins instaláveis (daemon não infla o número)
   const cards = plugins.map(card).join("\n");
-  const desc = `Vitrine dos ${count} plugins do Allan para o GitHub Copilot CLI: voz, controle remoto, memória de reuniões, ponte mobile e infra de canvas. 100% local, pt-BR. Cada plugin tem sua página dedicada.`;
+  const desc = `Vitrine dos ${count} plugins para o GitHub Copilot CLI: voz, controle remoto, memória de reuniões, ponte mobile e infra de canvas. 100% local, pt-BR. Cada plugin tem sua página dedicada.`;
   return `<!doctype html>
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>copilot-marketplace — plugins do Copilot CLI, do jeito Allan</title>
+  <title>copilot-marketplace — plugins para o Copilot CLI</title>
   <meta name="description" content="${esc(desc)}" />
   <meta name="color-scheme" content="dark" />
   <meta name="theme-color" content="#14121C" />
@@ -520,7 +520,7 @@ function renderIndex({ plugins }) {
   <main id="top">
     <section class="hero">
       <p class="eyebrow">marketplace · github copilot cli</p>
-      <h1 class="hero__title">Plugins de terminal,<br /><em>do jeito Allan.</em></h1>
+      <h1 class="hero__title">Plugins de terminal,<br /><em>locais, em pt-BR.</em></h1>
       <p class="hero__lede">${count} extensões que vivem onde você já trabalha: no prompt. Voz, controle remoto, memória de reuniões e mais — <strong>100% local</strong>, pt-BR, MIT. Registre a vitrine uma vez e abra a <strong>página dedicada</strong> de cada plugin.</p>
       <div class="prompt prompt--hero" data-cmd="${esc(REGISTER_CMD)}">
         <span class="prompt__glyph" aria-hidden="true">⌁</span>
@@ -557,7 +557,7 @@ ${pipeline()}
   </main>
 
   <footer class="foot">
-    <p class="foot__made">Feito por <a href="https://github.com/AllanSantos-DV" rel="noopener">Allan Santos</a> · MIT · vitrine gerada de <code>marketplace.json</code></p>
+    <p class="foot__made">Feito pelo mantenedor · MIT · vitrine gerada de <code>marketplace.json</code></p>
     <p class="foot__cmd"><span aria-hidden="true">⌁</span> <code>copilot plugin update --all</code></p>
   </footer>
 

@@ -1,10 +1,9 @@
 {
   "name": "session-unloader",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Libera a RAM de sessões realmente ociosas do Copilot medindo inatividade contínua da árvore inteira de processos. Um daemon único é o dono do scan, da telemetria e do painel (dashboard) — cada sessão é só um cliente fino que aponta pra ele; nunca cria um servidor local próprio. Preserva voz, workers, mesas e recursos allowlisted; tempo e allowlist são configuráveis no canvas. Automático fail-closed e desligado por padrão, com dry-run e descarga manual pela tool unload_idle.",
   "author": {
-    "name": "Allan Santos",
-    "url": "https://github.com/AllanSantos-DV"
+    "name": "o mantenedor"
   },
   "homepage": "https://github.com/AllanSantos-DV/copilot-marketplace",
   "repository": "https://github.com/AllanSantos-DV/copilot-marketplace",
