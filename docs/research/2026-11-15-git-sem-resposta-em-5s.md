@@ -20,6 +20,7 @@ Os comandos que o `runGit` do orchestrador (`src/project-state.mjs:41`, timeout 
 - Com o daemon do fsmonitor parado, o `git status` frio levou 148 ms. Sem fsmonitor, 88 ms. O daemon não é a causa.
 - Não havia `*.lock` em `.git/`. A working tree estava limpa, e `main`, `develop` e os remotos estavam no mesmo commit, com tag.
 - O repositório é pequeno: 354 arquivos rastreados e `.git` com 26 MB.
+- Em 17/11/2026 o sinal voltou. Uma nova medição deu de 85 a 153 ms (`for-each-ref` heads, `status --porcelain`, `tag --list`, `tag --merged`, `log --all`, todos com rc 0). Continuava sem `*.lock`, com a working tree limpa e `main`, `develop` e os remotos em 870b14c.
 
 ## Conclusão
 
